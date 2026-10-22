@@ -1,9 +1,10 @@
 ---
 name: codebase-guide
-description: "Use when adding features, fixing bugs, refactoring, or navigating maindulu's ROM catalogs, browser storage, or EmulatorJS player. Load before non-trivial changes to its React frontend or static emulator runtime."
+description: "Use when adding features, fixing bugs, refactoring, or navigating maindulu's ROM catalogs, browser storage, EmulatorJS player, or Docker deployment. Load before non-trivial changes to its React frontend or static emulator runtime."
 ---
 
 # Codebase Guide
+> Last verified against commit `5641681` on 2026-10-23 (plus uncommitted changes).
 
 Resolve all repository evidence paths below from the repository root, not this skill's directory. Runtime URL paths are identified explicitly.
 
@@ -37,7 +38,7 @@ Use ESM as declared by `package.json`. Follow the Node.js 24+ recommendation in 
 - Keep the independent iframe document/bridge in `public/player/index.html` and `public/player/player.js`. Engine output belongs under `public/vendor/emulatorjs/4.2.3/`, as defined by `scripts/vendor-engine.mjs`.
 - Keep distributed content in `public/games/`, `public/bios/`, and `public/covers/`; examples are `public/games/jalan-pulang.nes`, `public/bios/README.md`, and `public/covers/jalan-pulang.svg`. Branding/fonts live in `public/assets/` (`src/styles.css`, `src/App.tsx`).
 - Keep content/engine generators in `scripts/` (`scripts/build-demo.mjs`, `scripts/vendor-engine.mjs`) and engine provenance/source notices in `third_party/emulatorjs/README.md`.
-- Separate Node unit tests in `tests/` from browser tests in `tests/browser/`; inspect `tests/domain.test.mjs` and `tests/browser/app.spec.ts`. Use `deploy/nginx.conf` as the static-hosting template.
+- Separate Node unit tests in `tests/` from browser tests in `tests/browser/`; inspect `tests/domain.test.mjs` and `tests/browser/app.spec.ts`. Use `deploy/nginx.conf` as the static-hosting template. For container deployment, use `deploy/Dockerfile` and `deploy/docker-compose.yml`.
 
 ## Architecture
 
@@ -112,10 +113,11 @@ For server launches, reuse the same path without local hashing; the game ID/URL 
 - Keep LAN fallback coverage in `tests/browser/http-lan.spec.ts`: it uses a real non-loopback IPv4 origin, asserts unavailable secure-context APIs, and skips when no LAN interface exists.
 - Expect installed Microsoft Edge (`channel: 'msedge'`), one worker, and retained failure traces from `playwright.config.ts`. Production configuration inherits these settings and uses preview on port 4173 (`playwright.production.config.ts`).
 - Account for browser-test writes: screenshots and traces are produced during execution; output directories are ignored by `.gitignore` (`tests/browser/app.spec.ts`, `playwright.config.ts`).
+- Treat the Compose healthcheck as HTTP-root reachability only (`deploy/docker-compose.yml:18–23`). The browser configurations target Vite dev/preview servers; they do not verify container serving (`playwright.config.ts:18`, `playwright.production.config.ts:7`).
 
 ## Development Workflow
 
-Use only the following project-defined invocations. Every mapping is defined in `package.json:scripts`; commands were inspected, not executed when generating this guide.
+Use the following project-defined npm-script invocations. Every mapping is defined in `package.json:scripts`; commands were inspected, not executed when generating this guide.
 
 | Invocation | Exact script definition |
 | --- | --- |
@@ -132,7 +134,11 @@ Use only the following project-defined invocations. Every mapping is defined in 
 - Build before production browser verification: `playwright.production.config.ts` starts preview but does not build. The normal build script does not invoke either asset generator (`package.json`).
 - Treat asset generators as explicit writing operations: `scripts/build-demo.mjs` writes the shipped demo ROM; `scripts/vendor-engine.mjs` verifies an archive hash, extracts selected assets with `tar`, writes patched sources/bundles, and records provenance. Vendoring accepts the archive through its first positional argument.
 - Keep TypeScript build metadata and application output out of source changes (`tsconfig.app.json`, `tsconfig.node.json`, `.gitignore`). Browser tests also produce artifacts; do not describe all verification commands as read-only.
-- Document only the environment variable name `CI`: both Playwright configurations use it to decide whether to reuse an existing server (`playwright.config.ts:18`, `playwright.production.config.ts:7`).
+- Document environment variable names and purposes only: `CI` controls whether the Playwright configurations reuse an existing server (`playwright.config.ts:18`, `playwright.production.config.ts:7`); `MAIN_DULU_PORT` selects the published host port (`deploy/docker-compose.yml:16`).
+- Follow the two-stage container build in `deploy/Dockerfile`: `node:24-alpine` runs `npm ci` and `npm run build`, then `nginx:1.29-alpine` receives the build output and `deploy/nginx.docker.conf`. These image tags are declared in `deploy/Dockerfile:5,22`.
+- Keep `public/` in the Docker build context, including the packaged engine. `.dockerignore` excludes `tests/`, `scripts/`, and `third_party/`; the Dockerfile copies `public/` and uses the normal build script without asset regeneration (`.dockerignore:11–13`, `deploy/Dockerfile:15–19`, `package.json:scripts`).
+- Use the `web` service definition in `deploy/docker-compose.yml`: its build context is the repository root, its container port is 80, and its restart policy is `unless-stopped`. Preserve the configured HTTP healthcheck interval of 30 seconds, timeout of 5 seconds, three retries, and start period of 5 seconds (`deploy/docker-compose.yml:9–23`).
+- Preserve asset 404s and SPA page fallback in both Nginx configurations (`deploy/nginx.conf:12–19`, `deploy/nginx.docker.conf:24–36`). In the container configuration, retain gzip and the location-level `Cache-Control: no-cache`, `X-Content-Type-Options`, and `Referrer-Policy` directives in both locations (`deploy/nginx.docker.conf:17–37`).
 
 ## Feature Implementation Guide
 
@@ -206,6 +212,10 @@ Use only the following project-defined invocations. Every mapping is defined in 
 | `playwright.config.ts` | Browser/test-server configuration shared by production tests |
 | `playwright.production.config.ts` | Preview-based production browser test configuration |
 | `deploy/nginx.conf` | Static asset 404s and SPA page fallback |
+| `deploy/Dockerfile` | Node build stage and static Nginx runtime image |
+| `deploy/docker-compose.yml` | Web service, repository-root build context, host-port selection, restart policy, healthcheck |
+| `deploy/nginx.docker.conf` | Container serving, gzip, location-level headers, asset 404s and SPA fallback |
+| `.dockerignore` | Docker build-context exclusions |
 
 ## AI Agent Instructions
 
