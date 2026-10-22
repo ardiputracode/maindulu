@@ -1,0 +1,33 @@
+{
+  "name": "maindulu",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:production": "playwright test --config=playwright.production.config.ts",
+    "build:demo": "node scripts/build-demo.mjs",
+    "vendor:engine": "node scripts/vendor-engine.mjs"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.4.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.6.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "esbuild": "^0.25.0",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5"
+  }
+}

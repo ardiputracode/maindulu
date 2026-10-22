@@ -1,0 +1,12 @@
+Jalan Pulang — original maindulu NES homebrew
+
+The original source in scripts/build-demo.mjs and the generated jalan-pulang.nes
+are dedicated to the public domain under CC0 1.0 Universal.
+
+To the extent possible under law, the authors waive all copyright and related
+or neighboring rights to this work. It is provided without any warranty.
+
+https://creativecommons.org/publicdomain/zero/1.0/
+
+This dedication does not apply to EmulatorJS, its emulator cores, the user-supplied
+branding assets, or other third-party material.

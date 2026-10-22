@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="480" viewBox="0 0 800 480" fill="none">
+<defs><linearGradient id="bg" x2="800" y2="480" gradientUnits="userSpaceOnUse"><stop stop-color="#254e3b"/><stop offset="1" stop-color="#102b24"/></linearGradient><radialGradient id="glow"><stop stop-color="#cfe8ac" stop-opacity=".16"/><stop offset="1" stop-color="#cfe8ac" stop-opacity="0"/></radialGradient></defs>
+<path fill="url(#bg)" d="M0 0h800v480H0z"/><circle cx="560" cy="130" r="240" fill="url(#glow)"/>
+<g shape-rendering="crispEdges"><path d="M545 45h50v10h15v45h-15v10h-50v-10h-15V55h15z" fill="#d8e5ac"/>
+<path d="M0 240h60v-30h50v-35h50v35h40v30h80v-50h40v-40h35v-30h35v30h35v40h40v50h60v-25h40v-25h40v-30h30v30h30v25h40v25h80v240H0z" fill="#3d6b4c"/>
+<path d="M0 325h65v-35h60v-30h45v30h60v35h85v-30h65v-20h65v20h80v30h60v-30h65v-35h65v35h35v185H0z" fill="#214a37"/>
+<path d="M0 393h800v87H0z" fill="#173a2a"/><path d="M330 480 475 320h56L500 480z" fill="#75906b"/><path d="m368 480 120-160h14L405 480z" fill="#a7bc86" opacity=".5"/>
+<path d="M580 250h120v95H580z" fill="#7f9d70"/><path d="m560 255 80-65 80 65z" fill="#cad6a0"/><path d="M601 278h24v24h-24zm53 0h24v24h-24z" fill="#e8e6ac"/><path d="M631 307h22v38h-22z" fill="#3f6447"/>
+<path d="M398 318h14v14h-14zm-7 14h28v28h-28zm-8 28h44v29h-44zm9 29h10v20h-10zm18 0h10v20h-10z" fill="#d0e8b6"/>
+<path d="M370 135h6v-7h6v7h7v6h-7v7h-6v-7h-6zm342 18h6v-7h6v7h7v6h-7v7h-6v-7h-6zM485 231h6v-7h6v7h7v6h-7v7h-6v-7h-6z" fill="#d9e3a1"/>
+</g><text x="50" y="75" fill="#b8d6b8" font-family="sans-serif" font-size="14" letter-spacing="4">MAINDULU ORIGINAL</text><text x="46" y="153" fill="#edf4df" font-family="sans-serif" font-size="60" font-weight="700" letter-spacing="-2">Jalan Pulang</text><text x="50" y="187" fill="#bad0b6" font-family="sans-serif" font-size="18">Satu perjalanan. Banyak kenangan.</text>
+</svg>
