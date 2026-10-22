@@ -1,0 +1,19 @@
+# Konteks build dibuat sekecil mungkin: tahap build hanya membutuhkan
+# package.json, package-lock.json, index.html, vite.config.ts,
+# tsconfig*.json, src/, public/, dan deploy/nginx.docker.conf.
+.git/
+.gitignore
+.opencode/
+node_modules/
+dist/
+test-results/
+playwright-report/
+tests/
+scripts/
+third_party/
+playwright.config.ts
+playwright.production.config.ts
+README.md
+RENCANA.md
+*.log
+.DS_Store
