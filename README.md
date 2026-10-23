@@ -84,7 +84,7 @@ File lokal tidak dikirim ke server dan cache ROM/BIOS engine dinonaktifkan. Loca
 
 ## Engine, sumber, dan kemandirian
 
-`RENCANA.md` memuat rencana produk. `third_party/emulatorjs/README.md` menjelaskan sumber, lisensi, provenance, dan patch yang dapat direproduksi. Runtime sekitar 15 MB, dimuat sesuai kebutuhan, bukan seluruh core sekaligus.
+`RENCANA.md` memuat rencana produk, dan `CHANGELOG.md` daftar perubahan per rilis. `third_party/emulatorjs/README.md` menjelaskan sumber, lisensi, provenance, dan patch yang dapat direproduksi. Runtime sekitar 15 MB, dimuat sesuai kebutuhan, bukan seluruh core sekaligus.
 
 Paket rilis lengkap diverifikasi dengan SHA-256:
 

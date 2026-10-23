@@ -4,13 +4,13 @@ description: "Use when adding features, fixing bugs, refactoring, or navigating 
 ---
 
 # Codebase Guide
-> Last verified against commit `5641681` on 2026-10-23 (plus uncommitted changes).
+> Last verified against commit `76669dd` on 2026-10-23 (plus uncommitted release-doc changes).
 
 Resolve all repository evidence paths below from the repository root, not this skill's directory. Runtime URL paths are identified explicitly.
 
 ## Project Overview
 
-- Treat **maindulu** (`0.1.0`) as an Indonesian-language browser emulator frontend. Support local ROM/BIOS selection and manifest-listed server content; follow `package.json`, `src/App.tsx`, and `src/components/SetupDialog.tsx`.
+- Treat **maindulu** (`0.2.0`) as an Indonesian-language browser emulator frontend. Support local ROM/BIOS selection and manifest-listed server content; follow `package.json`, `src/App.tsx`, and `src/components/SetupDialog.tsx`.
 - Keep the React interface separate from the locally served EmulatorJS runtime. The shipped catalog advertises NES, SNES, GB/GBC, GBA, Mega Drive, and PS1; inspect `public/catalog/consoles.json`, `src/components/Player.tsx`, and `public/player/player.js`.
 
 ## Technology Stack

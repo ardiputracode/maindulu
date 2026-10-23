@@ -39,6 +39,7 @@ test('favorite and settings survive refresh; history toggle is a real switch', a
   await page.reload()
   await expect(page.getByRole('button', { name: 'Hapus Jalan Pulang dari favorit' })).toBeVisible()
   await page.getByRole('link', { name: 'Pengaturan', exact: true }).click()
+  await expect(page.locator('.page-footnote')).toContainText(/maindulu v\d+\.\d+\.\d+/)
   await page.getByRole('slider', { name: 'Volume awal' }).fill('23')
   await page.getByRole('switch', { name: 'Simpan riwayat bermain' }).click()
   await page.reload()
