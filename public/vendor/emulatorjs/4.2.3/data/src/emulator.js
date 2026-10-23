@@ -4303,6 +4303,9 @@ class EmulatorJS {
             this.gameManager.setAltKeyEnabled(value === "enabled");
         } else if (option === "lockMouse") {
             this.enableMouseLock = (value === "enabled");
+        } else if (option === "mainduluWidescreen") {
+            // maindulu: widescreen display stretch is applied by the bridge hook.
+            if (typeof window.EJS_onWidescreen === "function") window.EJS_onWidescreen(value === "enabled");
         }
     }
     menuOptionChanged(option, value) {
@@ -4819,6 +4822,11 @@ class EmulatorJS {
             "2": "180 deg",
             "3": "270 deg"
         }, this.videoRotation.toString(), graphicsOptions, true);
+        // maindulu: widescreen display stretch toggle, applied by the bridge hook.
+        addToMenu("Layar lebar", "mainduluWidescreen", {
+            "enabled": "Nyala",
+            "disabled": "Mati"
+        }, this.preGetSetting("mainduluWidescreen") || "disabled", graphicsOptions, true);
 
         const screenCaptureOptions = createSettingParent(true, "Screen Capture", home);
 

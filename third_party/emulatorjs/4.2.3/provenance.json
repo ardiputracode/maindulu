@@ -14,6 +14,7 @@
   "patches": [
     "Disable remote version checks",
     "Fail locally instead of CDN fallback",
-    "Remove default public netplay URL"
+    "Remove default public netplay URL",
+    "Add widescreen display toggle (Layar lebar) and bridge hook to Graphics Settings"
   ]
 }

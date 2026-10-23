@@ -52,9 +52,31 @@ emulator = emulator.slice(0, fallbackStart) + `            if (res === -1) {
 ` + emulator.slice(fallbackEnd)
 // Netplay is outside this product's scope; remove the external default defensively.
 emulator = emulator.replace('this.config.netplayUrl = this.config.netplayUrl || "https://netplay.emulatorjs.org";', 'this.config.netplayUrl = this.config.netplayUrl || ""; // maindulu: no public netplay service')
+// Graphics Settings gains a widescreen display toggle ("Layar lebar"); rendering stays in the bridge.
+const videoRotationMenu = `        addToMenu(this.localization("Video Rotation"), "videoRotation", {
+            "0": "0 deg",
+            "1": "90 deg",
+            "2": "180 deg",
+            "3": "270 deg"
+        }, this.videoRotation.toString(), graphicsOptions, true);`
+if (!emulator.includes(videoRotationMenu)) throw new Error('Batas patch menu Layar lebar tidak ditemukan.')
+emulator = emulator.replace(videoRotationMenu, `${videoRotationMenu}
+        // maindulu: widescreen display stretch toggle, applied by the bridge hook.
+        addToMenu("Layar lebar", "mainduluWidescreen", {
+            "enabled": "Nyala",
+            "disabled": "Mati"
+        }, this.preGetSetting("mainduluWidescreen") || "disabled", graphicsOptions, true);`)
+const lockMouseOption = `        } else if (option === "lockMouse") {
+            this.enableMouseLock = (value === "enabled");
+        }`
+if (!emulator.includes(lockMouseOption)) throw new Error('Batas patch aksi Layar lebar tidak ditemukan.')
+emulator = emulator.replace(lockMouseOption, `${lockMouseOption} else if (option === "mainduluWidescreen") {
+            // maindulu: widescreen display stretch is applied by the bridge hook.
+            if (typeof window.EJS_onWidescreen === "function") window.EJS_onWidescreen(value === "enabled");
+        }`)
 await writeFile(join(target, 'data/src/emulator.js'), emulator)
 const sources = await Promise.all(scripts.map(async name => name === 'emulator.js' ? emulator : readFile(join(staging, 'data/src', name), 'utf8')))
 const result = await transform(sources.join('\n;\n'), { minify: true, legalComments: 'inline', target: 'es2020' })
 await writeFile(join(target, 'data/emulator.min.js'), '/*! EmulatorJS v4.2.3, GPL-3.0-or-later. maindulu local-only patches; see /vendor/emulatorjs/4.2.3/LICENSE and third_party/emulatorjs. */\n' + result.code)
-await writeFile(join(sourceTarget, 'provenance.json'), JSON.stringify({ version, archive: '4.2.3.7z', sha256: hash, url: 'https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z', cores, patches: ['Disable remote version checks', 'Fail locally instead of CDN fallback', 'Remove default public netplay URL'] }, null, 2) + '\n')
+await writeFile(join(sourceTarget, 'provenance.json'), JSON.stringify({ version, archive: '4.2.3.7z', sha256: hash, url: 'https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z', cores, patches: ['Disable remote version checks', 'Fail locally instead of CDN fallback', 'Remove default public netplay URL', 'Add widescreen display toggle (Layar lebar) and bridge hook to Graphics Settings'] }, null, 2) + '\n')
 console.log(`EmulatorJS ${version} siap: ${cores.length} core, varian normal + legacy, tanpa fallback CDN.`)

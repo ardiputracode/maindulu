@@ -11,8 +11,8 @@ export type Game = {
 }
 
 export type Bios = { id: string; name: string; consoleId: string; url: string }
-export type Settings = { volume: number; history: boolean }
-export const DEFAULT_SETTINGS: Settings = { volume: 50, history: true }
+export type Settings = { volume: number; history: boolean; widescreen: boolean }
+export const DEFAULT_SETTINGS: Settings = { volume: 50, history: true, widescreen: false }
 export const MAX_ROM_SIZE = 768 * 1024 * 1024
 export const MAX_BIOS_SIZE = 32 * 1024 * 1024
 export const ARCHIVE_EXTENSIONS = ['zip', '7z', 'rar']
@@ -50,6 +50,7 @@ export function readSettings(value: unknown): Settings {
   return {
     volume: typeof s.volume === 'number' && Number.isFinite(s.volume) ? Math.max(0, Math.min(100, s.volume)) : 50,
     history: typeof s.history === 'boolean' ? s.history : true,
+    widescreen: s.widescreen === true,
   }
 }
 

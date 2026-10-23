@@ -3,9 +3,54 @@
   let sessionId = null
   let configured = false
   const urls = []
+  let widescreenWanted = false
+  let widescreenState = false
+  let widescreenObserver = null
   const send = (type, extra = {}) => parent.postMessage({ channel: 'maindulu:player', type, sessionId, ...extra }, location.origin)
   const fail = message => send('error', { message })
   const localUrl = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') && !/[\u0000-\u0020]/.test(value)
+
+  // "Layar lebar" (widescreen): the core's active 4:3 picture is centered inside
+  // the canvas bitmap with black side bars. Stretching the bitmap horizontally
+  // by playerAspect/gameAspect removes those bars without touching the engine,
+  // the picture contents, or the input mapping; scaling follows the player box,
+  // so narrow (phone-portrait) layouts stay neutral instead of cropping.
+  function widescreenTransform() {
+    const emulator = window.EJS_emulator
+    if (!emulator?.canvas || !emulator?.gameManager?.getVideoDimensions) return null
+    const parent = emulator.canvas.parentElement
+    const box = parent?.getBoundingClientRect()
+    if (!parent || !box.width || !box.height) return null
+    const shown = box.width / box.height
+    const aspect = Number(emulator.gameManager.getVideoDimensions('aspect')) || 4 / 3
+    if (!(shown > aspect)) return null
+    return { parent, scaleX: shown / aspect }
+  }
+  function observeWidescreen() {
+    const emulator = window.EJS_emulator
+    // The canvas is only attached to the DOM late during engine start; observing
+    // while detached would throw and abort the start sequence.
+    if (widescreenObserver || !emulator?.canvas?.parentElement) return
+    widescreenObserver = new ResizeObserver(() => applyWidescreen())
+    widescreenObserver.observe(emulator.canvas.parentElement)
+  }
+  function applyWidescreen() {
+    const emulator = window.EJS_emulator
+    if (!emulator?.canvas) return
+    const canvas = emulator.canvas
+    const on = widescreenWanted ? widescreenTransform() : null
+    if (on) {
+      canvas.style.transform = `scaleX(${on.scaleX})`
+      on.parent.style.overflow = 'hidden'
+      widescreenState = true
+    } else if (widescreenState) {
+      canvas.style.transform = ''
+      if (canvas.parentElement) canvas.parentElement.style.overflow = ''
+      widescreenState = false
+    }
+    if (widescreenWanted || widescreenState) observeWidescreen()
+    else if (widescreenObserver) { widescreenObserver.disconnect(); widescreenObserver = null }
+  }
   const allowedCores = ['fceumm', 'snes9x', 'gambatte', 'mgba', 'genesis_plus_gx', 'pcsx_rearmed']
   function blobUrl(blob) { const url = URL.createObjectURL(blob); urls.push(url); return url }
   async function checkServerAsset(url, label) {
@@ -65,7 +110,7 @@
       // Never persist a user's raw ROM/BIOS. Engine states remain separate.
       window.EJS_disableDatabases = true
       window.EJS_CacheLimit = 0
-      window.EJS_defaultOptions = { 'save-state-location': 'browser', ejs_threads: 'disabled' }
+      window.EJS_defaultOptions = { 'save-state-location': 'browser', ejs_threads: 'disabled', mainduluWidescreen: config.widescreen === true ? 'enabled' : 'disabled' }
       window.EJS_hideSettings = ['ejs_threads']
       window.EJS_Buttons = { netplay: false, gamepad: true, exitEmulation: false }
       window.EJS_ready = () => {
@@ -82,7 +127,13 @@
         const original = window.EJS_emulator.startGameError.bind(window.EJS_emulator)
         window.EJS_emulator.startGameError = message => { fail(String(message)); return original(message) }
       }
-      window.EJS_onGameStart = () => send('started')
+      window.EJS_onGameStart = () => { applyWidescreen(); send('started') }
+      // Toggle from the engine menu (Settings → Graphics → Layar lebar).
+      window.EJS_onWidescreen = value => {
+        widescreenWanted = value === true
+        applyWidescreen()
+        send('display', { widescreen: widescreenWanted })
+      }
       const script = document.createElement('script')
       script.src = '/vendor/emulatorjs/4.2.3/data/loader.js'
       script.onerror = () => fail('Loader lokal tidak ditemukan. Periksa folder vendor/emulatorjs/4.2.3/data.')

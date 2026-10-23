@@ -183,3 +183,45 @@ test('native Save State and Load State buttons perform a browser-storage round-t
   await expect(player.locator('.ejs_message')).toContainText('SAVE LOADED FROM BROWSER')
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
+
+test('the engine Graphics menu Layar lebar toggle stretches play and persists', async ({ page }) => {
+  const player = await launchDemo(page)
+  const box = await player.locator('#game').boundingBox()
+  await player.locator('#game').hover({ position: { x: 20, y: box!.height - 12 } })
+  await player.getByRole('button', { name: 'Settings', exact: true }).click()
+  await player.locator('.ejs_settings_main_bar').filter({ hasText: 'Graphics Settings' }).click()
+  await player.locator('.ejs_settings_main_bar').filter({ hasText: 'Layar lebar' }).click()
+  await player.locator('.ejs_option_row').filter({ hasText: 'Nyala' }).click()
+  const scaleX = () => player.locator('canvas').evaluate((canvas) => {
+    const transform = getComputedStyle(canvas).transform
+    return transform === 'none' ? null : new DOMMatrix(transform).a
+  })
+  await expect.poll(scaleX).toBeGreaterThan(1.2)
+  await expect(page.locator('.player-shell')).toHaveClass(/is-widescreen/)
+  await page.screenshot({ path: 'test-results/player-widescreen.png' })
+  await expect.poll(async () => page.evaluate(() => { const s = JSON.parse(localStorage.getItem('maindulu.settings.v1') || '{}'); return s.widescreen })).toBe(true)
+  await player.locator('.ejs_settings_main_bar').filter({ hasText: 'Layar lebar' }).click()
+  await player.locator('.ejs_option_row').filter({ hasText: 'Mati' }).click()
+  await expect.poll(scaleX).toBe(null)
+  await expect(page.locator('.player-shell')).not.toHaveClass(/is-widescreen/)
+  await expect.poll(async () => page.evaluate(() => { const s = JSON.parse(localStorage.getItem('maindulu.settings.v1') || '{}'); return s.widescreen })).toBe(false)
+})
+
+// Regression: a saved "Layar lebar" preference fatally threw inside startGame
+// because the engine builds the settings menu before the canvas joins the DOM,
+// and the default menu row fired the widescreen hook while detached.
+test('a saved widescreen preference does not break game start', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', e => errors.push(e.message))
+  await page.addInitScript(() => {
+    localStorage.setItem('maindulu.settings.v1', JSON.stringify({ volume: 50, history: true, widescreen: true }))
+  })
+  const player = await launchDemo(page)
+  expect(errors).toEqual([])
+  // The preference must engage without touching the engine menu at all.
+  await expect.poll(() => player.locator('canvas').evaluate((canvas) => {
+    const transform = getComputedStyle(canvas).transform
+    return transform === 'none' ? null : new DOMMatrix(transform).a
+  })).toBeGreaterThan(1.2)
+  await expect(page.locator('.player-shell')).toHaveClass(/is-widescreen/)
+})

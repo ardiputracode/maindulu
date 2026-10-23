@@ -8,10 +8,13 @@ const game = { id: 'local-nes-abc', title: 'A game', consoleId: 'nes', source: '
 
 test('settings validate types, clamp volume, and retain an explicit disabled history', () => {
   assert.deepEqual(readSettings(null), DEFAULT_SETTINGS)
-  assert.deepEqual(readSettings({ volume: -1, history: false }), { volume: 0, history: false })
+  assert.deepEqual(readSettings({ volume: -1, history: false }), { volume: 0, history: false, widescreen: false })
   assert.equal(readSettings({ volume: 999 }).volume, 100)
   assert.equal(readSettings({ volume: NaN, history: 'false' }).volume, 50)
   assert.equal(readSettings({ volume: 0 }).volume, 0)
+  assert.equal(readSettings({ widescreen: true }).widescreen, true)
+  assert.equal(readSettings({ widescreen: 'yes' }).widescreen, false)
+  assert.deepEqual(readSettings({}), { volume: 50, history: true, widescreen: false })
 })
 test('console detection is case insensitive and does not guess ambiguous BIN or archives', () => {
   assert.equal(detectConsole('Example.NES', consoles), 'nes')
@@ -72,6 +75,8 @@ test('vendored source disables upstream version checks and CDN fallback', async 
   assert.ok(!source.includes('fetch("https://cdn.emulatorjs.org'))
   assert.ok(!source.includes('https://netplay.emulatorjs.org'))
   assert.ok(source.includes('Core lokal tidak tersedia'))
+  assert.ok(source.includes('addToMenu("Layar lebar", "mainduluWidescreen"'))
+  assert.ok(source.includes('window.EJS_onWidescreen(value === "enabled")'))
 })
 test('server homebrew is a valid NROM-128 cartridge', async () => {
   const bytes = await readFile(new URL('../public/games/jalan-pulang.nes', import.meta.url))
