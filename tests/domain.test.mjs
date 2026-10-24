@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { DEFAULT_SETTINGS, MAX_ROM_SIZE, detectConsole, validateRom, validateBios, readSettings, readGames, isSafeLocalUrl, recordHistory, toggleFavorite } from '../src/lib/domain.ts'
 
 const consoles = JSON.parse(await readFile(new URL('../public/catalog/consoles.json', import.meta.url), 'utf8'))
@@ -85,4 +86,15 @@ test('server homebrew is a valid NROM-128 cartridge', async () => {
   assert.equal(bytes[4], 1)
   const reset = bytes.readUInt16LE(16 + 0x3ffc)
   assert.ok(reset >= 0x8000 && reset < 0xc000)
+})
+test('account storage patches and published core fingerprints match shipped assets', async () => {
+  const root = new URL('../public/vendor/emulatorjs/4.2.3/data/', import.meta.url)
+  const builds = JSON.parse(await readFile(new URL('../public/player/builds.json', import.meta.url), 'utf8'))
+  const hash = bytes => createHash('sha256').update(bytes).digest('hex')
+  const bundle = await readFile(new URL('emulator.min.js', root), 'utf8')
+  assert.equal(builds.runtimeBuild, hash(bundle.slice(bundle.indexOf('\n') + 1).replaceAll('\r\n', '\n')))
+  assert.equal(builds.engineVersion, '4.2.3')
+  for (const [file, digest] of Object.entries(builds.cores)) assert.equal(hash(await readFile(new URL('cores/' + file, root))), digest)
+  assert.ok((await readFile(new URL('src/GameManager.js', root), 'utf8')).includes('if (this.EJS.config.mainduluMemorySaves) { resolve(); return; }'))
+  assert.ok((await readFile(new URL('src/emulator.js', root), 'utf8')).includes('this.config.mainduluMemorySaves ? new window.EJS_DUMMYSTORAGE()'))
 })

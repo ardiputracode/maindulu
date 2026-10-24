@@ -15,6 +15,10 @@
     "Disable remote version checks",
     "Fail locally instead of CDN fallback",
     "Remove default public netplay URL",
-    "Add widescreen display toggle (Layar lebar) and bridge hook to Graphics Settings"
+    "Add widescreen display toggle (Layar lebar) and bridge hook to Graphics Settings",
+    "Memory-only state store and save filesystem for account players; retain guest persistence",
+    "Expose selected core filename and publish build fingerprints",
+    "Report play/pause transitions to the bridge (EJS_onPlayPause) for autosave and overlay gating",
+    "Accept fully specified custom bottom-bar buttons through buildButtonOptions (bridge save-state overlay button)"
   ]
 }

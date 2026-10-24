@@ -68,6 +68,7 @@ class EJS_GameManager {
         return new Promise(async resolve => {
             this.mkdir("/data");
             this.mkdir("/data/saves");
+            if (this.EJS.config.mainduluMemorySaves) { resolve(); return; } // maindulu: MEMFS only, never import/persist shared IDBFS
             this.FS.mount(this.FS.filesystems.IDBFS, { autoPersist: true }, "/data/saves");
             this.FS.syncfs(true, resolve);
         });

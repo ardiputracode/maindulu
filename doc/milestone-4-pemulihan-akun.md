@@ -2,6 +2,8 @@
 
 Status: M4 selesai. Pemulihan dengan kode sekali pakai, penerbitan ulang, reset admin lokal, dan regresi mode tamu/statis telah diverifikasi dengan batasan pengujian di bawah.
 
+Catatan: batas cloud save dan skema versi 2 di dokumen ini menggambarkan penutupan M4. [M5](milestone-5-save-state-server.md) menambahkan save state server, migrasi versi 3, dan pengujian kepemilikan save nyata setelah reset.
+
 M4 menambahkan pemulihan akun lokal tanpa email/internet, penerbitan ulang kode, dan reset oleh pengelola yang memiliki akses sistem operasi server. **Cloud save belum tersedia**; progres emulator masih di browser sampai M5/M6.
 
 ## Lupa Password

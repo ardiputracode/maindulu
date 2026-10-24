@@ -19,6 +19,11 @@ async function canonicalPath(path) {
 }
 
 export async function readConfig(env = process.env, root = projectRoot) {
+  function bytes(name, fallback, maximum) {
+    const value = env[name] ?? String(fallback)
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) < 1024 || Number(value) > maximum) throw new Error(`${name} harus bilangan byte 1024–${maximum}.`)
+    return Number(value)
+  }
   const registration = env.MAIN_DULU_REGISTRATION_OPEN ?? 'true'
   if (!['true', 'false'].includes(registration)) throw new Error('MAIN_DULU_REGISTRATION_OPEN harus true atau false.')
   let publicOrigin = null
@@ -41,5 +46,7 @@ export async function readConfig(env = process.env, root = projectRoot) {
   for (const served of [distDir, publicDir]) {
     if (isWithin(dataDir, served) || isWithin(served, dataDir)) throw new Error('Folder data harus terpisah dari folder public dan hasil build, termasuk target symlink.')
   }
-  return { host, port: Number(rawPort), distDir, dataDir, registrationOpen: registration === 'true', publicOrigin }
+  return { host, port: Number(rawPort), distDir, dataDir, registrationOpen: registration === 'true', publicOrigin,
+    stateMaxBytes: bytes('MAIN_DULU_STATE_MAX_BYTES', 32 * 1024 * 1024, 64 * 1024 * 1024),
+    saveQuotaBytes: bytes('MAIN_DULU_SAVE_QUOTA_BYTES', 256 * 1024 * 1024, 16 * 1024 * 1024 * 1024) }
 }

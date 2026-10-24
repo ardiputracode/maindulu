@@ -31,13 +31,51 @@ const migrations = [
     CREATE INDEX sessions_user ON sessions(user_id);
     CREATE INDEX sessions_expiry ON sessions(expires_at);`,
   },
+  {
+    version: 3,
+    name: 'manual-server-states',
+    sql: `CREATE TABLE saves (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      game_id TEXT NOT NULL, console_id TEXT NOT NULL, core TEXT NOT NULL,
+      slot INTEGER NOT NULL CHECK(slot BETWEEN 1 AND 3),
+      title TEXT NOT NULL, metadata TEXT NOT NULL,
+      revision INTEGER NOT NULL CHECK(revision > 0),
+      size INTEGER NOT NULL CHECK(size >= 0), checksum TEXT NOT NULL,
+      blob_key TEXT, updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, game_id, console_id, core, slot)
+    ) STRICT;
+    CREATE INDEX saves_owner ON saves(user_id);`,
+  },
+  {
+    version: 4,
+    name: 'autosave-slot',
+    // The dedicated Autosave state shares the saves table under slot 99.
+    // SQLite cannot alter a CHECK constraint, so the table is rebuilt.
+    sql: `CREATE TABLE saves_v4 (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      game_id TEXT NOT NULL, console_id TEXT NOT NULL, core TEXT NOT NULL,
+      slot INTEGER NOT NULL CHECK(slot = 99 OR slot BETWEEN 1 AND 3),
+      title TEXT NOT NULL, metadata TEXT NOT NULL,
+      revision INTEGER NOT NULL CHECK(revision > 0),
+      size INTEGER NOT NULL CHECK(size >= 0), checksum TEXT NOT NULL,
+      blob_key TEXT, updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, game_id, console_id, core, slot)
+    ) STRICT;
+    INSERT INTO saves_v4 (id, user_id, game_id, console_id, core, slot, title, metadata, revision, size, checksum, blob_key, updated_at)
+      SELECT id, user_id, game_id, console_id, core, slot, title, metadata, revision, size, checksum, blob_key, updated_at FROM saves;
+    DROP TABLE saves;
+    ALTER TABLE saves_v4 RENAME TO saves;
+    CREATE INDEX saves_owner ON saves(user_id);`,
+  },
 ]
 
 export async function openDatabase(dataDir) {
   await mkdir(dataDir, { recursive: true, mode: 0o700 })
   const db = new DatabaseSync(join(dataDir, 'maindulu.sqlite'))
   try {
-    db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;')
+    db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;')
     db.exec('BEGIN IMMEDIATE')
     try {
       const version = db.prepare('PRAGMA user_version').get().user_version

@@ -280,7 +280,7 @@ class EmulatorJS {
             }
         }
         // This is not cache. This is save data
-        this.storage.states = new window.EJS_STORAGE("EmulatorJS-states", "states");
+        this.storage.states = this.config.mainduluMemorySaves ? new window.EJS_DUMMYSTORAGE() : new window.EJS_STORAGE("EmulatorJS-states", "states");
 
         this.game.classList.add("ejs_game");
         if (typeof this.config.backgroundImg === "string") {
@@ -588,6 +588,7 @@ class EmulatorJS {
 
             let legacy = (this.supportsWebgl2 && this.webgl2Enabled ? "" : "-legacy");
             let filename = this.getCore() + (threads ? "-thread" : "") + legacy + "-wasm.data";
+            this.mainduluCoreFile = filename;
             if (!this.debug) {
                 const result = await this.storage.core.get(filename);
                 if (result && result.version === rep.buildStart) {
@@ -1321,6 +1322,14 @@ class EmulatorJS {
 
                 // Check if the button exists in the default buttons, and update its properties
                 if (!mergedButtonOptions[searchKey]) {
+                    // maindulu: allow fully specified custom buttons through the
+                    // "not a valid button" gate so the bridge can add its own
+                    // bottom-bar entries (save-state server overlay).
+                    const rawCustom = buttonUserOpts[searchKey];
+                    if (rawCustom && typeof rawCustom === "object" && rawCustom.displayName && rawCustom.icon && rawCustom.callback) {
+                        mergedButtonOptions[searchKey] = { visible: true, displayName: rawCustom.displayName, icon: rawCustom.icon, callback: rawCustom.callback, custom: true };
+                        continue;
+                    }
                     console.warn(`Button "${searchKey}" is not a valid button.`);
                     continue;
                 }
@@ -1837,6 +1846,8 @@ class EmulatorJS {
         playButton.style.display = "none";
         this.togglePlaying = (dontUpdate) => {
             this.paused = !this.paused;
+            // maindulu: report running state to the bridge (save overlay + autosave gating).
+            if (typeof window.EJS_onPlayPause === "function") window.EJS_onPlayPause(!this.paused);
             if (!dontUpdate) {
                 if (this.paused) {
                     pauseButton.style.display = "none";

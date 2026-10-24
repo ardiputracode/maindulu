@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Dialog from './Dialog'
 import type { useAccount } from '../lib/useAccount'
 import { readRecoveryResult } from '../lib/account'
+import SaveLibrary from './SaveLibrary'
 
 export default function AccountDialog({ account, onClose }: { account: ReturnType<typeof useAccount>; onClose: () => void }) {
   const { state } = account
@@ -17,6 +18,7 @@ export default function AccountDialog({ account, onClose }: { account: ReturnTyp
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [libraryOpen, setLibraryOpen] = useState(false)
   useEffect(() => {
     if (!code || saved) return
     const warn = (event: BeforeUnloadEvent) => event.preventDefault()
@@ -49,6 +51,7 @@ export default function AccountDialog({ account, onClose }: { account: ReturnTyp
   }
   const authenticated = state.status === 'authenticated'
   const title = code ? 'Simpan kode pemulihanmu.' : authenticated ? mode === 'password' ? 'Ganti password.' : mode === 'recovery-code' ? 'Terbitkan ulang kode.' : 'Akunku.' : mode === 'register' ? 'Buat akun lokal.' : mode === 'recover' ? 'Pulihkan akun.' : 'Masuk ke maindulu.'
+  if (libraryOpen && authenticated && state.user && !code) return <SaveLibrary key={state.user.id} userId={state.user.id} onClose={() => setLibraryOpen(false)} />
   return <Dialog title={title} onClose={onClose} busy={busy || !!code}>
     {error && <p className="notice" role="alert">{error}</p>}
     {message && <p className="notice" role="status">{message}</p>}
@@ -64,7 +67,7 @@ export default function AccountDialog({ account, onClose }: { account: ReturnTyp
       <button className="button primary" disabled={!saved} onClick={onClose}>Selesai</button>
       <p>Kode hanya berlaku sekali untuk pemulihan akun. Kode lama tidak berlaku setelah reset atau penerbitan ulang.</p>
     </div> : state.status === 'unavailable' ? <div className="account-form"><p role="alert">Informasi akun belum dapat dimuat. {state.error} Kamu tetap bisa bermain sebagai tamu.</p><button className="button secondary" onClick={() => void account.refresh()}>Periksa akun lagi</button></div> : state.status === 'checking' ? <p role="status">Memeriksa sesi akun…</p> : <>
-      {authenticated && <div className="account-form"><p>Masuk sebagai <strong>{state.user?.username}</strong>. Progres masih di browser; login belum mengaktifkan cloud save.</p><div className="account-actions"><button className="button secondary small" disabled={busy} onClick={() => switchMode(mode === 'password' ? 'login' : 'password')}>{mode === 'password' ? 'Batal ganti password' : 'Ganti password'}</button><button className="button secondary small" disabled={busy} onClick={() => switchMode(mode === 'recovery-code' ? 'login' : 'recovery-code')}>{mode === 'recovery-code' ? 'Batal terbitkan kode' : 'Terbitkan ulang kode'}</button><button className="button secondary small" disabled={busy} onClick={() => void submit('logout')}>Keluar akun</button></div></div>}
+      {authenticated && <div className="account-form"><p>Masuk sebagai <strong>{state.user?.username}</strong>. Save state server tersedia secara manual saat memulai game dengan akun. Save dalam game/memcard belum disinkronkan.</p><div className="account-actions"><button className="button secondary small" disabled={busy} onClick={() => setLibraryOpen(true)}>Kelola simpanan server</button><button className="button secondary small" disabled={busy} onClick={() => switchMode(mode === 'password' ? 'login' : 'password')}>{mode === 'password' ? 'Batal ganti password' : 'Ganti password'}</button><button className="button secondary small" disabled={busy} onClick={() => switchMode(mode === 'recovery-code' ? 'login' : 'recovery-code')}>{mode === 'recovery-code' ? 'Batal terbitkan kode' : 'Terbitkan ulang kode'}</button><button className="button secondary small" disabled={busy} onClick={() => void submit('logout')}>Keluar akun</button></div></div>}
       {(!authenticated || mode === 'password' || mode === 'recovery-code') && <form className="account-form" onSubmit={e => { e.preventDefault(); void submit(authenticated ? mode === 'recovery-code' ? 'recovery-code' : 'password' : mode === 'register' ? 'register' : mode === 'recover' ? 'recover' : 'login') }}>
         {!authenticated && <><label htmlFor="account-username">Username</label><input id="account-username" autoComplete="username" autoCapitalize="none" spellCheck={false} required disabled={busy} value={username} onChange={e => setUsername(e.target.value)} /><p>3–24 karakter: huruf a–z, angka, atau garis bawah. Huruf besar dianggap sama dengan huruf kecil.</p></>}
         {mode === 'recover' && !authenticated ? <><label htmlFor="account-recovery">Kode pemulihan</label><input id="account-recovery" autoComplete="off" autoCapitalize="none" spellCheck={false} required disabled={busy} value={suppliedCode} onChange={e => setSuppliedCode(e.target.value)} /></> : <><label htmlFor="account-password">{authenticated ? 'Password saat ini' : 'Password'}</label><input id="account-password" type="password" autoComplete={mode === 'register' && !authenticated ? 'new-password' : 'current-password'} required disabled={busy} value={password} onChange={e => setPassword(e.target.value)} /></>}

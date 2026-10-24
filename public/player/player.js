@@ -6,6 +6,15 @@
   let widescreenWanted = false
   let widescreenState = false
   let widescreenObserver = null
+  let memorySaves = false
+  let gameStarted = false
+  // Save-state overlay bookkeeping: remember whether the game was running when
+  // the host asked for a pause, so closing the overlay only resumes a game that
+  // was actually playing (user-paused games stay paused).
+  let overlayState = null
+  let gameRunning = false
+  let builds = null
+  const maxStateBytes = 64 * 1024 * 1024
   const send = (type, extra = {}) => parent.postMessage({ channel: 'maindulu:player', type, sessionId, ...extra }, location.origin)
   const fail = message => send('error', { message })
   const localUrl = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') && !/[\u0000-\u0020]/.test(value)
@@ -82,12 +91,59 @@
     return new Blob([header, bytes, central, end], { type: 'application/zip' })
   }
 
+  // No cookies, tokens or account IDs cross this bridge. HTTP belongs to React.
+  window.addEventListener('message', event => {
+    if (event.origin !== location.origin || event.source !== parent || event.data?.channel !== 'maindulu:host' || event.data.sessionId !== sessionId || !memorySaves || !gameStarted) return
+    const { type, requestId } = event.data
+    // Save-state overlay pause: pause only if started, and remember whether the
+    // game was running so closing the overlay (resume-session) restores exactly
+    // that condition. While the overlay wants a pause, state RPCs must not
+    // resume the game after exporting/importing.
+    if (type === 'pause-session') {
+      const e = window.EJS_emulator
+      if (e?.gameManager && e.started && !overlayState) { overlayState = { resume: !e.paused }; e.pause() }
+      return
+    }
+    if (type === 'resume-session') {
+      const resume = overlayState?.resume === true
+      overlayState = null
+      if (resume) window.EJS_emulator?.play?.()
+      return
+    }
+    if (!['export-state', 'import-state'].includes(type) || typeof requestId !== 'string' || !/^[a-f0-9-]{36}$/.test(requestId)) return
+    try {
+      const e = window.EJS_emulator
+      if (!e.gameManager.supportsStates()) throw new Error('Core tidak mendukung save state.')
+      const paused = e.paused
+      e.pause()
+      try {
+        if (type === 'export-state') {
+          const bytes = e.gameManager.getState()
+          if (!(bytes instanceof Uint8Array) || bytes.length < 32 || bytes.length > maxStateBytes) throw new Error('Ukuran state tidak valid atau melebihi batas player.')
+          send('state-result', { requestId, bytes })
+        } else {
+          const bytes = event.data.bytes
+          if (!(bytes instanceof Uint8Array) || bytes.length < 32 || bytes.length > maxStateBytes || new TextDecoder().decode(bytes.subarray(0, 7)) !== 'RASTATE') throw new Error('Format state tidak valid.')
+          e.gameManager.loadState(bytes)
+          // Engine 4.2.3 does not expose a reliable deserialization acknowledgment.
+          send('state-result', { requestId, applied: true })
+        }
+      } finally { if (!paused && !overlayState) e.play() }
+    } catch (error) { send('state-result', { requestId, error: error instanceof Error ? error.message : 'Operasi state gagal.' }) }
+  })
+
   window.addEventListener('message', async event => {
     if (event.origin !== location.origin || event.source !== parent || event.data?.channel !== 'maindulu:host' || event.data.type !== 'configure' || configured) return
     const config = event.data
     if (typeof config.sessionId !== 'string' || !allowedCores.includes(config.core) || !config.game || typeof config.game.id !== 'string') return
     sessionId = config.sessionId; configured = true
     try {
+      memorySaves = config.memorySaves === true
+      if (memorySaves) {
+        const response = await fetch('/player/builds.json', { cache: 'no-store' })
+        if (!response.ok) throw new Error('Metadata build engine tidak tersedia.')
+        builds = await response.json()
+      }
       if (!(config.rom instanceof Blob) && !localUrl(config.game.url)) throw new Error('Sumber ROM tidak valid. Pilih ROM kembali.')
       if (config.biosUrl && !localUrl(config.biosUrl)) throw new Error('Sumber BIOS server tidak valid.')
       if (!(config.rom instanceof Blob)) await checkServerAsset(config.game.url, 'ROM')
@@ -109,10 +165,33 @@
       window.EJS_noAutoFocus = false
       // Never persist a user's raw ROM/BIOS. Engine states remain separate.
       window.EJS_disableDatabases = true
+      window.EJS_mainduluMemorySaves = memorySaves
+      window.EJS_disableLocalStorage = memorySaves
       window.EJS_CacheLimit = 0
       window.EJS_defaultOptions = { 'save-state-location': 'browser', ejs_threads: 'disabled', mainduluWidescreen: config.widescreen === true ? 'enabled' : 'disabled' }
-      window.EJS_hideSettings = ['ejs_threads']
-      window.EJS_Buttons = { netplay: false, gamepad: true, exitEmulation: false }
+      window.EJS_hideSettings = memorySaves ? ['ejs_threads', 'save-state-location', 'save-state-slot'] : ['ejs_threads']
+      // Bottom toolbar: account sessions get a "Save state server" button between
+      // "Import Save File" and the spacer. The engine adds every `custom: true`
+      // entry to the bar, so the overlay button never touches game-level
+      // Save State buttons (hidden above for memory sessions).
+      window.EJS_Buttons = {
+        netplay: false,
+        gamepad: true,
+        exitEmulation: false,
+        ...(memorySaves ? {
+          saveState: false,
+          loadState: false,
+          quickSave: false,
+          quickLoad: false,
+          mainduluServerState: {
+            visible: true,
+            custom: true,
+            icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>',
+            displayName: 'Save state server',
+            callback: () => send('state-server')
+          }
+        } : {})
+      }
       window.EJS_ready = () => {
         const startButton = document.querySelector('.ejs_start_button')
         if (startButton) {
@@ -127,12 +206,26 @@
         const original = window.EJS_emulator.startGameError.bind(window.EJS_emulator)
         window.EJS_emulator.startGameError = message => { fail(String(message)); return original(message) }
       }
-      window.EJS_onGameStart = () => { applyWidescreen(); send('started') }
+      window.EJS_onGameStart = () => {
+        gameStarted = true
+        gameRunning = true
+        applyWidescreen()
+        send('session-running', { running: true })
+        const file = window.EJS_emulator.mainduluCoreFile
+        const hash = builds?.cores?.[file]
+        const metadata = memorySaves && typeof hash === 'string' ? { formatVersion: 1, engineVersion: builds.engineVersion, runtimeBuild: builds.runtimeBuild, coreBuild: hash, variant: file.includes('-legacy-') ? 'legacy' : 'normal' } : null
+        send('started', { metadata, supportsStates: window.EJS_emulator.gameManager.supportsStates() })
+      }
       // Toggle from the engine menu (Settings → Graphics → Layar lebar).
       window.EJS_onWidescreen = value => {
         widescreenWanted = value === true
         applyWidescreen()
         send('display', { widescreen: widescreenWanted })
+      }
+      // Engine patch reports play/pause transitions (toolbar button, overlay, RPC).
+      window.EJS_onPlayPause = running => {
+        gameRunning = running === true
+        send('session-running', { running: gameRunning })
       }
       const script = document.createElement('script')
       script.src = '/vendor/emulatorjs/4.2.3/data/loader.js'

@@ -1,6 +1,6 @@
 # Rencana Login Opsional dan Penyimpanan Progres Server
 
-Status: M1–M4 selesai. Akun lokal, sesi, ganti password, pemulihan dengan kode sekali pakai, penerbitan ulang kode, dan reset admin lokal tersedia. M5 dan milestone berikutnya belum dimulai; penyimpanan progres server belum diimplementasikan.
+Status: M1–M5 selesai. Akun lokal, pemulihan akun, serta save state server manual dengan kuota tersedia. Integrasi server terverifikasi otomatis pada NES; core lain belum dinyatakan didukung. M6 dan berikutnya belum dimulai: sinkronisasi save game/memcard otomatis, impor browser/penyelesaian konflik, serta backup/restore terkoordinasi belum tersedia.
 
 Pelaksanaan dilakukan per milestone. Lihat bagian [Milestone Implementasi](#milestone-implementasi) untuk checklist dan kriteria selesai, serta [hasil pembuktian M1](milestone-1-integrasi-save.md) untuk kontrak engine, bukti pengujian, dan batasan integrasi berikutnya.
 
@@ -28,8 +28,8 @@ Target deployment utama adalah satu komputer yang menjalankan aplikasi beserta p
 - Frontend menggunakan React dan Vite.
 - Player EmulatorJS berjalan dalam iframe melalui `src/components/Player.tsx` dan `public/player/player.js`.
 - Pengaturan, favorit, dan riwayat menggunakan penyimpanan browser.
-- Bridge player saat ini mengatur lokasi save state ke browser.
-- Backend lokal menyajikan hasil build, health API, SQLite persisten, API akun/sesi M3, serta pemulihan akun M4. API penyimpanan progres belum tersedia.
+- Player tamu tetap memakai storage browser; player akun memakai store state dummy dan filesystem save memori terisolasi. State dapat disimpan/dimuat manual melalui server; save game/memcard akun belum tersinkron dan masih sementara di memori.
+- Backend lokal menyajikan hasil build, health API, SQLite persisten, akun/pemulihan M3–M4, serta API save state dan kuota M5. Byte state berada di folder data privat, bukan aset publik.
 
 Implementasi akun tidak boleh menjadikan backend sebagai syarat agar katalog dan mode tamu dapat digunakan.
 
@@ -255,7 +255,7 @@ Saat sesi dicabut akibat pergantian atau pemulihan password, player mengikuti at
 | M2 | Web dan API lokal satu proses, SQLite persisten | M1 | Selesai |
 | M3 | Daftar, login, logout, dan sesi akun lokal | M2 | Selesai |
 | M4 | Pemulihan password dan reset admin lokal | M3 | Selesai |
-| M5 | Save/load state manual ke server | M1–M4 | Belum dimulai |
+| M5 | Save/load state manual ke server | M1–M4 | Selesai — NES otomatis; core lain belum terverifikasi |
 | M6 | Sinkronisasi save game/memcard | M5 | Belum dimulai |
 | M7 | Penyelesaian konflik dan impor save browser | M6 | Belum dimulai |
 | M8 | Backup/restore, verifikasi akhir, dan panduan operasi | M7 | Belum dimulai |
@@ -335,16 +335,20 @@ Hasil: 65 unit/integrasi lulus; build lulus; suite development/production statis
 
 Tujuan: menyediakan alur cloud save pertama dari browser sampai penyimpanan server.
 
-- [ ] Tetapkan jumlah slot, batas ukuran, kuota, metadata kompatibilitas, dan format identitas save.
-- [ ] Implementasikan API daftar, baca, tulis, dan hapus save dengan pemeriksaan kepemilikan di server.
-- [ ] Terapkan checksum, penulisan atomik, konsistensi metadata/berkas, dan pemeriksaan revisi untuk menolak overwrite usang sejak awal.
-- [ ] Integrasikan pesan save/load antara host React dan bridge iframe dengan validasi origin, source, channel, serta session ID.
-- [ ] Pisahkan jalur save state pengguna login dari store browser tamu; `EJS_disableDatabases` tidak mematikan store state engine.
-- [ ] Tambahkan tombol save/load state, slot, status upload, dan peringatan kompatibilitas.
-- [ ] Tangani sesi kedaluwarsa, pergantian akun, dan kegagalan jaringan tanpa mencampurkan data tamu atau akun lain.
-- [ ] Uji save lalu restart server/buka sesi browser baru dan pulihkan state melalui engine nyata.
-- [ ] Uji isolasi dua akun, akses tanpa izin, path berbahaya, upload tidak valid, kuota, revisi usang, dan versi engine/core berbeda.
-- [ ] Verifikasi bahwa reset password/admin tetap mempertahankan akses pemilik ke save yang sudah ada.
+Panduan, kontrak API, konfigurasi kuota, dan batasan: [M5 — Save State Server Manual](milestone-5-save-state-server.md).
+
+- [x] Tetapkan jumlah slot, batas ukuran, kuota, metadata kompatibilitas, dan format identitas save. Tiga slot; default 32 MiB/state dan 256 MiB/akun, dapat dikonfigurasi.
+- [x] Implementasikan API daftar, baca, tulis, dan hapus save dengan pemeriksaan kepemilikan di server; slot 1–3 manual dan slot khusus 99 (Autosave).
+- [x] Terapkan checksum, penulisan atomik, konsistensi metadata/berkas, dan pemeriksaan revisi untuk menolak overwrite usang sejak awal. Tombstone menjaga revisi setelah penghapusan; startup membersihkan orphan secara terkoordinasi.
+- [x] Integrasikan pesan save/load antara host React dan bridge iframe dengan validasi origin, source, channel, serta session ID.
+- [x] Pisahkan jalur save state pengguna login dari store browser tamu; `EJS_disableDatabases` tidak mematikan store state engine. Patch vendoring menambahkan mode state dummy/MEMFS akun tanpa mengubah persistence tamu.
+- [x] Tambahkan tombol **Save state server** di toolbar emulator (bar bawah, di sebelah Import Save File) untuk sesi akun, serta overlay tunggal yang mem-pause permainan saat terbuka dan melanjutkan hanya permainan yang berjalan saat overlay ditutup. Panel berisi tiga slot manual, slot Autosave terpisah, toggle/interval autosave (Nonaktif 0 detik, 30 detik, 1–15 menit), pengelola lintas game, peringatan kuota 80%, hapus berkonfirmasi, ekspor cadangan, dan retry eksplisit; tidak ada penghapusan otomatis.
+- [x] Tangani sesi kedaluwarsa, pergantian akun, dan kegagalan jaringan tanpa mencampurkan data tamu atau akun lain.
+- [x] Uji save lalu restart server/buka sesi browser baru dan pulihkan state melalui engine nyata. Posisi RAM NES benar-benar pulih setelah server dibuat ulang dan database dibuka ulang, bukan hanya pengujian byte.
+- [x] Uji isolasi dua akun, akses tanpa izin, path berbahaya, upload tidak valid, kuota, revisi usang, dan versi engine/core berbeda.
+- [x] Verifikasi bahwa reset password/admin tetap mempertahankan akses pemilik ke save yang sudah ada. Ganti password, pemulihan kode, dan reset admin diuji terhadap byte state serta ID pemilik nyata.
+
+Hasil: 75 unit/integrasi lulus; build lulus; development/production statis masing-masing 22 lulus dan 13 tes akun/save server sengaja dilewati; backend nyata 31 lulus, termasuk tujuh tes integrasi M5 (termasuk autosave slot 99). Suite autentikasi/admin/save/server pada Node.js 24.22.1: 48 lulus. Dukungan server dibuktikan otomatis pada NES legacy sesuai filename loader yang direkam; PS1/core lain dan varian normal belum dinyatakan terverifikasi. M5 selesai; rincian serta batasan pada [hasil M5](milestone-5-save-state-server.md#hasil-verifikasi).
 
 **Selesai jika:** pengguna login dapat menyimpan dan memuat state lintas sesi dari server; kegagalan serta konflik revisi terlihat jelas dan tidak menimpa data diam-diam.
 
@@ -353,7 +357,7 @@ Tujuan: menyediakan alur cloud save pertama dari browser sampai penyimpanan serv
 Tujuan: menjadikan server penyimpanan utama progres dalam game pada core yang sudah diverifikasi.
 
 - [ ] Ambil serta pasang save game/memcard sebelum fase permainan yang memerlukannya.
-- [ ] Isolasi storage pengguna login dari IDBFS tamu/akun lain; pertahankan persistence browser untuk tamu. Buktikan mode memori akun tanpa otomatis membaca/menulis store bersama.
+- [ ] Isolasi storage pengguna login dari IDBFS tamu/akun lain; pertahankan persistence browser untuk tamu. Fondasi MEMFS akun telah dibuktikan di M5; validasi pemulihan memcard per core dan sebelum boot tetap dilakukan di M6.
 - [ ] Tambahkan deteksi perubahan, pembatasan frekuensi upload, dan retry terbatas selama sesi berlangsung.
 - [ ] Tampilkan status tersimpan hanya setelah konfirmasi server; jangan mengandalkan penutupan tab sebagai jalur sinkronisasi utama.
 - [ ] Cegah save kosong menimpa server ketika pengambilan save awal gagal.
@@ -408,7 +412,7 @@ Tujuan: menyiapkan penggunaan sehari-hari serta pemulihan ketika komputer/server
 - Framework backend dan library SQLite yang digunakan.
 - Dukungan sistem operasi serta versi Node.js minimum backend.
 - Perintah reset admin dan prosedur verifikasi pemilik telah ditetapkan pada [M4](milestone-4-pemulihan-akun.md); kebijakan akun dan format kode awal ditetapkan pada M3.
-- Jumlah slot, batas ukuran save, kuota per akun, dan retensi cadangan konflik.
+- Slot, batas ukuran state, dan kuota akun telah ditetapkan pada M5; retensi cadangan konflik tetap M7.
 - Kebijakan cache offline untuk pengguna login.
 - Penyajian HTTPS jika server diakses perangkat lain.
 - Daftar core yang dinyatakan mendukung sinkronisasi setelah pengujian nyata.

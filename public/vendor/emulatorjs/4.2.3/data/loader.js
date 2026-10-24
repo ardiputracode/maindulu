@@ -117,6 +117,7 @@
     config.externalFiles = window.EJS_externalFiles;
     config.dontExtractBIOS = window.EJS_dontExtractBIOS;
     config.disableDatabases = window.EJS_disableDatabases;
+    config.mainduluMemorySaves = window.EJS_mainduluMemorySaves === true;
     config.disableLocalStorage = window.EJS_disableLocalStorage;
     config.forceLegacyCores = window.EJS_forceLegacyCores;
     config.noAutoFocus = window.EJS_noAutoFocus;

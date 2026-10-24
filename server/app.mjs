@@ -7,6 +7,7 @@ import { isWithin, readConfig } from './config.mjs'
 import { openDatabase } from './database.mjs'
 import { registerAuth } from './auth/routes.mjs'
 import { AuthError } from './auth/limits.mjs'
+import { registerSaves } from './saves.mjs'
 
 const pages = ['/', '/index.html', '/console', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main']
 const assetDirectories = new Set(['assets', 'vendor', 'player', 'catalog', 'games', 'bios', 'covers'])
@@ -39,7 +40,7 @@ export async function createApp({ env = process.env, root, logger = false } = {}
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AuthError) {
       if (error.retryAfter) reply.header('Retry-After', String(error.retryAfter))
-      return reply.code(error.statusCode).send({ error: error.message })
+      return reply.code(error.statusCode).send({ error: error.message, ...(error.code ? { code: error.code } : {}) })
     }
     request.log.error(error)
     const status = error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 500
@@ -49,11 +50,12 @@ export async function createApp({ env = process.env, root, logger = false } = {}
   app.get('/api/health', async (_request, reply) => {
     try { db.prepare('SELECT 1').get() }
     catch { return reply.code(503).send({ error: 'Penyimpanan server belum tersedia.' }) }
-    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: false } }
+    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true } }
   })
-  registerAuth(app, config)
-  for (const page of pages) app.get(page, (_request, reply) => reply.type('text/html; charset=utf-8').send(html))
   try {
+    const security = registerAuth(app, config)
+    registerSaves(app, config, security)
+    for (const page of pages) app.get(page, (_request, reply) => reply.type('text/html; charset=utf-8').send(html))
     await app.register(fastifyStatic, {
       root: config.distDir,
       index: false,

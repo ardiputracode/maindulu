@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { csrfToken, dummyHash, equalToken, hashPassword, hashRecoveryCode, hashToken, normalizeRecoveryCode, normalizeUsername, randomToken, recoveryCode, validPassword, verifyPassword } from './crypto.mjs'
 import { AuthError, createLimiter } from './limits.mjs'
 import { replaceCredentials, transaction as dbTransaction } from './mutations.mjs'
+import { protectRequest } from './security.mjs'
 
 const cookieName = 'maindulu_session'
 const sessionAge = 7 * 24 * 60 * 60
@@ -53,18 +54,7 @@ export function registerAuth(app, config) {
   app.register(cookie)
   app.register(async auth => {
     auth.addHook('onRequest', async request => {
-      let expected
-      try { expected = new URL(config.publicOrigin ?? `http://${request.headers.host}`) }
-      catch { throw new AuthError(403, 'Origin akun tidak valid.') }
-      if (!config.publicOrigin && !['localhost', '127.0.0.1', '[::1]'].includes(expected.hostname)) throw new AuthError(403, 'Akses akun memerlukan HTTPS. Gunakan localhost atau konfigurasi MAIN_DULU_PUBLIC_ORIGIN.')
-      if (new URL(`${expected.protocol}//${request.headers.host}`).host !== expected.host) throw new AuthError(403, 'Alamat akun tidak sesuai konfigurasi server.')
-      if (request.headers.origin !== undefined && request.headers.origin !== expected.origin) throw new AuthError(403, 'Permintaan akun harus berasal dari situs yang sama.')
-      if (request.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(request.headers['sec-fetch-site'])) throw new AuthError(403, 'Permintaan akun harus berasal dari situs yang sama.')
-      if (request.method !== 'GET' && request.method !== 'HEAD') {
-        if (request.headers.origin !== expected.origin || !request.headers['content-type']?.startsWith('application/json')) throw new AuthError(403, 'Permintaan akun tidak valid. Muat ulang halaman dan coba lagi.')
-        current(request)
-        if (!equalToken(request.headers['x-csrf-token'], csrfToken(request.cookies[cookieName]))) throw new AuthError(403, 'Token keamanan tidak valid. Muat ulang halaman dan coba lagi.')
-      }
+      protectRequest(request, config, current)
     })
     auth.get('/session', async request => sessionResult(request))
     auth.get('/csrf', async (request, reply) => {
@@ -176,4 +166,5 @@ export function registerAuth(app, config) {
       return { username: user.username, recoveryCode: code }
     })
   }, { prefix: '/api/auth' })
+  return { current }
 }

@@ -2,6 +2,8 @@
 
 Status: M1 selesai. NES lulus tes otomatis; memcard dan save state PS1 lulus verifikasi manual lintas sesi/browser berdasarkan konfirmasi pengguna.
 
+Catatan lanjutan: [M5](milestone-5-save-state-server.md) mengimplementasikan state server manual, fingerprint build, dan isolasi storage akun. Klaim PS1 manual M1 tetap terpisah dari verifikasi integrasi server.
+
 Dokumen ini melengkapi [rencana login dan penyimpanan server](rencana-login-cloud-save.md#milestone-implementasi). M1 tidak menambahkan backend, akun, tombol cloud save, atau protokol save produksi. Hasilnya berupa tes engine nyata, fixture asli, dan kontrak teknis untuk milestone berikutnya.
 
 ## Implementasi Pembuktian

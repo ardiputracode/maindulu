@@ -31,7 +31,9 @@ npm start
 
 Buka **http://localhost:7777**. Satu proses Node.js menyajikan frontend dan API, dengan SQLite persisten di `data/maindulu.sqlite`. Default hanya mendengarkan komputer sendiri. Port, host, dan folder data dapat diubah lewat konfigurasi lingkungan; lihat [panduan backend M2](doc/milestone-2-backend-lokal.md).
 
-**Akun lokal opsional**: pilih **Masuk → Daftar**, lalu simpan kode pemulihan yang ditampilkan sekali. Login/logout, ganti password, pemulihan dengan kode sekali pakai, dan penerbitan ulang kode tersedia tanpa Google atau email. Pengelola dengan akses OS dapat menjalankan `npm run account:reset -- <username>` dengan input password tersembunyi. **Cloud save belum tersedia; progres tetap di browser.** Lihat [panduan akun M3](doc/milestone-3-akun-lokal.md) dan [pemulihan akun M4](doc/milestone-4-pemulihan-akun.md).
+**Akun lokal opsional**: pilih **Masuk → Daftar**, lalu simpan kode pemulihan yang ditampilkan sekali. Login/logout, ganti password, pemulihan dengan kode sekali pakai, dan penerbitan ulang kode tersedia tanpa Google atau email. Pengelola dengan akses OS dapat menjalankan `npm run account:reset -- <username>` dengan input password tersembunyi. Lihat [panduan akun M3](doc/milestone-3-akun-lokal.md) dan [pemulihan akun M4](doc/milestone-4-pemulihan-akun.md).
+
+**Save state server manual (M5):** login sebelum membuka game, lalu gunakan tombol **Save state server** di toolbar emulator (bar bawah, di sebelah Import Save File) untuk membuka overlay. Game jeda otomatis saat overlay terbuka dan lanjut kembali saat ditutup. Overlay menyediakan simpan/muat pada tiga slot manual dan slot **Autosave** khusus (slot 99) dengan toggle + interval (Nonaktif default, 30 detik, 1–15 menit) yang ditimpa otomatis saat aktif. Default 32 MiB per state dan 256 MiB per akun, dengan peringatan 80%, pengelola lintas game, serta unduhan cadangan/retry saat upload gagal. Verifikasi otomatis saat ini NES; core lain masih percobaan. **Save dalam game/memcard akun belum tersinkron dan masih sementara di memori**—ekspor sebelum keluar atau simpan state ke server. Mode tamu/statis tetap menyimpan di browser. Lihat [panduan M5 dan konfigurasi kuota](doc/milestone-5-save-state-server.md).
 
 `npm run dev`, `npm run preview`, dan deployment statis tetap berfungsi tanpa backend atau request API. Mode backend aktif otomatis hanya saat halaman dilayani server Node.js (atau melalui opt-in frontend yang dikonfigurasi khusus). Akun dapat dipakai lewat HTTP localhost; akses akun dari perangkat jaringan memerlukan origin HTTPS yang dikonfigurasi.
 
@@ -47,7 +49,7 @@ Untuk mencoba dari HP di Wi-Fi yang sama, buka `http://IP-KOMPUTER:5173`. Server
 - Player iframe terisolasi, validasi pesan/sesi, konfirmasi keluar, dan pembersihan instance.
 - Core lokal NES (`fceumm`), SNES (`snes9x`), GB/GBC (`gambatte`), GBA (`mgba`), Mega Drive (`genesis_plus_gx`), PS1 (`pcsx_rearmed`). Varian non-threaded normal dan legacy dibundel.
 - **Jalan Pulang**, homebrew NES orisinal berlisensi CC0, dapat dimainkan langsung. Gerakkan karakter kiri/kanan untuk menangkap bintang. Ini contoh teknis, bukan ROM komersial.
-- Backend Node.js opsional tanpa Docker: web + API satu proses, SQLite persisten, status koneksi, dan akun lokal dengan sesi cookie HttpOnly; cloud save belum tersedia.
+- Backend Node.js opsional tanpa Docker: web + API satu proses, SQLite persisten, akun lokal dengan sesi cookie HttpOnly, pemulihan akun, dan save state server manual berkuota; sinkronisasi memcard belum tersedia.
 
 ## Tambahkan game server
 
@@ -90,13 +92,13 @@ Semua isi `public/` dapat diunduh pengunjung, **bukan penyimpanan privat**. BIOS
 - Ekstensi bukan bukti integritas atau kompatibilitas. Console ambigu (misalnya BIN) harus dipilih manual.
 - PS1 menggunakan HLE bila tanpa BIOS; BIOS asli disarankan dan tidak semua game kompatibel dengan HLE.
 - Tidak menjanjikan semua game pada enam console kompatibel. Uji per core dan perangkat.
-- Belum ada cloud save, netplay, panel admin web, backend upload ROM, atau PWA offline. Akun lokal serta pemulihannya hanya tersedia ketika backend akun diaktifkan; reset admin memakai perintah lokal, bukan endpoint publik.
+- Belum ada sinkronisasi otomatis save game/memcard, impor save browser ke akun, UI penyelesaian konflik, netplay, panel admin web, backend upload ROM, atau PWA offline. Akun dan save state server memerlukan backend; reset admin memakai perintah lokal, bukan endpoint publik.
 
 ## Privasi dan progres
 
-File lokal tidak dikirim ke server dan cache ROM/BIOS engine dinonaktifkan. LocalStorage hanya menyimpan pengaturan dan metadata; progres/state emulator tersimpan terpisah di browser melalui fasilitas engine. File ROM/BIOS mungkin perlu dipilih ulang setelah sesi ditutup. Riwayat **bukan** save state. Mematikan riwayat tidak menghapus riwayat lama, favorit, atau save. Ekspor save dari menu emulator untuk cadangan sebelum membersihkan data situs.
+File lokal tidak dikirim ke server dan cache ROM/BIOS engine dinonaktifkan. LocalStorage hanya menyimpan pengaturan dan metadata. Progres tamu tersimpan terpisah di browser melalui engine; sesi akun memakai storage memori terisolasi dan save state server manual. Save dalam game/memcard akun belum otomatis dipermanenkan—ekspor atau simpan state sebelum keluar. File ROM/BIOS mungkin perlu dipilih ulang setelah sesi ditutup. Riwayat **bukan** save state. Mematikan riwayat tidak menghapus riwayat lama, favorit, atau save. Ekspor cadangan sebelum membersihkan data situs.
 
-Akun lokal menyimpan username, hash password, hash kode pemulihan, dan hash sesi di SQLite privat. Password dikirim hanya ke API akun same-origin; ROM/BIOS tetap tidak diunggah. Sesi login memakai cookie HttpOnly, bukan LocalStorage. Login saat ini tidak memindahkan progres browser ke server. Reset password melalui kode/admin membatalkan semua sesi dan kode lama tanpa mengubah ID akun. Simpan kode baru secara privat di luar browser; lihat [prosedur M4](doc/milestone-4-pemulihan-akun.md).
+Akun lokal menyimpan username, hash password, hash kode pemulihan, dan hash sesi di SQLite privat. Password dikirim hanya ke API akun same-origin; ROM/BIOS tetap tidak diunggah. Sesi login memakai cookie HttpOnly, bukan LocalStorage. Save state diunggah hanya lewat aksi pengguna; login tidak mengimpor progres browser tamu. Byte state berada di folder data privat dan metadata di SQLite. Reset password/kode/admin mempertahankan ID serta kepemilikan save; reset password mencabut seluruh sesi. Simpan kode baru secara privat di luar browser; lihat [prosedur M4](doc/milestone-4-pemulihan-akun.md).
 
 ## Engine, sumber, dan kemandirian
 
