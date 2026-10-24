@@ -35,6 +35,12 @@ export const csrfToken = sessionToken => createHmac('sha256', sessionToken).upda
 export const recoveryCode = () => randomBytes(32).toString('hex').toUpperCase().match(/.{8}/g).join('-')
 export const hashRecoveryCode = code => hashToken(code.replaceAll('-', '').toUpperCase())
 
+export function normalizeRecoveryCode(value) {
+  if (typeof value !== 'string' || value.length > 80) return null
+  const code = value.trim()
+  return /^(?:[a-f0-9]{64}|[a-f0-9]{8}(?:-[a-f0-9]{8}){7})$/i.test(code) ? code.replaceAll('-', '').toUpperCase() : null
+}
+
 export function equalToken(a, b) {
   return typeof a === 'string' && /^[a-f0-9]{64}$/.test(a) && timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'))
 }

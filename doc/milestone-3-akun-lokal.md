@@ -2,6 +2,8 @@
 
 Status: M3 selesai. Akun lokal, sesi, ganti password, kode pemulihan saat daftar, dan regresi mode tamu/statis telah diverifikasi.
 
+Catatan: dokumen ini mencatat kondisi saat penutupan M3. Pemulihan password, penerbitan ulang kode, dan reset admin kemudian ditambahkan pada [M4 — Pemulihan Akun](milestone-4-pemulihan-akun.md); keterangan belum tersedia di bawah merupakan batas historis M3.
+
 M3 menambahkan akun lokal opsional di atas backend M2. Tidak ada ketergantungan Google, email, atau layanan autentikasi eksternal. **Login belum mengaktifkan cloud save**: favorit, riwayat, pengaturan, memcard, dan save state masih mengikuti penyimpanan browser yang ada.
 
 ## Cara Menggunakan

@@ -45,17 +45,18 @@ export function useAccount(enabled: boolean) {
     const active = controllers.current
     return () => { epoch.current++; clearInterval(timer); window.removeEventListener('focus', focus); for (const controller of active) controller.abort() }
   }, [enabled, refresh])
-  const perform = async (action: 'register' | 'login' | 'logout' | 'password', body: Record<string, string>) => {
+  const perform = async (action: 'register' | 'login' | 'logout' | 'password' | 'recover' | 'recovery-code', body: Record<string, string>) => {
     if (!enabled || mutating.current) throw new AccountError('Fitur akun belum siap. Coba lagi sebentar.')
     mutating.current = true
     const run = ++epoch.current
     try {
       const bootstrap = readAccountSession(await request('csrf'))
       if (!bootstrap?.csrfToken) throw new AccountError('Sesi keamanan tidak tersedia. Coba lagi.')
-      if (action === 'password' && bootstrap.user?.id !== state.user?.id) throw new AccountError('Akun berubah atau sesi berakhir. Muat ulang informasi akun.', 401)
+      if ((action === 'password' || action === 'recovery-code') && (!state.user || bootstrap.user?.id !== state.user.id)) throw new AccountError('Akun berubah atau sesi berakhir. Muat ulang informasi akun.', 401)
       const data = await request(action, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': bootstrap.csrfToken }, body: JSON.stringify(body) })
       if (run !== epoch.current) throw new AccountError('Status akun berubah. Muat ulang halaman untuk memeriksa hasilnya.')
       if (action === 'login' || action === 'register') applySession(data)
+      else if (action === 'recovery-code') applySession(bootstrap)
       else setState({ status: 'anonymous', user: null, registrationOpen: bootstrap.registrationOpen })
       return data
     } catch (error) {

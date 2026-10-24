@@ -31,7 +31,7 @@ npm start
 
 Buka **http://localhost:7777**. Satu proses Node.js menyajikan frontend dan API, dengan SQLite persisten di `data/maindulu.sqlite`. Default hanya mendengarkan komputer sendiri. Port, host, dan folder data dapat diubah lewat konfigurasi lingkungan; lihat [panduan backend M2](doc/milestone-2-backend-lokal.md).
 
-M3 menambahkan **akun lokal opsional**: pilih **Masuk → Daftar**, lalu simpan kode pemulihan yang ditampilkan sekali. Login/logout dan ganti password tersedia, tanpa Google atau email. **Cloud save dan reset password belum tersedia; progres tetap di browser.** Lihat [panduan akun M3](doc/milestone-3-akun-lokal.md).
+**Akun lokal opsional**: pilih **Masuk → Daftar**, lalu simpan kode pemulihan yang ditampilkan sekali. Login/logout, ganti password, pemulihan dengan kode sekali pakai, dan penerbitan ulang kode tersedia tanpa Google atau email. Pengelola dengan akses OS dapat menjalankan `npm run account:reset -- <username>` dengan input password tersembunyi. **Cloud save belum tersedia; progres tetap di browser.** Lihat [panduan akun M3](doc/milestone-3-akun-lokal.md) dan [pemulihan akun M4](doc/milestone-4-pemulihan-akun.md).
 
 `npm run dev`, `npm run preview`, dan deployment statis tetap berfungsi tanpa backend atau request API. Mode backend aktif otomatis hanya saat halaman dilayani server Node.js (atau melalui opt-in frontend yang dikonfigurasi khusus). Akun dapat dipakai lewat HTTP localhost; akses akun dari perangkat jaringan memerlukan origin HTTPS yang dikonfigurasi.
 
@@ -90,13 +90,13 @@ Semua isi `public/` dapat diunduh pengunjung, **bukan penyimpanan privat**. BIOS
 - Ekstensi bukan bukti integritas atau kompatibilitas. Console ambigu (misalnya BIN) harus dipilih manual.
 - PS1 menggunakan HLE bila tanpa BIOS; BIOS asli disarankan dan tidak semua game kompatibel dengan HLE.
 - Tidak menjanjikan semua game pada enam console kompatibel. Uji per core dan perangkat.
-- Belum ada cloud save, reset password, netplay, admin, backend upload ROM, atau PWA offline. Akun lokal hanya tersedia ketika backend akun diaktifkan.
+- Belum ada cloud save, netplay, panel admin web, backend upload ROM, atau PWA offline. Akun lokal serta pemulihannya hanya tersedia ketika backend akun diaktifkan; reset admin memakai perintah lokal, bukan endpoint publik.
 
 ## Privasi dan progres
 
 File lokal tidak dikirim ke server dan cache ROM/BIOS engine dinonaktifkan. LocalStorage hanya menyimpan pengaturan dan metadata; progres/state emulator tersimpan terpisah di browser melalui fasilitas engine. File ROM/BIOS mungkin perlu dipilih ulang setelah sesi ditutup. Riwayat **bukan** save state. Mematikan riwayat tidak menghapus riwayat lama, favorit, atau save. Ekspor save dari menu emulator untuk cadangan sebelum membersihkan data situs.
 
-Akun lokal menyimpan username, hash password, hash kode pemulihan, dan hash sesi di SQLite privat. Password dikirim hanya ke API akun same-origin; ROM/BIOS tetap tidak diunggah. Sesi login memakai cookie HttpOnly, bukan LocalStorage. Login saat ini tidak memindahkan progres browser ke server. Pemulihan password menggunakan kode dan reset admin akan tersedia pada M4.
+Akun lokal menyimpan username, hash password, hash kode pemulihan, dan hash sesi di SQLite privat. Password dikirim hanya ke API akun same-origin; ROM/BIOS tetap tidak diunggah. Sesi login memakai cookie HttpOnly, bukan LocalStorage. Login saat ini tidak memindahkan progres browser ke server. Reset password melalui kode/admin membatalkan semua sesi dan kode lama tanpa mengubah ID akun. Simpan kode baru secara privat di luar browser; lihat [prosedur M4](doc/milestone-4-pemulihan-akun.md).
 
 ## Engine, sumber, dan kemandirian
 

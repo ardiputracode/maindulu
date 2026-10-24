@@ -1,6 +1,6 @@
 # Rencana Login Opsional dan Penyimpanan Progres Server
 
-Status: M1–M3 selesai. Akun lokal, sesi, ganti password, dan kode pemulihan saat daftar tersedia. M4 dan milestone berikutnya belum dimulai; reset password serta penyimpanan progres server belum diimplementasikan.
+Status: M1–M4 selesai. Akun lokal, sesi, ganti password, pemulihan dengan kode sekali pakai, penerbitan ulang kode, dan reset admin lokal tersedia. M5 dan milestone berikutnya belum dimulai; penyimpanan progres server belum diimplementasikan.
 
 Pelaksanaan dilakukan per milestone. Lihat bagian [Milestone Implementasi](#milestone-implementasi) untuk checklist dan kriteria selesai, serta [hasil pembuktian M1](milestone-1-integrasi-save.md) untuk kontrak engine, bukti pengujian, dan batasan integrasi berikutnya.
 
@@ -29,7 +29,7 @@ Target deployment utama adalah satu komputer yang menjalankan aplikasi beserta p
 - Player EmulatorJS berjalan dalam iframe melalui `src/components/Player.tsx` dan `public/player/player.js`.
 - Pengaturan, favorit, dan riwayat menggunakan penyimpanan browser.
 - Bridge player saat ini mengatur lokasi save state ke browser.
-- Backend lokal menyajikan hasil build, health API, SQLite persisten, serta API akun/sesi M3. API reset password dan penyimpanan progres belum tersedia.
+- Backend lokal menyajikan hasil build, health API, SQLite persisten, API akun/sesi M3, serta pemulihan akun M4. API penyimpanan progres belum tersedia.
 
 Implementasi akun tidak boleh menjadikan backend sebagai syarat agar katalog dan mode tamu dapat digunakan.
 
@@ -210,7 +210,7 @@ Gunakan pesan kegagalan umum untuk kombinasi username/kode yang tidak valid dan 
 - Input password baru dilakukan secara tersembunyi/interaktif, bukan melalui argumen yang mudah tertinggal di riwayat shell atau daftar proses.
 - Pemulihan akun bukan pemulihan berkas: save yang terhapus tetap memerlukan backup server.
 
-Nama dan bentuk perintah admin akan ditentukan saat implementasi; belum ada perintah reset yang tersedia saat ini.
+Perintah M4: `npm run account:reset -- <username>`, menggunakan folder data backend yang sama dan input password tersembunyi melalui terminal interaktif. Lihat [prosedur verifikasi pemilik dan reset admin](milestone-4-pemulihan-akun.md#bantuan-admin-lokal-jika-kode-hilang).
 
 ### Pengamanan Teknis
 
@@ -254,7 +254,7 @@ Saat sesi dicabut akibat pergantian atau pemulihan password, player mengikuti at
 | M1 | Bukti ekspor/impor save pada engine nyata | — | Selesai — otomatis NES, manual PS1 |
 | M2 | Web dan API lokal satu proses, SQLite persisten | M1 | Selesai |
 | M3 | Daftar, login, logout, dan sesi akun lokal | M2 | Selesai |
-| M4 | Pemulihan password dan reset admin lokal | M3 | Belum dimulai |
+| M4 | Pemulihan password dan reset admin lokal | M3 | Selesai |
 | M5 | Save/load state manual ke server | M1–M4 | Belum dimulai |
 | M6 | Sinkronisasi save game/memcard | M5 | Belum dimulai |
 | M7 | Penyelesaian konflik dan impor save browser | M6 | Belum dimulai |
@@ -316,14 +316,18 @@ Hasil: 48 unit/integrasi lulus; build lulus; masing-masing suite development/pro
 
 Tujuan: memulihkan akses akun tanpa layanan email.
 
-- [ ] Tambahkan formulir reset menggunakan username, kode pemulihan, dan password baru.
-- [ ] Konsumsi kode lama, ganti password, cabut semua sesi, dan simpan hash kode baru dalam satu transaksi.
-- [ ] Tambahkan penerbitan ulang kode setelah pembuktian password saat ini.
-- [ ] Sediakan perintah reset admin lokal dengan input password tersembunyi, tanpa endpoint reset publik yang melewati pembuktian akun.
-- [ ] Dokumentasikan penyimpanan kode dan prosedur verifikasi pemilik akun oleh pengelola.
-- [ ] Uji kode salah, lintas akun, terpakai, dibatalkan, dan dipakai bersamaan; maksimal satu pemulihan berhasil per kode.
-- [ ] Uji pencabutan sesi, penolakan password/kode lama, serta pembatasan percobaan tanpa membocorkan keberadaan akun.
-- [ ] Pastikan reset mempertahankan ID akun dan tidak menghapus data milik pengguna.
+Panduan, kontrak API, dan prosedur administrasi: [M4 — Pemulihan Akun](milestone-4-pemulihan-akun.md).
+
+- [x] Tambahkan formulir reset menggunakan username, kode pemulihan, dan password baru.
+- [x] Konsumsi kode lama, ganti password, cabut semua sesi, dan simpan hash kode baru dalam satu transaksi.
+- [x] Tambahkan penerbitan ulang kode setelah pembuktian password saat ini.
+- [x] Sediakan perintah reset admin lokal dengan input password tersembunyi, tanpa endpoint reset publik yang melewati pembuktian akun.
+- [x] Dokumentasikan penyimpanan kode dan prosedur verifikasi pemilik akun oleh pengelola.
+- [x] Uji kode salah, lintas akun, terpakai, dibatalkan, dan dipakai bersamaan; maksimal satu pemulihan berhasil per kode.
+- [x] Uji pencabutan sesi, penolakan password/kode lama, serta pembatasan percobaan tanpa membocorkan keberadaan akun.
+- [x] Pastikan reset mempertahankan ID akun dan tidak menghapus data milik pengguna. Data terkait diuji dengan record kepemilikan sentinel; save server nyata tetap diuji di M5.
+
+Hasil: 65 unit/integrasi lulus; build lulus; suite development/production statis masing-masing 22 lulus dan 7 tes akun sengaja dilewati; suite backend nyata 24 lulus, termasuk tujuh tes akun. Suite autentikasi/admin/server pada Node.js 24.22.1: 39 lulus. Pengujian CLI menggunakan proses nyata dengan stream TTY simulasi, bukan terminal Windows native. M4 selesai; lihat [hasil verifikasi dan batasan M4](milestone-4-pemulihan-akun.md#hasil-verifikasi). Cloud save belum tersedia.
 
 **Selesai jika:** pemulihan dengan kode serta bantuan admin lokal berhasil, kode tidak dapat digunakan ulang, dan seluruh sesi lama ditolak server.
 
@@ -403,7 +407,7 @@ Tujuan: menyiapkan penggunaan sehari-hari serta pemulihan ketika komputer/server
 
 - Framework backend dan library SQLite yang digunakan.
 - Dukungan sistem operasi serta versi Node.js minimum backend.
-- Bentuk perintah reset admin serta prosedur verifikasi pemilik akun oleh pengelola; kebijakan akun dan format kode awal telah ditetapkan pada M3.
+- Perintah reset admin dan prosedur verifikasi pemilik telah ditetapkan pada [M4](milestone-4-pemulihan-akun.md); kebijakan akun dan format kode awal ditetapkan pada M3.
 - Jumlah slot, batas ukuran save, kuota per akun, dan retensi cadangan konflik.
 - Kebijakan cache offline untuk pengguna login.
 - Penyajian HTTPS jika server diakses perangkat lain.

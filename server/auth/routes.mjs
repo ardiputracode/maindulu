@@ -1,7 +1,8 @@
 import cookie from '@fastify/cookie'
 import { randomUUID } from 'node:crypto'
-import { csrfToken, dummyHash, equalToken, hashPassword, hashRecoveryCode, hashToken, normalizeUsername, randomToken, recoveryCode, validPassword, verifyPassword } from './crypto.mjs'
+import { csrfToken, dummyHash, equalToken, hashPassword, hashRecoveryCode, hashToken, normalizeRecoveryCode, normalizeUsername, randomToken, recoveryCode, validPassword, verifyPassword } from './crypto.mjs'
 import { AuthError, createLimiter } from './limits.mjs'
+import { replaceCredentials, transaction as dbTransaction } from './mutations.mjs'
 
 const cookieName = 'maindulu_session'
 const sessionAge = 7 * 24 * 60 * 60
@@ -47,9 +48,7 @@ export function registerAuth(app, config) {
     return { user: session?.user_id ? publicUser(session) : null, csrfToken: session ? csrfToken(request.cookies[cookieName]) : null, registrationOpen: config.registrationOpen }
   }
   function transaction(work) {
-    db.exec('BEGIN IMMEDIATE')
-    try { const value = work(); db.exec('COMMIT'); return value }
-    catch (error) { db.exec('ROLLBACK'); throw error }
+    return dbTransaction(db, work)
   }
   app.register(cookie)
   app.register(async auth => {
@@ -135,6 +134,46 @@ export function registerAuth(app, config) {
       })
       reply.clearCookie(cookieName, cookieOptions)
       return { ok: true }
+    })
+    auth.post('/recover', async (request, reply) => {
+      consume('recover:' + request.ip, 30, 15 * 60000)
+      const { username, recoveryCode: supplied, newPassword, passwordConfirmation } = request.body ?? {}
+      const name = normalizeUsername(username)
+      consume('recover-name:' + request.ip + ':' + (name ?? 'invalid'), 10, 15 * 60000)
+      if (!validPassword(newPassword)) throw new AuthError(400, 'Password baru harus 6–128 karakter.')
+      if (newPassword !== passwordConfirmation) throw new AuthError(400, 'Konfirmasi password tidak sama.')
+      const code = normalizeRecoveryCode(supplied)
+      const user = name ? db.prepare('SELECT * FROM users WHERE username = ?').get(name) : null
+      // Equal expensive work for valid-shaped attempts, regardless of account/code.
+      const passwordHash = await passwordWork(() => hashPassword(newPassword))
+      if (!user || !code || !equalToken(hashRecoveryCode(code), user.recovery_code_hash)) throw new AuthError(401, 'Username atau kode pemulihan tidak sesuai.')
+      const nextCode = recoveryCode()
+      replaceCredentials(db, user, passwordHash, nextCode, () => {
+        const session = current(request)
+        if (session.user_id && session.user_id !== user.id) throw new AuthError(409, 'Keluar dari akun saat ini sebelum memulihkan akun lain.')
+      })
+      reply.clearCookie(cookieName, cookieOptions)
+      return { ok: true, username: user.username, recoveryCode: nextCode }
+    })
+    auth.post('/recovery-code', async request => {
+      const session = current(request)
+      if (!session.user_id) throw new AuthError(401, 'Silakan masuk terlebih dahulu.')
+      consume('recovery-code:' + request.ip, 30, 15 * 60000)
+      consume('recovery-code-user:' + request.ip + ':' + session.user_id, 10, 15 * 60000)
+      const { currentPassword } = request.body ?? {}
+      if (!validPassword(currentPassword)) throw new AuthError(401, 'Password saat ini tidak sesuai.')
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id)
+      await passwordWork(async () => {
+        if (!await verifyPassword(currentPassword, user.password_hash)) throw new AuthError(401, 'Password saat ini tidak sesuai.')
+      })
+      const code = recoveryCode()
+      transaction(() => {
+        current(request)
+        const changed = db.prepare('UPDATE users SET recovery_code_hash = ? WHERE id = ? AND password_hash = ? AND recovery_code_hash = ?')
+          .run(hashRecoveryCode(code), user.id, user.password_hash, user.recovery_code_hash)
+        if (changed.changes !== 1) throw new AuthError(401, 'Akun berubah. Periksa sesi dan coba lagi.')
+      })
+      return { username: user.username, recoveryCode: code }
     })
   }, { prefix: '/api/auth' })
 }

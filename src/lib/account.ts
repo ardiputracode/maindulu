@@ -1,6 +1,13 @@
 export type AccountUser = { id: string; username: string }
 export type AccountSession = { user: AccountUser | null; csrfToken: string | null; registrationOpen: boolean }
 
+export function readRecoveryResult(value: unknown): { code: string; username: string } | null {
+  if (!value || typeof value !== 'object') return null
+  const v = value as Record<string, unknown>
+  const username = v.username ?? (v.user && typeof v.user === 'object' ? (v.user as Record<string, unknown>).username : null)
+  return typeof username === 'string' && /^[a-z0-9_]{3,24}$/.test(username) && typeof v.recoveryCode === 'string' && /^(?:[A-F0-9]{8}-){7}[A-F0-9]{8}$/.test(v.recoveryCode) ? { code: v.recoveryCode, username } : null
+}
+
 export function readAccountSession(value: unknown): AccountSession | null {
   if (!value || typeof value !== 'object') return null
   const v = value as Record<string, unknown>

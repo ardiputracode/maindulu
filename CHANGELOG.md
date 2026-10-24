@@ -11,6 +11,7 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ### Ditambahkan
 
+- Pemulihan akun M4 tanpa email: reset dengan kode sekali pakai, penerbitan ulang setelah verifikasi password, dan `npm run account:reset -- <username>` untuk admin lokal dengan password tersembunyi. Reset merotasi kode dan mencabut seluruh sesi secara transaksional tanpa mengubah ID akun; cloud save belum termasuk.
 - Kredit/attribution di footer aplikasi dan README: maindulu dirakit oleh
   [ArdiputraCode](https://github.com/ardiputracode/maindulu), kode full assisted
   by AI; engine emulator (EmulatorJS) dan core-nya milik pembuat aslinya.

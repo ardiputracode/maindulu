@@ -6,8 +6,9 @@ import { DatabaseSync } from 'node:sqlite'
 import { createApp } from '../server/app.mjs'
 import { openDatabase } from '../server/database.mjs'
 import { readConfig } from '../server/config.mjs'
-import { hashPassword, verifyPassword, normalizeUsername, validPassword, hashRecoveryCode, hashToken, randomToken } from '../server/auth/crypto.mjs'
+import { hashPassword, verifyPassword, normalizeUsername, normalizeRecoveryCode, validPassword, hashRecoveryCode, hashToken, randomToken } from '../server/auth/crypto.mjs'
 import { createLimiter } from '../server/auth/limits.mjs'
+import { replaceCredentials, resetAccountByAdmin } from '../server/auth/mutations.mjs'
 import { backendFixture } from './helpers/backend-fixture.mjs'
 
 const password = 'Correct horse battery 42!'
@@ -249,4 +250,198 @@ test('normal request logging never contains passwords, recovery codes, cookies o
   await session(app, created)
   const output = logs.join('')
   for (const secret of [password, created.response.json().recoveryCode, created.cookie.split('=')[1], created.csrf]) assert.ok(!output.includes(secret))
+})
+
+const resetPayload = (username, recoveryCode, secret = nextPassword) => ({ username, recoveryCode, newPassword: secret, passwordConfirmation: secret })
+
+test('recovery code parser accepts only bounded hex codes with exact optional grouping', () => {
+  const hex = 'ab12cd34'.repeat(8)
+  assert.equal(normalizeRecoveryCode(' ' + hex + ' '), hex.toUpperCase())
+  assert.equal(normalizeRecoveryCode(hex.match(/.{8}/g).join('-')), hex.toUpperCase())
+  for (const value of [null, {}, '', 'a'.repeat(63), 'g'.repeat(64), hex + '-', hex.slice(0, 32) + '-' + hex.slice(32), 'a'.repeat(1000)]) assert.equal(normalizeRecoveryCode(value), null)
+})
+
+test('recovery preserves account/owned records, rotates code, rejects old credentials and revokes every session', async t => {
+  const { app } = await setup(t)
+  const created = await register(app)
+  const { user, recoveryCode } = created.response.json()
+  const guest = await bootstrap(app)
+  const login = await post(app, 'login', guest, { username: user.username, password })
+  const second = { cookie: cookieFrom(login), csrf: login.json().csrfToken }
+  // Ownership sentinel, not a claim that server saves already exist in M4.
+  app.database.exec('CREATE TABLE owned_fixture (user_id TEXT REFERENCES users(id), content TEXT)')
+  app.database.prepare('INSERT INTO owned_fixture VALUES (?, ?)').run(user.id, 'existing-progress')
+  const client = await bootstrap(app)
+  const response = await post(app, 'recover', client, resetPayload('  PLAYER_ONE ', recoveryCode.toLowerCase().replaceAll('-', '')))
+  assert.equal(response.statusCode, 200, response.body)
+  assert.match(String(response.headers['set-cookie']), /Max-Age=0|Expires=Thu, 01 Jan 1970/)
+  assert.equal(response.json().username, user.username)
+  assert.notEqual(response.json().recoveryCode, recoveryCode)
+  assert.equal(response.headers['cache-control'], 'no-store')
+  assert.doesNotMatch(response.body, /password_hash|recovery_code_hash|csrfToken/)
+  for (const old of [created, second]) {
+    assert.equal((await session(app, old)).json().user, null)
+    assert.equal((await post(app, 'logout', old, {})).statusCode, 401)
+  }
+  const row = app.database.prepare('SELECT * FROM users WHERE id = ?').get(user.id)
+  assert.equal(row.recovery_code_hash, hashRecoveryCode(response.json().recoveryCode))
+  assert.equal(await verifyPassword(nextPassword, row.password_hash), true)
+  assert.deepEqual({ ...app.database.prepare('SELECT * FROM owned_fixture').get() }, { user_id: user.id, content: 'existing-progress' })
+  assert.equal((await post(app, 'login', client, { username: user.username, password })).statusCode, 401)
+  assert.equal((await post(app, 'recover', client, resetPayload(user.username, recoveryCode))).statusCode, 401)
+  const loggedIn = await post(app, 'login', client, { username: user.username, password: nextPassword })
+  assert.deepEqual(loggedIn.json().user, user)
+  const fresh = await bootstrap(app)
+  assert.equal((await post(app, 'recover', fresh, resetPayload(user.username, response.json().recoveryCode, password))).statusCode, 200)
+})
+
+test('wrong, cross-account, malformed and unknown recovery attempts share one error without changing accounts', async t => {
+  const { app } = await setup(t)
+  const a = await register(app, 'player_a')
+  const b = await register(app, 'player_b')
+  const before = app.database.prepare('SELECT * FROM users ORDER BY id').all()
+  const client = await bootstrap(app)
+  let expected
+  for (const [name, code] of [['player_a', b.response.json().recoveryCode], ['player_a', '00'.repeat(32)], ['missing_user', a.response.json().recoveryCode], ['player_a', {}], ['bad/name', a.response.json().recoveryCode]]) {
+    const response = await post(app, 'recover', client, resetPayload(name, code))
+    assert.equal(response.statusCode, 401)
+    expected ??= response.json()
+    assert.deepEqual(response.json(), expected)
+  }
+  assert.deepEqual(app.database.prepare('SELECT * FROM users ORDER BY id').all(), before)
+  assert.ok((await session(app, a)).json().user)
+  assert.ok((await session(app, b)).json().user)
+  assert.equal((await post(app, 'recover', b, resetPayload('player_a', a.response.json().recoveryCode))).statusCode, 409)
+  for (const payload of [resetPayload('player_a', a.response.json().recoveryCode, 'short'), { ...resetPayload('player_a', a.response.json().recoveryCode), passwordConfirmation: 'different' }]) assert.equal((await post(app, 'recover', client, payload)).statusCode, 400)
+})
+
+test('one code succeeds at most once across independent sessions and database connections', async t => {
+  const { app, root } = await setup(t)
+  const other = await createApp({ root, env: {} })
+  try {
+    const created = await register(app)
+    const a = await bootstrap(app)
+    const b = await bootstrap(other)
+    const payload = resetPayload('player_one', created.response.json().recoveryCode)
+    const responses = await Promise.all([post(app, 'recover', a, payload), post(other, 'recover', b, payload)])
+    assert.deepEqual(responses.map(r => r.statusCode).sort(), [200, 401])
+    assert.equal(app.database.prepare('SELECT recovery_code_hash FROM users').get().recovery_code_hash, hashRecoveryCode(responses.find(r => r.statusCode === 200).json().recoveryCode))
+  } finally { await other.close() }
+})
+
+test('reissuing a code requires current password, keeps sessions and password, and invalidates the previous code', async t => {
+  const { app } = await setup(t)
+  const created = await register(app)
+  const user = created.response.json().user
+  const before = app.database.prepare('SELECT * FROM users').get()
+  const guest = await bootstrap(app)
+  assert.equal((await post(app, 'recovery-code', guest, { currentPassword: password })).statusCode, 401)
+  assert.equal((await post(app, 'recovery-code', created, { currentPassword: nextPassword })).statusCode, 401)
+  assert.equal(app.database.prepare('SELECT recovery_code_hash FROM users').get().recovery_code_hash, before.recovery_code_hash)
+  const response = await post(app, 'recovery-code', created, { currentPassword: password })
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.json().username, user.username)
+  assert.equal((await session(app, created)).json().user.id, user.id)
+  assert.equal(app.database.prepare('SELECT password_hash FROM users').get().password_hash, before.password_hash)
+  assert.equal((await post(app, 'recover', guest, resetPayload(user.username, created.response.json().recoveryCode))).statusCode, 401)
+  assert.equal((await post(app, 'recover', guest, resetPayload(user.username, response.json().recoveryCode))).statusCode, 200)
+})
+
+test('concurrent code reissues cannot both return apparently-current codes', async t => {
+  const { app } = await setup(t)
+  const created = await register(app)
+  const responses = await Promise.all([post(app, 'recovery-code', created, { currentPassword: password }), post(app, 'recovery-code', created, { currentPassword: password })])
+  assert.deepEqual(responses.map(r => r.statusCode).sort(), [200, 401])
+})
+
+test('recovery and reissue endpoints retain CSRF/origin protections and bounded source/name attempts', async t => {
+  const { app } = await setup(t)
+  const created = await register(app)
+  const client = await bootstrap(app)
+  for (const action of ['recover', 'recovery-code']) {
+    for (const override of [{ origin: 'https://evil.example' }, { 'x-csrf-token': undefined }, { 'content-type': 'text/plain' }, { 'sec-fetch-site': 'cross-site' }]) {
+      assert.equal((await post(app, action, created, { ...resetPayload('player_one', created.response.json().recoveryCode), currentPassword: password }, { headers: override })).statusCode, 403)
+    }
+  }
+  for (let i = 0; i < 10; i++) assert.equal((await post(app, 'recover', client, resetPayload(' PLAYER_ONE ', '00'.repeat(32)))).statusCode, 401)
+  const limited = await post(app, 'recover', client, resetPayload('player_one', created.response.json().recoveryCode))
+  assert.equal(limited.statusCode, 429)
+  assert.ok(Number(limited.headers['retry-after']) > 0)
+  const other = await bootstrap(app, '127.0.0.2')
+  assert.equal((await post(app, 'recover', other, resetPayload('player_one', created.response.json().recoveryCode))).statusCode, 200)
+})
+
+test('credential replacement rolls back password, code and sessions together if session revocation fails', async t => {
+  const { app } = await setup(t)
+  await register(app)
+  const before = app.database.prepare('SELECT * FROM users').get()
+  app.database.exec("CREATE TRIGGER fail_revoke BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT, 'fixture failure'); END")
+  await assert.rejects(resetAccountByAdmin(app.database, 'player_one', nextPassword, nextPassword), /fixture failure/)
+  assert.deepEqual(app.database.prepare('SELECT * FROM users').get(), before)
+  assert.equal(app.database.prepare('SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?').get(before.id).count, 1)
+})
+
+test('admin reset preserves identity/data, revokes sessions/codes and prevents stale operations committing', async t => {
+  const { app, root } = await setup(t)
+  const created = await register(app)
+  const before = app.database.prepare('SELECT * FROM users').get()
+  const result = await resetAccountByAdmin(app.database, ' PLAYER_ONE ', nextPassword, nextPassword)
+  assert.equal(result.username, before.username)
+  assert.notEqual(hashRecoveryCode(result.recoveryCode), before.recovery_code_hash)
+  const after = app.database.prepare('SELECT * FROM users').get()
+  assert.equal(after.id, before.id)
+  assert.equal(after.created_at, before.created_at)
+  assert.equal(await verifyPassword(nextPassword, after.password_hash), true)
+  assert.equal((await session(app, created)).json().user, null)
+  assert.throws(() => replaceCredentials(app.database, before, before.password_hash, created.response.json().recoveryCode), /Username atau kode/)
+  const client = await bootstrap(app)
+  assert.equal((await post(app, 'recover', client, resetPayload(before.username, created.response.json().recoveryCode))).statusCode, 401)
+  assert.equal((await post(app, 'login', client, { username: before.username, password })).statusCode, 401)
+  assert.equal((await post(app, 'login', client, { username: before.username, password: nextPassword })).statusCode, 200)
+  const other = await createApp({ root, env: {} })
+  try {
+    const fresh = await bootstrap(other)
+    assert.equal((await post(other, 'recover', fresh, resetPayload(before.username, result.recoveryCode, password))).statusCode, 200)
+  } finally { await other.close() }
+  for (const args of [['absent', password, password], ['player_one', 'short', 'short'], ['player_one', password, nextPassword]]) await assert.rejects(resetAccountByAdmin(app.database, ...args))
+  assert.equal((await app.inject({ method: 'POST', url: '/api/admin/reset', payload: {} })).statusCode, 404)
+})
+
+test('recovery and code renewal do not leak secrets to request logs or session responses', async t => {
+  const logs = []
+  const { app } = await setup(t, {}, { level: 'info', stream: { write: value => logs.push(value) } })
+  const created = await register(app)
+  const renewed = await post(app, 'recovery-code', created, { currentPassword: password })
+  const client = await bootstrap(app)
+  const reset = await post(app, 'recover', client, resetPayload('player_one', renewed.json().recoveryCode))
+  assert.equal(reset.statusCode, 200)
+  const output = logs.join('')
+  for (const secret of [password, nextPassword, created.response.json().recoveryCode, renewed.json().recoveryCode, reset.json().recoveryCode, client.csrf, created.cookie.split('=')[1]]) assert.ok(!output.includes(secret))
+  assert.doesNotMatch((await session(app, client)).body, /recoveryCode|password_hash|recovery_code_hash/)
+})
+
+test('closing registration still permits recovery and expired sessions cannot reissue codes', async t => {
+  const { app, root } = await setup(t)
+  const created = await register(app)
+  app.database.prepare('UPDATE sessions SET expires_at = ? WHERE user_id IS NOT NULL').run(Date.now() - 1)
+  assert.equal((await post(app, 'recovery-code', created, { currentPassword: password })).statusCode, 401)
+  const closed = await createApp({ root, env: { MAIN_DULU_REGISTRATION_OPEN: 'false' } })
+  try {
+    const client = await bootstrap(closed)
+    assert.equal((await session(closed, client)).json().registrationOpen, false)
+    const response = await post(closed, 'recover', client, resetPayload('player_one', created.response.json().recoveryCode))
+    assert.equal(response.statusCode, 200)
+  } finally { await closed.close() }
+})
+
+test('reissue attempts are limited without logging out the legitimate session', async t => {
+  const { app } = await setup(t)
+  const created = await register(app)
+  for (let i = 0; i < 10; i++) assert.equal((await post(app, 'recovery-code', created, { currentPassword: 'bad' })).statusCode, 401)
+  const limited = await post(app, 'recovery-code', created, { currentPassword: password })
+  assert.equal(limited.statusCode, 429)
+  assert.ok(Number(limited.headers['retry-after']) > 0)
+  assert.ok((await session(app, created)).json().user)
+  assert.equal(app.database.prepare('SELECT recovery_code_hash FROM users').get().recovery_code_hash, hashRecoveryCode(created.response.json().recoveryCode))
+  assert.equal((await post(app, 'recovery-code', { ...created, remoteAddress: '127.0.0.2' }, { currentPassword: password })).statusCode, 200)
 })
