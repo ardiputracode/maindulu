@@ -2,6 +2,8 @@
 
 Status: M2 selesai. Web + API satu proses, SQLite persisten, mode frontend statis mandiri, dan skenario kegagalan backend telah diverifikasi.
 
+Catatan: dokumen ini mencatat lingkup dan hasil M2. Akun/sesi kemudian ditambahkan pada [M3](milestone-3-akun-lokal.md); keterangan kapabilitas serta skema di bawah menggambarkan kondisi saat penutupan M2, bukan batas versi terbaru.
+
 M2 menambahkan server web dan API dalam satu proses Node.js, SQLite persisten, dan status backend opsional pada halaman Pengaturan. Belum ada akun, sesi login, endpoint upload save, atau penyimpanan progres server. Seluruh progres emulator masih menggunakan perilaku browser yang ada.
 
 ## Pilihan Teknologi

@@ -5,6 +5,8 @@ import { realpathSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { isWithin, readConfig } from './config.mjs'
 import { openDatabase } from './database.mjs'
+import { registerAuth } from './auth/routes.mjs'
+import { AuthError } from './auth/limits.mjs'
 
 const pages = ['/', '/index.html', '/console', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main']
 const assetDirectories = new Set(['assets', 'vendor', 'player', 'catalog', 'games', 'bios', 'covers'])
@@ -35,6 +37,10 @@ export async function createApp({ env = process.env, root, logger = false } = {}
     reply.header('Cache-Control', 'no-store')
   })
   app.setErrorHandler((error, request, reply) => {
+    if (error instanceof AuthError) {
+      if (error.retryAfter) reply.header('Retry-After', String(error.retryAfter))
+      return reply.code(error.statusCode).send({ error: error.message })
+    }
     request.log.error(error)
     const status = error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 500
     reply.code(status).send({ error: status === 500 ? 'Terjadi kesalahan pada server.' : 'Permintaan tidak valid.' })
@@ -43,8 +49,9 @@ export async function createApp({ env = process.env, root, logger = false } = {}
   app.get('/api/health', async (_request, reply) => {
     try { db.prepare('SELECT 1').get() }
     catch { return reply.code(503).send({ error: 'Penyimpanan server belum tersedia.' }) }
-    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: false, serverSaves: false } }
+    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: false } }
   })
+  registerAuth(app, config)
   for (const page of pages) app.get(page, (_request, reply) => reply.type('text/html; charset=utf-8').send(html))
   try {
     await app.register(fastifyStatic, {

@@ -1,0 +1,131 @@
+import { test, expect } from '@playwright/test'
+import type { Page } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
+
+// Exercise the exact minimum through registration, login and password change.
+const password = 'Uji123'
+const newPassword = 'Uji789'
+const uniqueName = () => 'user_' + randomUUID().replaceAll('-', '').slice(0, 12)
+
+async function openLogin(page: Page) {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Masuk ke akun', exact: true }).click()
+  return page.getByRole('dialog')
+}
+
+async function register(page: Page, username: string) {
+  const dialog = await openLogin(page)
+  await dialog.getByRole('button', { name: 'Belum punya akun? Daftar' }).click()
+  await dialog.getByLabel('Username', { exact: true }).fill(username)
+  await dialog.getByLabel('Password', { exact: true }).fill(password)
+  await dialog.getByLabel('Konfirmasi password', { exact: true }).fill(password)
+  await dialog.getByRole('button', { name: 'Daftar akun', exact: true }).click()
+  await expect(dialog.getByRole('heading')).toHaveText('Simpan kode pemulihanmu.')
+  const code = await dialog.getByLabel('Kode pemulihan', { exact: true }).inputValue()
+  expect(code).toMatch(/^(?:[A-F0-9]{8}-){7}[A-F0-9]{8}$/)
+  return { dialog, code }
+}
+
+async function finishRegistration(page: Page) {
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('checkbox', { name: 'Kode sudah kusimpan.' }).check()
+  await dialog.getByRole('button', { name: 'Selesai', exact: true }).click()
+}
+
+async function login(page: Page, username: string, secret = password) {
+  const dialog = await openLogin(page)
+  await dialog.getByLabel('Username', { exact: true }).fill(username)
+  await dialog.getByLabel('Password', { exact: true }).fill(secret)
+  await dialog.getByRole('button', { name: 'Masuk', exact: true }).click()
+}
+
+test.beforeEach(({}, testInfo) => {
+  test.skip(testInfo.project.name !== 'node-backend', 'Akun membutuhkan backend Node.js; mode statis tetap diuji pada backend.spec.ts.')
+})
+
+test('local registration shows recovery once, persists the session, and supports logout/login without localStorage secrets', async ({ page, context }) => {
+  const username = uniqueName()
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Masuk ke akun', exact: true })).toBeEnabled()
+  expect((await context.cookies()).filter(c => c.name === 'maindulu_session')).toEqual([])
+  const { dialog, code } = await register(page, username)
+  await expect(dialog.getByRole('button', { name: 'Selesai', exact: true })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible()
+  const downloaded = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Unduh kode pemulihan' }).click()
+  expect((await downloaded).suggestedFilename()).toBe('maindulu-kode-pemulihan.txt')
+  await finishRegistration(page)
+  await expect(page.getByRole('button', { name: `Akun ${username}`, exact: true })).toBeFocused()
+  await page.reload()
+  await expect(page.getByRole('button', { name: `Akun ${username}`, exact: true })).toBeVisible()
+  const cookies = (await context.cookies()).filter(c => c.name === 'maindulu_session')
+  expect(cookies).toHaveLength(1)
+  expect(cookies[0].httpOnly).toBe(true)
+  expect(cookies[0].sameSite).toBe('Strict')
+  expect(cookies[0].path).toBe('/api')
+  const stored = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }))
+  for (const secret of [password, code, cookies[0].value]) expect(stored).not.toContain(secret)
+  await page.getByRole('button', { name: `Akun ${username}`, exact: true }).click()
+  await expect(page.getByRole('dialog')).not.toContainText(code)
+  await page.getByRole('button', { name: 'Keluar akun', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Masuk ke akun', exact: true })).toBeVisible()
+  await login(page, username.toUpperCase())
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: `Akun ${username}`, exact: true })).toBeVisible()
+})
+
+test('changing password revokes a second browser session and old credentials but preserves the account', async ({ page, browser, baseURL }) => {
+  const username = uniqueName()
+  await register(page, username)
+  await finishRegistration(page)
+  const other = await browser.newContext({ baseURL })
+  try {
+    const second = await other.newPage()
+    await login(second, username)
+    await expect(second.getByRole('button', { name: `Akun ${username}`, exact: true })).toBeVisible()
+    await page.getByRole('button', { name: `Akun ${username}`, exact: true }).click()
+    await page.getByRole('button', { name: 'Ganti password', exact: true }).click()
+    await page.getByLabel('Password saat ini', { exact: true }).fill(password)
+    await page.getByLabel('Password baru', { exact: true }).fill(newPassword)
+    await page.getByLabel('Konfirmasi password baru', { exact: true }).fill(newPassword)
+    await page.getByRole('button', { name: 'Simpan password baru', exact: true }).click()
+    await expect(page.getByRole('dialog').getByRole('status')).toContainText('Semua sesi lama dicabut')
+    await second.reload()
+    await expect(second.getByRole('button', { name: 'Masuk ke akun', exact: true })).toBeVisible()
+    await login(second, username)
+    await expect(second.getByRole('dialog').getByRole('alert')).toHaveText('Username atau password tidak sesuai.')
+    await second.getByLabel('Password', { exact: true }).fill(newPassword)
+    await second.getByRole('dialog').getByRole('button', { name: 'Masuk', exact: true }).click()
+    await expect(second.getByRole('dialog')).toHaveCount(0)
+    await expect(second.getByRole('button', { name: `Akun ${username}`, exact: true })).toBeVisible()
+  } finally { await other.close() }
+})
+
+test('mobile account forms remain keyboard-accessible and validation errors do not force an account', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const dialog = await openLogin(page)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await dialog.getByRole('button', { name: 'Belum punya akun? Daftar' }).click()
+  await dialog.getByLabel('Username', { exact: true }).fill(uniqueName())
+  await dialog.getByLabel('Password', { exact: true }).fill(password)
+  await dialog.getByLabel('Konfirmasi password', { exact: true }).fill('does not match')
+  await dialog.getByRole('button', { name: 'Daftar akun', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('Konfirmasi password tidak sama.')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Masuk ke akun', exact: true })).toBeFocused()
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Dulu pulang sekolah.')
+})
+
+test('an account API outage is visible and recoverable without affecting the guest catalog', async ({ page }) => {
+  await page.route('**/api/auth/session', route => route.abort())
+  const dialog = await openLogin(page)
+  await expect(dialog.getByRole('alert')).toContainText('Informasi akun belum dapat dimuat')
+  await page.unroute('**/api/auth/session')
+  await dialog.getByRole('button', { name: 'Periksa akun lagi' }).click()
+  await expect(dialog.getByLabel('Username', { exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Mainkan Jalan Pulang', exact: true })).toBeVisible()
+})

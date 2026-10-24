@@ -1,6 +1,6 @@
 # Rencana Login Opsional dan Penyimpanan Progres Server
 
-Status: M1 dan M2 selesai. Backend lokal dan SQLite persisten tersedia; M3 dan milestone berikutnya belum dimulai. Akun serta penyimpanan progres server belum diimplementasikan.
+Status: M1–M3 selesai. Akun lokal, sesi, ganti password, dan kode pemulihan saat daftar tersedia. M4 dan milestone berikutnya belum dimulai; reset password serta penyimpanan progres server belum diimplementasikan.
 
 Pelaksanaan dilakukan per milestone. Lihat bagian [Milestone Implementasi](#milestone-implementasi) untuk checklist dan kriteria selesai, serta [hasil pembuktian M1](milestone-1-integrasi-save.md) untuk kontrak engine, bukti pengujian, dan batasan integrasi berikutnya.
 
@@ -29,7 +29,7 @@ Target deployment utama adalah satu komputer yang menjalankan aplikasi beserta p
 - Player EmulatorJS berjalan dalam iframe melalui `src/components/Player.tsx` dan `public/player/player.js`.
 - Pengaturan, favorit, dan riwayat menggunakan penyimpanan browser.
 - Bridge player saat ini mengatur lokasi save state ke browser.
-- Backend lokal M2 tersedia untuk menyajikan hasil build, health API, dan SQLite persisten. Backend akun serta API penyimpanan progres belum tersedia.
+- Backend lokal menyajikan hasil build, health API, SQLite persisten, serta API akun/sesi M3. API reset password dan penyimpanan progres belum tersedia.
 
 Implementasi akun tidak boleh menjadikan backend sebagai syarat agar katalog dan mode tamu dapat digunakan.
 
@@ -177,7 +177,7 @@ Metode yang dipilih adalah username dan password lokal saja. Pendaftaran, login,
 4. Server menghasilkan kode pemulihan acak berentropi tinggi menggunakan generator acak kriptografis.
 5. Kode ditampilkan sekali untuk disalin atau diunduh pengguna, disertai peringatan agar disimpan di tempat aman di luar browser maindulu.
 
-Aturan normalisasi username harus konsisten saat daftar, login, dan pemulihan. Kebijakan apakah pendaftaran dibuka untuk pengunjung atau dibatasi pengelola masih perlu ditentukan sebelum implementasi.
+Aturan M3: username ASCII 3–24 karakter (huruf, angka, garis bawah), spasi tepi dipangkas dan disimpan huruf kecil; password 6–128 karakter tanpa normalisasi. Pendaftaran terbuka secara default pada localhost dan dapat ditutup melalui `MAIN_DULU_REGISTRATION_OPEN=false`. Normalisasi username yang sama harus digunakan pada pemulihan M4.
 
 ### Login dan Pengelolaan Password
 
@@ -253,7 +253,7 @@ Saat sesi dicabut akibat pergantian atau pemulihan password, player mengikuti at
 | --- | --- | --- | --- |
 | M1 | Bukti ekspor/impor save pada engine nyata | — | Selesai — otomatis NES, manual PS1 |
 | M2 | Web dan API lokal satu proses, SQLite persisten | M1 | Selesai |
-| M3 | Daftar, login, logout, dan sesi akun lokal | M2 | Belum dimulai |
+| M3 | Daftar, login, logout, dan sesi akun lokal | M2 | Selesai |
 | M4 | Pemulihan password dan reset admin lokal | M3 | Belum dimulai |
 | M5 | Save/load state manual ke server | M1–M4 | Belum dimulai |
 | M6 | Sinkronisasi save game/memcard | M5 | Belum dimulai |
@@ -298,13 +298,17 @@ Hasil: build lulus, 34 unit/integrasi lulus, 22 tes browser development lulus, 2
 
 Tujuan: menyediakan autentikasi opsional tanpa Google atau email.
 
-- [ ] Tetapkan kebijakan pendaftaran, normalisasi username, aturan password, masa berlaku sesi, dan pembatasan percobaan.
-- [ ] Implementasikan daftar akun, login, logout, pemeriksaan sesi, dan pergantian password.
-- [ ] Terbitkan kode pemulihan saat daftar, tampilkan sekali, dan simpan hanya hash-nya.
-- [ ] Gunakan hash password adaptif, sesi server, cookie yang sesuai, proteksi CSRF, dan rotasi sesi setelah login.
-- [ ] Cabut sesi lama setelah pergantian password dan pertahankan ID akun.
-- [ ] Tambahkan UI akun opsional; pengguna tamu tidak dipaksa login.
-- [ ] Uji username duplikat/normalisasi, kredensial salah, sesi kedaluwarsa, logout, CSRF, pembatasan percobaan, dan tidak adanya rahasia dalam log/URL.
+Panduan dan kontrak: [M3 — Akun Lokal dan Sesi](milestone-3-akun-lokal.md).
+
+- [x] Tetapkan kebijakan pendaftaran, normalisasi username, aturan password, masa berlaku sesi, dan pembatasan percobaan.
+- [x] Implementasikan daftar akun, login, logout, pemeriksaan sesi, dan pergantian password.
+- [x] Terbitkan kode pemulihan saat daftar, tampilkan sekali, dan simpan hanya hash-nya.
+- [x] Gunakan hash password adaptif, sesi server, cookie yang sesuai, proteksi CSRF, dan rotasi sesi setelah login.
+- [x] Cabut sesi lama setelah pergantian password dan pertahankan ID akun.
+- [x] Tambahkan UI akun opsional; pengguna tamu tidak dipaksa login.
+- [x] Uji username duplikat/normalisasi, kredensial salah, sesi kedaluwarsa, logout, CSRF, pembatasan percobaan, dan tidak adanya rahasia dalam log/URL.
+
+Hasil: 48 unit/integrasi lulus; build lulus; masing-masing suite development/production statis 22 lulus dan 4 tes akun sengaja dilewati; suite backend nyata 21 lulus, termasuk empat tes akun. Suite autentikasi/server pada Node.js 24.22.1 juga lulus. M3 selesai; lihat [hasil verifikasi M3](milestone-3-akun-lokal.md#hasil-verifikasi). Pemulihan password masih M4 dan progres tetap di browser sampai integrasi save server.
 
 **Selesai jika:** pengguna dapat daftar, login, mengganti password, dan logout tanpa internet; sesi terlindungi dan mode tamu tetap berfungsi. Alur lupa password lengkap dilanjutkan di M4.
 
@@ -399,8 +403,7 @@ Tujuan: menyiapkan penggunaan sehari-hari serta pemulihan ketika komputer/server
 
 - Framework backend dan library SQLite yang digunakan.
 - Dukungan sistem operasi serta versi Node.js minimum backend.
-- Kebijakan pendaftaran pengunjung, aturan username/password, dan batas percobaan autentikasi.
-- Format kode pemulihan, bentuk perintah reset admin, dan prosedur verifikasi pemilik akun oleh pengelola.
+- Bentuk perintah reset admin serta prosedur verifikasi pemilik akun oleh pengelola; kebijakan akun dan format kode awal telah ditetapkan pada M3.
 - Jumlah slot, batas ukuran save, kuota per akun, dan retensi cadangan konflik.
 - Kebijakan cache offline untuk pengguna login.
 - Penyajian HTTPS jika server diakses perangkat lain.

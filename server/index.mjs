@@ -10,7 +10,7 @@ if (Number(process.versions.node.split('.')[0]) < 24) {
     const { host, port } = app.appConfig
     const address = await app.listen({ host, port })
     console.log(`maindulu berjalan di ${address}`)
-    console.log('Backend M2 aktif. Login dan save server belum tersedia; progres tetap di browser.')
+    console.log('Akun lokal tersedia. Save server belum tersedia; progres tetap di browser.')
     let closing = false
     const close = async () => {
       if (closing) return
