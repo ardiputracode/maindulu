@@ -14,10 +14,35 @@
   let overlayState = null
   let gameRunning = false
   let builds = null
+  function syncHostFullscreen(fullscreen) {
+    const e = window.EJS_emulator
+    const buttons = e?.elements?.bottomBar?.fullscreen
+    if (buttons) {
+      buttons[0].style.display = fullscreen ? 'none' : ''
+      buttons[1].style.display = fullscreen ? '' : 'none'
+    }
+    if (e?.isMobile) {
+      try {
+        if (fullscreen) screen.orientation.lock('landscape').catch(() => {})
+        else screen.orientation.unlock()
+      } catch { /* Orientation lock is optional. */ }
+    }
+    applyWidescreen()
+  }
   const maxStateBytes = 64 * 1024 * 1024
   const send = (type, extra = {}) => parent.postMessage({ channel: 'maindulu:player', type, sessionId, ...extra }, location.origin)
   const fail = message => send('error', { message })
   const localUrl = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') && !/[\u0000-\u0020]/.test(value)
+
+  function hideNativeStateSettings() {
+    // EmulatorJS 4.2.3 uses this literal group title (not localized). Hide only
+    // its gear-menu entry for everyone; leave native save/load buttons and the
+    // internal System Save interval/default initialization untouched.
+    const rows = window.EJS_emulator?.settingsMenu?.querySelectorAll('.ejs_settings_main_bar') || []
+    for (const row of rows) {
+      if (row.firstElementChild?.textContent.trim() === 'Save States') row.style.display = 'none'
+    }
+  }
 
   // "Layar lebar" (widescreen): the core's active 4:3 picture is centered inside
   // the canvas bitmap with black side bars. Stretching the bitmap horizontally
@@ -93,8 +118,13 @@
 
   // No cookies, tokens or account IDs cross this bridge. HTTP belongs to React.
   window.addEventListener('message', event => {
-    if (event.origin !== location.origin || event.source !== parent || event.data?.channel !== 'maindulu:host' || event.data.sessionId !== sessionId || !memorySaves || !gameStarted) return
+    if (event.origin !== location.origin || event.source !== parent || event.data?.channel !== 'maindulu:host' || event.data.sessionId !== sessionId || !memorySaves) return
     const { type, requestId } = event.data
+    if (type === 'fullscreen-state' && typeof event.data.fullscreen === 'boolean') {
+      syncHostFullscreen(event.data.fullscreen)
+      return
+    }
+    if (!gameStarted) return
     // Save-state overlay pause: pause only if started, and remember whether the
     // game was running so closing the overlay (resume-session) restores exactly
     // that condition. While the overlay wants a pause, state RPCs must not
@@ -193,6 +223,11 @@
         } : {})
       }
       window.EJS_ready = () => {
+        hideNativeStateSettings()
+        // Account dialogs live in React. Fullscreen the host's shared shell so
+        // the iframe, save overlay and autosave notices stay in the same layer.
+        // Keep guest fullscreen behavior unchanged and avoid editing the engine.
+        if (memorySaves) window.EJS_emulator.toggleFullscreen = fullscreen => send('fullscreen-request', { fullscreen: fullscreen === true })
         const startButton = document.querySelector('.ejs_start_button')
         if (startButton) {
           startButton.setAttribute('role', 'button')
@@ -207,6 +242,8 @@
         window.EJS_emulator.startGameError = message => { fail(String(message)); return original(message) }
       }
       window.EJS_onGameStart = () => {
+        // The engine rebuilds its settings menu when the core starts.
+        hideNativeStateSettings()
         gameStarted = true
         gameRunning = true
         applyWidescreen()

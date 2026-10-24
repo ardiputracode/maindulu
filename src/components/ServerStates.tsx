@@ -1,20 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { LaunchSession } from './Player.tsx'
 import type { StateMetadata } from '../lib/saves'
 import { compatibleState, downloadState, formatBytes, SaveError } from '../lib/saves'
 import { hashRom } from '../lib/identity'
 import { useSaveLibrary } from '../lib/useSaveLibrary'
 import { SaveManager, SaveQuota } from './SaveLibrary'
+import Dialog from './Dialog'
 
 export type StateRpc = (type: 'export-state' | 'import-state', bytes?: Uint8Array) => Promise<Uint8Array | null>
+export type AutosaveStatus = 'saving' | 'saved' | 'error'
 type Pending = { bytes: Uint8Array; checksum: string; slot: number; revision: number; metadata: StateMetadata }
 
 // Slot 99 is reserved for the automatic "Autosave" state; 1-3 stay manual.
 const AUTOSAVE_SLOT = 99
 
-export default function ServerStates({ session, owner, enabled, accountChanged, metadata, rpc, show, onToggle, gameActive }: {
+export default function ServerStates({ session, owner, enabled, accountChanged, metadata, rpc, show, onToggle, gameActive, overlayContainer, onAutosaveStatus }: {
   session: LaunchSession; owner: string; enabled: boolean; accountChanged: boolean; metadata: StateMetadata | null; rpc: StateRpc;
   show: boolean; onToggle: () => void; gameActive: boolean;
+  overlayContainer: HTMLElement | null; onAutosaveStatus: (status: AutosaveStatus) => void;
 }) {
   const library = useSaveLibrary(owner, enabled)
   const [pendingState, setPendingState] = useState<Pending | null>(null)
@@ -50,6 +54,7 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
     await library.client.put(snapshot.bytes, { gameId: session.game.id, title: session.game.title, consoleId: session.consoleInfo.id, core: session.consoleInfo.core, slot: snapshot.slot, expectedRevision: snapshot.revision, checksum: snapshot.checksum, metadata: snapshot.metadata })
     if (!live.current || changed.current) return
     setPendingState(null); setMsg('Tersimpan di server')
+    if (snapshot.slot === AUTOSAVE_SLOT) onAutosaveStatus('saved')
     await library.refresh()
   }
   async function capture(slot: number) {
@@ -87,6 +92,7 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
       if (capturing || pendingState || busy || !metadata || !library.list) return
       if (!gameActive || document.hidden) return
       capturing = true
+      onAutosaveStatus('saving')
       try {
         const bytes = await rpc('export-state')
         if (!bytes || !live.current || changed.current) return
@@ -95,25 +101,24 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
         const snapshot: Pending = { bytes, checksum, slot: AUTOSAVE_SLOT, revision: slotInfo(AUTOSAVE_SLOT)?.revision ?? 0, metadata: metadata }
         await upload(snapshot)
       } catch (e) {
-        if (live.current && !changed.current) { setMsg(''); setErr(e instanceof Error ? e.message : 'Autosave gagal.') }
+        if (live.current && !changed.current) { setMsg(''); setErr(e instanceof Error ? e.message : 'Autosave gagal.'); onAutosaveStatus('error') }
       } finally { capturing = false }
     }, autosave.intervalMs)
     return () => clearInterval(timer)
-  }, [intervalReady, enabled, autosave.intervalMs, metadata, pendingState, busy, library.list, gameActive, changed.current])
+  }, [intervalReady, enabled, autosave.intervalMs, metadata, pendingState, busy, library.list, gameActive, changed.current, onAutosaveStatus])
   const slots = [1, 2, 3].map(slot => ({ slot, info: slotInfo(slot) }))
   const autosaveSlot = slotInfo(AUTOSAVE_SLOT)
   return <>
-    {show && <div className="server-overlay" role="dialog" aria-modal="true" aria-labelledby="server-state-title">
-      <div className="server-overlay-head"><h2 id="server-state-title">Save state server</h2><button className="icon-button" onClick={onToggle}>Tutup</button></div>
-      <p>Tiga slot manual dan satu slot Autosave. Tidak memuat otomatis saat membuka game dan tidak mengimpor save browser tamu.</p>
+    {show && createPortal(<><Dialog title="Save state server" eyebrow="PROGRES PERMAINAN" onClose={onToggle} busy={busy} className="server-state-dialog" backdropClassName="server-overlay">
+      <div className="server-state-content">
+      <p className="server-state-intro"><strong>{session.game.title}</strong><span>Permainan dijeda selama panel ini terbuka. Pilih slot untuk menyimpan atau melanjutkan progres.</span></p>
       {!enabled && <p className="notice" role="alert">Sesi akun tidak tersedia atau berubah. Sinkronisasi dihentikan; tidak dialihkan ke save tamu. Masuk kembali lalu buka ulang permainan.</p>}
       {!metadata && <p role="status">Mulai permainan untuk memeriksa dukungan state dan identitas build core.</p>}
       {unsupportedCore && <p className="notice">Kombinasi core/varian ini belum diverifikasi pada server. Dukungan otomatis M5 hanya NES varian legacy; kombinasi lain bersifat percobaan.</p>}
-      <p className="notice">Save dalam game/memcard pada sesi akun masih sementara di memori, belum tersinkron ke server.</p>
       {library.list && <SaveQuota list={library.list} />}
-      {library.error && <p className="notice" role="alert">{library.error}</p>}
-      {err && <p className="notice" role="alert">{err}</p>}
-      {msg && <p role="status">{msg}</p>}
+      {library.error && <p className="server-status server-status--error" role="alert">{library.error}</p>}
+      {err && <p className="server-status server-status--error" role="alert">{err}</p>}
+      {msg && <p className={`server-status ${msg === 'Tersimpan di server' ? 'server-status--success' : 'server-status--info'}`} role="status">{msg}</p>}
       <div className="autosave-panel"><h3>Autosave state</h3>
         <label><input type="checkbox" checked={autosave.active} disabled={busy || !metadata || !enabled} onChange={() => setAutosave(prev => ({ ...prev, active: !prev.active }))} /> Aktifkan autosave state</label>
         <div className="interval-select"><label htmlFor="autosave-interval">Interval</label>
@@ -131,9 +136,32 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
         {autosave.intervalMs === 30000 && autosave.active && <p className="notice">Interval 30 detik menambah beban perangkat dan jaringan, terutama untuk state besar. Setiap penulisan menunggu konfirmasi server.</p>}
         {intervalReady && <p className="notice">Autosave hanya berjalan saat permainan aktif: berhenti saat dijeda, saat overlay ini terbuka, atau tab tersembunyi. Hanya satu unggahan dalam satu waktu; interval berikutnya dilewati bila unggahan masih berjalan.</p>}
       </div>
-      <div className="slots-panel"><h3>Slot</h3>
-        {slots.map(({ slot, info }) => <article key={slot} className="server-slot"><strong>Slot {slot}</strong><span>{info && !info.deleted ? `${formatBytes(info.size)} · revisi ${info.revision}` : 'kosong'}</span><span className="slot-actions"><button className="button secondary small" disabled={busy || !info} onClick={() => void run(() => load(slot))}>Muat</button><button className="button secondary small" disabled={busy || !ready || !metadata} onClick={() => void run(() => capture(slot))}>Ganti</button></span></article>)}
-        <article className="server-slot autosave-slot"><strong>Autosave</strong><span>{autosaveSlot && !autosaveSlot.deleted ? `${formatBytes(autosaveSlot.size)} · revisi ${autosaveSlot.revision}` : 'kosong'}</span><span className="slot-actions"><button className="button secondary small" disabled={busy || !autosaveSlot} onClick={() => void run(() => load(AUTOSAVE_SLOT))}>Muat</button></span></article>
+      <div className="slots-panel">
+        <div className="server-slot-group">
+          <h3 className="server-slot-group-label">Slot manual</h3>
+          {slots.map(({ slot, info }) => <article key={slot} className="server-slot">
+            <div>
+              <strong>Slot {slot}</strong>
+              <div className={info && !info.deleted ? 'server-slot-info' : 'server-slot-empty'}>{info && !info.deleted ? `${formatBytes(info.size)} · revisi ${info.revision}` : 'Kosong'}</div>
+            </div>
+            <span className="slot-actions">
+              <button className="button secondary small" disabled={busy || !ready || !info || info.deleted} onClick={() => void run(() => load(slot))}>Muat</button>
+              <button className="button secondary small" disabled={busy || !ready || !metadata} onClick={() => void run(() => capture(slot))}>Ganti</button>
+            </span>
+          </article>)}
+        </div>
+        <div className="server-slot-group">
+          <h3 className="server-slot-group-label">Slot Autosave <span className="slot-badge">Otomatis</span></h3>
+          <article className="server-slot autosave-slot">
+            <div>
+              <strong>Autosave</strong>
+              <div className={autosaveSlot && !autosaveSlot.deleted ? 'server-slot-info' : 'server-slot-empty'}>{autosaveSlot && !autosaveSlot.deleted ? `${formatBytes(autosaveSlot.size)} · revisi ${autosaveSlot.revision}` : 'Kosong'}</div>
+            </div>
+            <span className="slot-actions">
+              <button className="button secondary small" disabled={busy || !ready || !autosaveSlot || autosaveSlot.deleted} onClick={() => void run(() => load(AUTOSAVE_SLOT))}>Muat</button>
+            </span>
+          </article>
+        </div>
         <p className="autosave-hint">Slot Autosave ditimpa otomatis saat autosave aktif; tiga slot manual hanya berubah saat kamu menekan Ganti.</p>
       </div>
       {pendingState && <div className="save-pending"><p>State {pendingSlotName(pendingState.slot)} belum dikonfirmasi server ({formatBytes(pendingState.bytes.length)}). {library.list && `Ruang tersisa ${formatBytes(Math.max(0, library.list.usage.quotaBytes - library.list.usage.usedBytes))}; penggantian slot hanya dihitung selisih ukurannya.`} Menutup tab dapat menghilangkan snapshot ini.</p><div className="account-actions"><button className="button secondary small" disabled={busy} onClick={() => downloadState(pendingState.bytes, `${session.game.id}-${pendingSlotName(pendingState.slot).replace(' ', '-')}-cadangan`)}>Unduh cadangan state terbaru</button><button className="button secondary small" disabled={!ready || busy} onClick={() => void run(() => upload(pendingState))}>Coba simpan lagi</button><button className="button secondary small" disabled={busy} onClick={() => { if (window.confirm('Abaikan snapshot yang belum tersimpan? Pastikan cadangan sudah diunduh.')) setPendingState(null) }}>Abaikan state tertunda</button></div></div>}
@@ -142,8 +170,11 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
         <button className="button secondary small" disabled={busy || !enabled} onClick={() => void library.refresh()}>Muat ulang daftar save</button>
         <button className="text-link" disabled={!metadata || busy || !enabled} onClick={() => void run(async () => { const bytes = await rpc('export-state'); if (bytes) downloadState(bytes, `${session.game.id}-cadangan`) })}>Unduh state saat ini</button>
       </div>
-      {manager && library.client && library.list && <SaveManager client={library.client} list={library.list} onRefresh={library.refresh} onClose={() => setManager(false)} />}
-    </div>}
+      <details className="server-state-help"><summary>Tentang penyimpanan progres</summary><p>Tidak memuat otomatis saat membuka game dan tidak mengimpor save browser tamu.</p><p>Save dalam game/memcard pada sesi akun masih sementara di memori, belum tersinkron ke server. Simpan state atau unduh cadangan sebelum keluar.</p></details>
+      </div>
+    </Dialog>
+    {manager && library.client && library.list && <div className="server-save-manager"><SaveManager client={library.client} list={library.list} onRefresh={library.refresh} onClose={() => setManager(false)} /></div>}
+    </>, overlayContainer ?? document.body)}
     {!show && pendingState && <div className="save-pending inline"><p>State {pendingSlotName(pendingState.slot)} belum dikonfirmasi server ({formatBytes(pendingState.bytes.length)}). Buka “Save state server” di toolbar emulator untuk mencoba simpan lagi atau mengunduh cadangan. Menutup tab dapat menghilangkan snapshot ini.</p></div>}
   </>
 }

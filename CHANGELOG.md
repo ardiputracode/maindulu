@@ -14,10 +14,20 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 - Save state server manual M5: tombol **Save state server** di toolbar emulator (di sebelah Import Save File) membuka overlay yang mem-pause permainan saat terbuka dan melanjutkan hanya permainan yang berjalan saat ditutup; tiga slot manual plus slot **Autosave** khusus (slot 99) dengan toggle dan interval (Nonaktif default, 30 detik, 1–15 menit) yang ditimpa otomatis saat aktif. Checksum/revisi, penyimpanan privat atomik, kuota terkonfigurasi dengan peringatan 80%, pengelola lintas game, serta unduhan cadangan dan retry eksplisit. Player akun terisolasi dari storage tamu; sinkronisasi save game/memcard tetap M6. Dukungan server dibuktikan otomatis pada NES.
 - Migrasi SQLite versi 4: tabel `saves` dibangun ulang agar slot 99 (Autosave) diizinkan di CHECK constraint; data lama dipindahkan apa adanya.
 - Dua patch vendoring engine baru: `togglePlaying` melaporkan transisi play/pause ke bridge (`EJS_onPlayPause` untuk jeda overlay dan gating autosave), dan `buildButtonOptions` menerima tombol bar kustom lengkap (displayName + icon + callback) yang upstream 4.2.3 menolak.
+- Notifikasi autosave sederhana di pojok kanan atas player: proses simpan, konfirmasi tersimpan dari server, atau kegagalan. Notifikasi hasil hilang otomatis dan tetap tersedia saat fullscreen sesi akun.
 - Pemulihan akun M4 tanpa email: reset dengan kode sekali pakai, penerbitan ulang setelah verifikasi password, dan `npm run account:reset -- <username>` untuk admin lokal dengan password tersembunyi. Reset merotasi kode dan mencabut seluruh sesi secara transaksional tanpa mengubah ID akun; cloud save belum termasuk.
 - Kredit/attribution di footer aplikasi dan README: maindulu dirakit oleh
   [ArdiputraCode](https://github.com/ardiputracode/maindulu), kode full assisted
   by AI; engine emulator (EmulatorJS) dan core-nya milik pembuat aslinya.
+
+### Diubah
+
+- Menu **Save States** di dalam gerigi emulator disembunyikan untuk akun maupun tamu. Tombol native Save State/Load State untuk tamu serta nilai dan mekanisme internal **System Save interval** tidak diubah.
+
+### Diperbaiki
+
+- Overlay **Save state server** tidak lagi menyusun seluruh bagian secara horizontal: satu dialog vertikal responsif, kartu slot manual/Autosave terpisah, status yang lebih jelas, serta navigasi Tab/Escape dan pemulihan fokus.
+- Overlay save dan pengelola simpanan sesi akun kini tetap muncul saat fullscreen. Fullscreen mencakup pembungkus player bersama iframe, overlay, dan notifikasi; status tombol fullscreen engine mengikuti keadaan browser.
 
 ## 0.2.0 — 2026-10-23
 

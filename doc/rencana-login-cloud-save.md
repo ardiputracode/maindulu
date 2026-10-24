@@ -83,7 +83,7 @@ Snapshot kondisi emulator untuk melanjutkan dari suatu posisi tertentu.
 - Mendukung beberapa slot; jumlah slot ditentukan saat implementasi.
 - Mencatat versi engine dan core untuk pemeriksaan kompatibilitas.
 - Tidak otomatis memuat state yang tidak kompatibel tanpa peringatan.
-- Autosave state dapat menjadi pengembangan lanjutan setelah save manual dan memcard stabil.
+- Autosave state opsional tersedia pada M5: nonaktif secara default, memakai satu slot khusus terpisah dari slot manual, dan hanya berjalan saat permainan aktif. Ini bukan sinkronisasi save dalam game/memcard M6.
 
 Save state bukan pengganti save dalam game. Pembaruan engine atau core dapat memengaruhi kompatibilitas save state.
 
@@ -343,12 +343,13 @@ Panduan, kontrak API, konfigurasi kuota, dan batasan: [M5 — Save State Server 
 - [x] Integrasikan pesan save/load antara host React dan bridge iframe dengan validasi origin, source, channel, serta session ID.
 - [x] Pisahkan jalur save state pengguna login dari store browser tamu; `EJS_disableDatabases` tidak mematikan store state engine. Patch vendoring menambahkan mode state dummy/MEMFS akun tanpa mengubah persistence tamu.
 - [x] Tambahkan tombol **Save state server** di toolbar emulator (bar bawah, di sebelah Import Save File) untuk sesi akun, serta overlay tunggal yang mem-pause permainan saat terbuka dan melanjutkan hanya permainan yang berjalan saat overlay ditutup. Panel berisi tiga slot manual, slot Autosave terpisah, toggle/interval autosave (Nonaktif 0 detik, 30 detik, 1–15 menit), pengelola lintas game, peringatan kuota 80%, hapus berkonfirmasi, ekspor cadangan, dan retry eksplisit; tidak ada penghapusan otomatis.
+- [x] Rapikan overlay menjadi dialog vertikal responsif dengan navigasi keyboard. Pastikan overlay/pengelola tersedia saat fullscreen sesi akun, tambahkan notifikasi autosave singkat di kanan atas player, dan sembunyikan menu **Save States** di gerigi untuk semua pengguna tanpa mengubah **System Save interval** atau tombol save/load tamu. Pengguna mengonfirmasi tes manual perubahan terakhir berhasil.
 - [x] Tangani sesi kedaluwarsa, pergantian akun, dan kegagalan jaringan tanpa mencampurkan data tamu atau akun lain.
 - [x] Uji save lalu restart server/buka sesi browser baru dan pulihkan state melalui engine nyata. Posisi RAM NES benar-benar pulih setelah server dibuat ulang dan database dibuka ulang, bukan hanya pengujian byte.
 - [x] Uji isolasi dua akun, akses tanpa izin, path berbahaya, upload tidak valid, kuota, revisi usang, dan versi engine/core berbeda.
 - [x] Verifikasi bahwa reset password/admin tetap mempertahankan akses pemilik ke save yang sudah ada. Ganti password, pemulihan kode, dan reset admin diuji terhadap byte state serta ID pemilik nyata.
 
-Hasil: 75 unit/integrasi lulus; build lulus; development/production statis masing-masing 22 lulus dan 13 tes akun/save server sengaja dilewati; backend nyata 31 lulus, termasuk tujuh tes integrasi M5 (termasuk autosave slot 99). Suite autentikasi/admin/save/server pada Node.js 24.22.1: 48 lulus. Dukungan server dibuktikan otomatis pada NES legacy sesuai filename loader yang direkam; PS1/core lain dan varian normal belum dinyatakan terverifikasi. M5 selesai; rincian serta batasan pada [hasil M5](milestone-5-save-state-server.md#hasil-verifikasi).
+Hasil: 75 unit/integrasi lulus; build lulus. Verifikasi awal development/production statis masing-masing 22 lulus dan 13 tes akun/save server sengaja dilewati. Setelah penambahan regresi tata letak overlay, backend nyata 32 lulus, termasuk delapan tes integrasi M5 (termasuk autosave slot 99). Perubahan notifikasi/fullscreen/menu gerigi sesudahnya telah lolos build dan dikonfirmasi lewat tes manual pengguna; regresi browser penuh belum diulang untuk perubahan terakhir tersebut. Suite autentikasi/admin/save/server pada Node.js 24.22.1: 48 lulus pada verifikasi awal. Dukungan server dibuktikan otomatis pada NES legacy sesuai filename loader yang direkam; PS1/core lain dan varian normal belum dinyatakan terverifikasi. M5 selesai; rincian serta batasan pada [hasil M5](milestone-5-save-state-server.md#hasil-verifikasi).
 
 **Selesai jika:** pengguna login dapat menyimpan dan memuat state lintas sesi dari server; kegagalan serta konflik revisi terlihat jelas dan tidak menimpa data diam-diam.
 

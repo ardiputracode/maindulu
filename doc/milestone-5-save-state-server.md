@@ -1,6 +1,6 @@
 # M5 — Save State Server Manual
 
-Status: M5 selesai untuk save state server manual pada NES yang terverifikasi. Kuota/pengelola, isolasi akun/tamu, dan regresi telah diuji; batas dukungan core serta fitur lanjutan tetap dicatat di bawah.
+Status: M5 selesai untuk save state server manual dan autosave opsional pada NES yang terverifikasi. Kuota/pengelola, isolasi akun/tamu, dan regresi telah diuji; pengguna telah mengonfirmasi tes manual perubahan UI terakhir. Batas dukungan core serta fitur lanjutan tetap dicatat di bawah.
 
 M5 menambahkan save/load state manual dari engine nyata ke penyimpanan server privat, tanpa upload ROM/BIOS. **Save dalam game/memcard otomatis tetap M6.** Dukungan server yang dibuktikan otomatis saat ini adalah **NES / fceumm varian legacy**, yaitu pilihan default loader yang teramati pada suite ini. Core/varian lain dapat dicoba dengan peringatan, tetapi tidak dinyatakan terverifikasi hanya karena `supportsStates()` tersedia atau pernah lulus ekspor/impor manual M1.
 
@@ -14,6 +14,16 @@ M5 menambahkan save/load state manual dari engine nyata ke penyimpanan server pr
 6. ROM lokal tetap harus dipilih kembali; identitas berbasis hash isi ROM dipertahankan. Judul yang sama bukan bukti ROM/region/revisi yang sama.
 
 **Autosave state** — di overlay Save state server, aktifkan **Aktifkan autosave state** lalu pilih interval **Nonaktif (default) / 30 detik / 1 menit / 2 menit / 5 menit / 10 menit / 15 menit**. Saat aktif, slot khusus **Autosave** (slot 99) ditimpa secara otomatis sesuai interval, hanya saat game benar-benar berjalan: autosave berhenti saat dijeda, saat overlay terbuka, dan saat tab tersembunyi. Membuka game tanpa konfirmasi tidak pernah memicu autosave. Jika upload sebelumnya belum selesai, jadwal berikutnya dilewati (tidak ditumpuk), dan hanya satu upload berjalan dalam satu waktu. Slot Autosave terpisah dari tiga slot manual dan tidak mengubah slot manual. Setiap penulisan menggunakan kuota akun; penggantian dihitung dari selisih ukuran. Kegagalan upload autosave tidak mengubah autosave server terakhir. Interval 30 detik dapat menambah beban perangkat dan jaringan, terutama untuk state besar.
+
+Saat autosave berjalan, notifikasi kecil **Autosave…** muncul di pojok kanan atas player. **Autosave tersimpan** baru ditampilkan setelah respons sukses API dan hilang setelah 3 detik; pesan gagal mengarahkan pengguna membuka **Save state server** dan hilang setelah 6 detik. Notifikasi tidak menangkap klik atau mem-pause permainan selama upload. Saat overlay terbuka, status ditampilkan di dalam panel, bukan lewat notifikasi player.
+
+### Overlay dan Fullscreen
+
+- Konten berada dalam satu dialog vertikal yang dapat digulir, dengan kartu slot manual dan Autosave terpisah. Pada HP, tombol aksi slot ditata di bawah informasi slot agar tidak melebar ke samping.
+- Gunakan **×**, **Escape**, atau klik latar untuk menutup saat tidak ada operasi manual berlangsung. Tab/Shift+Tab tetap di dalam dialog; fokus dipulihkan setelah ditutup. Menutup pengelola simpanan mengembalikan pengguna ke overlay tanpa melanjutkan permainan.
+- Fullscreen sesi akun memakai pembungkus player, bukan iframe saja. Overlay dan pengelola dipasang ke pembungkus yang sama melalui portal React, sehingga tetap terlihat tanpa keluar fullscreen; notifikasi autosave juga berada di dalamnya. Tombol masuk/keluar fullscreen mengikuti perubahan keadaan browser. Perilaku fullscreen tamu tetap bawaan engine.
+- Menu **Save States** di dalam gerigi disembunyikan untuk **semua pengguna**, baik sebelum maupun sesudah core mulai. Ini hanya menyembunyikan entri menu, tidak mengubah nilai, default, atau mekanisme internal **System Save interval**. Tombol native Save State/Load State tamu tetap tersedia.
+- Informasi tambahan tentang save browser dan memcard dapat dibuka melalui **Tentang penyimpanan progres** di bagian bawah overlay.
 
 Penggantian slot terisi meminta konfirmasi. Unduh versi lama dari **Kelola simpanan** dahulu jika ingin mempertahankannya; M5 belum menyediakan retensi versi/backup konflik otomatis M7. Slot kosong di server tidak otomatis diisi dari save tamu.
 
@@ -41,7 +51,7 @@ Saat kuota tidak cukup:
 - Jika slot tujuan sendiri dihapus/berubah, revisi snapshot tertunda tetap usang. Unduh cadangan, muat ulang daftar, lalu lakukan aksi simpan baru secara eksplisit; retry tidak menaikkan revisi sendiri untuk menimpa versi lain.
 - Menutup tab, crash browser, atau berganti akun dapat menghilangkan snapshot yang belum tersinkron. Ini bukan antrean offline persisten.
 
-Unduhan cadangan berupa byte `.state` mentah yang kompatibel dengan mekanisme impor engine, bukan ROM, BIOS, atau paket backup server. Simpan juga informasi ROM/core/versi yang sesuai. Impor berkas state lewat UI akun belum termasuk M5; gunakan fasilitas impor engine yang sesuai pada mode tamu (pengaturan lokasi state **download/file**, bukan store browser), atau pertahankan berkas untuk jalur impor eksplisit berikutnya. Backup server konsisten tetap memerlukan database beserta folder data, bukan unduhan satu state saja.
+Unduhan cadangan berupa byte `.state` mentah, bukan ROM, BIOS, atau paket backup server. Simpan juga informasi ROM/core/versi yang sesuai. Impor berkas state lewat UI akun belum termasuk M5; pertahankan berkas untuk jalur impor eksplisit berikutnya. Menu pemilihan lokasi state **download/file** tidak lagi tersedia karena grup **Save States** di gerigi disembunyikan. Tombol **Import Save File** untuk save dalam game bukan jalur impor berkas `.state`. Backup server konsisten tetap memerlukan database beserta folder data, bukan unduhan satu state saja.
 
 ### Konfigurasi Pengelola Server
 
@@ -64,6 +74,8 @@ Konfigurasi dimuat saat startup; hentikan dan jalankan ulang server. Menurunkan 
 Metadata state mencatat `formatVersion: 1`, EmulatorJS `engineVersion`, SHA-256 build core `.data`, fingerprint runtime JavaScript, serta varian `normal`/`legacy`. `public/player/builds.json` dihasilkan oleh `scripts/vendor-engine.mjs`; fingerprint runtime memakai kode bundle tanpa header lisensi dengan newline kanonis LF. Perbedaan engine/core/runtime/varian meminta konfirmasi sebelum muat, bukan otomatis dianggap kompatibel. Versi format aplikasi yang belum dikenali ditolak sebagai kontrak tidak valid, bukan dipaksakan ke core.
 
 Bridge menyediakan `export-state` dan `import-state`, masing-masing dengan request ID acak. Host dan iframe memeriksa origin, source-window, channel, serta session ID; respons harus sesuai request ID dan jenis operasi. Byte dan ukuran divalidasi. Tidak ada password, cookie, token CSRF, atau identitas akun dalam konfigurasi iframe; HTTP autentikasi hanya dilakukan host React.
+
+Pesan `pause-session`/`resume-session` mempertahankan keadaan jeda sebelum overlay dibuka; `session-running` menjadi salah satu syarat autosave. Untuk sesi akun, iframe mengirim `fullscreen-request` ke host dan menerima `fullscreen-state` untuk menyelaraskan tombol engine. Pemeriksaan origin, source, channel, dan session ID tetap berlaku. Pengalihan fullscreen dan penyembunyian menu gerigi dilakukan di bridge `public/player/player.js`, bukan melalui perubahan bundle vendor baru.
 
 Engine 4.2.3 tidak menyediakan konfirmasi deserialisasi yang dapat diandalkan dari `loadState()`. Karena itu UI menyatakan **Perintah muat dikirim ke core. Periksa progres permainan**, bukan mengklaim progres berhasil hanya dari berkas yang ditulis. Tes NES membaca posisi karakter dalam RAM core setelah muat untuk membuktikan progres benar-benar dipulihkan.
 
@@ -121,7 +133,7 @@ npm run test:e2e:backend
 
 `tests/saves.test.mjs` memeriksa persistensi file/metadata, isolasi dua akun, CSRF/origin, ID/path/slot/payload invalid, checksum, batas ukuran/kuota dan selisih penggantian, tombstone, dua koneksi berebut revisi/kuota, rollback/orphan/rusak, serta kepemilikan byte state sesudah ganti password, pemulihan kode, dan reset admin. `tests/domain.test.mjs` memeriksa patch storage dan fingerprint aset yang benar-benar dipaketkan.
 
-Tujuh tes `tests/browser/server-saves.spec.ts` memakai engine nyata: pemulihan posisi NES setelah server dibuat ulang/database dibuka ulang dan browser context baru, penolakan versi berbeda tanpa konfirmasi, kuota/hapus/cadangan/retry mobile, initial fetch dan upload gagal, konflik dua tab, pencabutan sesi/pergantian akun, save tamu tetap utuh setelah sesi akun, serta autosave slot 99 (menulis hanya slot Autosave saat game berjalan, berhenti saat overlay terbuka, dan selalu menimpa slot yang sama). Tes restart engine-server ini memakai server in-process yang ditutup/dibuka ulang; suite CLI M2 tetap menguji restart proses server secara terpisah.
+Delapan tes `tests/browser/server-saves.spec.ts` memakai engine nyata: tata letak overlay vertikal tanpa overflow pada ukuran 1280×900, 390×844, 320×568, dan 844×390 beserta navigasi keyboard/pause; pemulihan posisi NES setelah server dibuat ulang/database dibuka ulang dan browser context baru; penolakan versi berbeda tanpa konfirmasi; kuota/hapus/cadangan/retry mobile; initial fetch dan upload gagal; konflik dua tab; pencabutan sesi/pergantian akun; save tamu tetap utuh setelah sesi akun; serta autosave slot 99 (menulis hanya slot Autosave saat game berjalan, berhenti saat overlay terbuka, dan selalu menimpa slot yang sama). Pengelompokan skenario tersebut berada di delapan tes, bukan satu tes per subkasus. Tes restart engine-server ini memakai server in-process yang ditutup/dibuka ulang; suite CLI M2 tetap menguji restart proses server secara terpisah.
 
 ### Hasil Verifikasi
 
@@ -129,16 +141,20 @@ Lingkungan: Windows, Node.js 26.12.1 dan Microsoft Edge headless. Suite autentik
 
 | Pemeriksaan | Hasil |
 | --- | --- |
-| `npm test` | 75 lulus |
-| `npm run build` | Lulus |
+| `npm test` | 75 lulus; diperiksa ulang pada perubahan akhir M5 |
+| `npm run build` | Lulus; diperiksa ulang pada perubahan akhir M5 |
+| `node --check public/player/player.js` | Lulus pada bridge akhir M5 |
 | `npm run test:e2e` | 22 lulus; 13 tes akun/server save dilewati pada development statis |
 | `npm run test:e2e:production` | 22 lulus; 13 tes akun/server save dilewati pada preview statis |
-| `npm run test:e2e:backend` | 31 lulus, termasuk tujuh tes M5 engine nyata |
+| `npm run test:e2e:backend` | 32 lulus, termasuk delapan tes M5; dijalankan setelah perbaikan tata letak, sebelum perubahan notifikasi/fullscreen/menu gerigi terakhir |
+| Tes manual perubahan UI terakhir | Pengguna mengonfirmasi berhasil: overlay/fullscreen, notifikasi autosave, dan penyembunyian menu Save States |
 | Autentikasi/admin/save/server pada Node.js 24.22.1 | 48 lulus |
 | TypeScript ketat tes akun/M5 dan konfigurasi backend | Lulus |
 | `npm audit --omit=dev` | Tidak ada kerentanan yang dilaporkan |
 | Vendoring ulang dari arsip terpin | Enam output bundle/sumber/loader/fingerprint/provenance identik byte demi byte |
 
-Suite M5 mengisolasi data dan limiter per skenario melalui server lokal fixture, bukan melonggarkan kebijakan pendaftaran produksi. Pada percobaan regresi awal, gabungan percobaan pendaftaran M3/M4/M5 mencapai limit IP dan suite terhenti; setelah fixture dipisah, regresi backend penuh lulus. Tes terarah awal juga diperbaiki untuk nilai kosong dummy store (`undefined`) serta selector katalog/riwayat yang ganda. Pemeriksaan varian tambahan mengoreksi asumsi normal menjadi **legacy** berdasarkan metadata filename core yang benar-benar dipilih loader; tes, UI, dan klaim dukungan disesuaikan. Hasil akhir di tabel adalah eksekusi yang lulus, bukan hitungan percobaan gagal.
+Angka development/production statis di atas berasal dari verifikasi awal M5 sebelum penambahan tes tata letak overlay. Regresi browser penuh belum dijalankan ulang setelah perubahan notifikasi/fullscreen/menu gerigi terakhir; perubahan terakhir diperiksa melalui build, pemeriksaan sintaks bridge, dan tes manual pengguna. Tes manual ini tidak memperluas klaim dukungan core atau perangkat tertentu.
+
+Suite M5 mengisolasi data dan limiter per skenario melalui server lokal fixture, bukan melonggarkan kebijakan pendaftaran produksi. Pada percobaan regresi awal, gabungan percobaan pendaftaran M3/M4/M5 mencapai limit IP dan suite terhenti; setelah fixture dipisah, regresi backend penuh lulus. Helper pembuka overlay juga diperbaiki untuk memfokuskan tab yang tepat dan menggerakkan pointer ke bawah, sesuai perilaku auto-hide menu engine. Tes terarah awal diperbaiki untuk nilai kosong dummy store (`undefined`) serta selector katalog/riwayat yang ganda. Pemeriksaan varian tambahan mengoreksi asumsi normal menjadi **legacy** berdasarkan metadata filename core yang benar-benar dipilih loader; tes, UI, dan klaim dukungan disesuaikan. Hasil di tabel adalah eksekusi yang lulus, bukan hitungan percobaan gagal.
 
 PS1/core lain, varian normal, reverse proxy HTTPS nyata, serta crash listrik belum dibuktikan pada integrasi server M5. Label varian ditentukan dari filename core yang benar-benar dipilih loader dan direkam pada metadata, bukan dari tersedianya WebGL2 di browser. Bukti manual PS1 M1 tidak dipromosikan menjadi bukti cloud save. Tidak ada ROM komersial atau BIOS yang ditambahkan ke commit atau katalog untuk pengujian ini. M6 melanjutkan sinkronisasi save game/memcard; M7 menangani UI penyelesaian konflik dan impor browser; M8 backup/restore.

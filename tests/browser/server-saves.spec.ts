@@ -85,23 +85,67 @@ const saveSlot = async (page: Page, slotNumber: number) => { await slotRow(page,
 const loadSlot = async (page: Page, slotNumber: number) => { await slotRow(page, `Slot ${slotNumber}`).getByRole('button', { name: 'Muat', exact: true }).click() }
 const paused = (frame: FrameLocator) => frame.locator('body').evaluate(() => (window as unknown as Engine).EJS_emulator.paused)
 async function openOverlay(page: Page, frame: FrameLocator) {
-  // The engine auto-hides its menu bar during play; a pointer move over the
-  // canvas reveals it before the click (engine pointer-plane otherwise wins).
+  // Multi-tab scenarios must reveal the toolbar in the actual foreground tab.
+  await page.bringToFront()
+  // Default engine behavior reveals the bar on downward motion, not every
+  // mouse move. End near the bottom so this works after switching tabs too.
   const box = await frame.locator('canvas').boundingBox()
-  if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  if (box) {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height - 5, { steps: 5 })
+  }
   await frame.getByRole('button', { name: 'Save state server', exact: true }).click()
   await expect(overlay(page)).toBeVisible()
   // The game pauses while the overlay is open, and state RPCs must not resume it.
   await expect.poll(() => paused(frame)).toBe(true)
 }
 async function closeOverlay(page: Page, frame: FrameLocator) {
-  await overlay(page).getByRole('button', { name: 'Tutup', exact: true }).click()
+  await overlay(page).getByRole('button', { name: 'Tutup dialog', exact: true }).click()
   await expect(overlay(page)).toHaveCount(0)
   // Closing resumes a game that was running when the overlay opened.
   await expect.poll(() => paused(frame)).toBe(false)
 }
 
 test.beforeEach(({}, info) => { test.skip(info.project.name !== 'node-backend', 'Save server membutuhkan backend; mode tamu/statis tetap diuji terpisah.') })
+
+test('M5: save overlay stacks its sections, fits small screens, and keeps keyboard focus inside', async ({ page }, info) => {
+  const name = username()
+  await register(page, name)
+  const frame = await launch(page, name)
+  await openOverlay(page, frame)
+  const panel = overlay(page)
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 568 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport)
+    await expect(panel).toBeVisible()
+    expect(await panel.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      const content = element.querySelector('.server-state-content')!
+      const sections = Array.from(content.children).map(child => child.getBoundingClientRect())
+      return {
+        fits: rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight,
+        noOverflow: element.scrollWidth <= element.clientWidth,
+        vertical: sections.every((section, index) => index === 0 || section.top >= sections[index - 1].bottom),
+      }
+    })).toEqual({ fits: true, noOverflow: true, vertical: true })
+    if (viewport.width === 1280 || viewport.width === 390) await page.screenshot({ path: info.outputPath(`save-overlay-${viewport.width}.png`) })
+  }
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const close = panel.getByRole('button', { name: 'Tutup dialog', exact: true })
+  await close.focus()
+  await page.keyboard.press('Shift+Tab')
+  await expect(panel.locator('summary')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(close).toBeFocused()
+  await panel.getByRole('button', { name: 'Kelola simpanan', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Kelola simpanan server.' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Kelola simpanan server.' })).toHaveCount(0)
+  await expect(panel).toBeVisible()
+  expect(await paused(frame)).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(panel).toHaveCount(0)
+  await expect.poll(() => paused(frame)).toBe(false)
+})
 
 test('M5: real NES state survives server recreation and a fresh browser context using only account server data', async ({ browser }) => {
   const parent = process.platform === 'win32' && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Temp/opencode') : tmpdir()

@@ -27,17 +27,69 @@
 .save-pending { margin: 16px 0; padding: 14px; border: 1px solid #a7792f; border-radius: 10px; }
 .server-states .account-actions, .save-item .account-actions { flex-wrap: wrap; }
 .save-item button { white-space: normal; overflow-wrap: anywhere; }
-.server-overlay { position: fixed; inset: 0; z-index: 70; background: #050d08c9; backdrop-filter: blur(9px); display: flex; align-items: center; justify-content: center; padding: 30px; overflow-y: auto; }
-.server-overlay > div { width: 540px; max-width: 90%; max-height: calc(100dvh - 60px); overflow-y: auto; padding: 28px; background: #17271d; border: 1px solid #48634e; border-radius: 18px; box-shadow: 0 30px 100px #0006; outline: none; }
-.server-overlay-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; gap: 15px; }
-.server-overlay-head h2 { font-size: 26px; letter-spacing: -1px; margin-top: 7px; }
-.server-overlay .icon-button { background: #243b2b; color: #b4cbb7; width: 30px; height: 30px; }
-.server-overlay .autosave-panel, .server-overlay .slots-panel { margin: 18px 0; }
-.server-overlay h3 { margin: 10px 0 8px; font-size: 13px; letter-spacing: -0.5px; }
-.server-overlay .interval-select { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-.server-overlay select { width: auto; min-width: 140px; padding: 8px 10px; border-radius: 7px; background: #102017; border: 1px solid #3c5943; color: #d6e6d8; font-size: 11px; }
-.server-slot { padding: 12px 0; border-bottom: 1px solid var(--line, #d8e2da); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.server-slot .slot-actions { display: flex; gap: 7px; }
-.autosave-hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
+.server-overlay { z-index: 70; padding: 24px; }
+.player-shell:fullscreen { width: 100%; height: 100%; max-width: none; max-height: none; min-height: 0; aspect-ratio: auto; border: 0; border-radius: 0; background: #080e0b; }
+.player-shell:fullscreen::backdrop { background: #080e0b; }
+.player-save-notice { position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); z-index: 5; display: flex; align-items: center; gap: 7px; max-width: calc(100% - 24px); padding: 8px 11px; border: 1px solid #43624c; border-radius: 8px; background: #102017ed; color: #c9ebd3; box-shadow: 0 3px 12px #0004; font-size: 12px; line-height: 1.5; pointer-events: none; }
+.player-save-notice svg { flex-shrink: 0; }
+.player-save-notice--error { border-color: #8d6543; color: #f4d5af; }
+.server-overlay > .server-state-dialog { width: 600px; max-width: 100%; max-height: calc(100dvh - 48px); padding: 24px; }
+.server-state-dialog .dialog-heading { margin-bottom: 18px; }
+.server-state-dialog .dialog-heading h2 { font-size: 24px; }
+.server-state-dialog .dialog-heading .icon-button { width: 40px; height: 40px; }
+.server-state-content { display: flex; flex-direction: column; gap: 16px; min-width: 0; font-size: 13px; line-height: 1.65; }
+.server-state-content > * { min-width: 0; }
+.server-state-content p { overflow-wrap: anywhere; }
+.server-state-intro { display: flex; flex-direction: column; gap: 4px; color: #a5b9ab; }
+.server-state-intro strong { color: #e1eee4; font-size: 15px; }
+.server-state-dialog .save-quota { padding: 12px 14px; background: #102017; border: 1px solid #2c4432; border-radius: 10px; }
+.server-state-dialog .save-quota progress { display: block; height: 8px; margin-top: 8px; accent-color: var(--mint); }
+.server-state-dialog .autosave-panel { padding: 16px; border: 1px solid #34523d; border-radius: 12px; background: #13231a; }
+.server-state-dialog h3 { margin: 0 0 10px; font-size: 14px; color: #d3e7d8; }
+.server-state-dialog .autosave-panel > label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.server-state-dialog input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--mint); flex-shrink: 0; }
+.server-state-dialog .interval-select { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.server-state-dialog select { min-width: 140px; max-width: 100%; min-height: 42px; padding: 8px 12px; border-radius: 8px; background: #102017; border: 1px solid #3c5943; color: #d6e6d8; font: inherit; color-scheme: dark; }
+.server-slot-group + .server-slot-group { margin-top: 18px; }
+.server-state-dialog .server-slot-group-label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.server-slot { padding: 14px; border: 1px solid #2c4432; border-radius: 10px; background: #14251b; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.server-slot + .server-slot { margin-top: 8px; }
+.server-slot > div { min-width: 0; flex: 1 1 140px; }
+.server-slot strong { font-size: 14px; }
+.server-slot-info, .server-slot-empty { color: #96ad9e; font-size: 12px; margin-top: 3px; }
+.slot-badge { font-size: 10px; font-weight: 700; color: #a9ecc3; background: #163522; border: 1px solid #36573f; border-radius: 20px; padding: 2px 8px; }
+.server-slot .slot-actions { display: flex; gap: 8px; align-items: center; }
+.server-state-dialog .button.small { min-height: 42px; font-size: 12px; }
+.server-slot .slot-actions .button { min-width: 72px; }
+.server-state-dialog button:disabled, .server-state-dialog select:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.server-state-dialog :is(button, select, input, summary):focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; }
+.autosave-hint { font-size: 12px; color: #96ad9e; margin-top: 10px; }
 .save-pending.inline { margin: 12px 0; }
-.server-overlay .account-actions { margin-top: 14px; align-items: center; }
+.server-state-content > .account-actions { padding-top: 16px; border-top: 1px solid #2c4432; align-items: center; }
+.server-state-dialog .account-actions { flex-wrap: wrap; gap: 10px; }
+.server-state-dialog .account-actions button { white-space: normal; overflow-wrap: anywhere; }
+.server-state-dialog .account-actions .text-link { font-size: 12px; min-height: 42px; }
+.server-state-dialog .save-pending { margin: 0; background: #352b18; }
+.server-state-dialog .save-pending .account-actions { margin-top: 12px; }
+.server-state-help { color: #96ad9e; font-size: 12px; }
+.server-state-help summary { cursor: pointer; color: #bdd6c4; padding: 6px 0; }
+.server-state-help p { margin-top: 8px; }
+.server-save-manager { position: relative; z-index: 71; }
+.server-status { padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.65; }
+.server-status--error { background: #4a1d1d; border: 1px solid #7a3b3b; color: #f5c2c2; }
+.server-status--success { background: #1d3a26; border: 1px solid #4e6a55; color: #ccecd5; }
+.server-status--info { background: #243b2b; border: 1px solid #4e6a55; color: #b4cbb7; }
+.server-state-dialog .notice { font-size: 12px; line-height: 1.65; }
+.server-state-dialog .autosave-panel .notice { margin: 10px 0 0; }
+@media (max-width: 520px) {
+  .server-overlay { padding: 12px; }
+  .server-overlay > .server-state-dialog { padding: 18px; max-height: calc(100dvh - 24px); }
+  .server-state-dialog .dialog-heading h2 { font-size: 21px; letter-spacing: -.5px; }
+  .server-state-dialog .autosave-panel { padding: 12px; }
+  .server-slot { padding: 12px; }
+  .server-slot > div { flex-basis: 100%; }
+  .server-slot .slot-actions { width: 100%; }
+  .server-slot .slot-actions .button { flex: 1; }
+  .server-state-content > .account-actions { align-items: stretch; flex-direction: column; }
+  .server-state-dialog .save-pending .account-actions > button { width: 100%; }
+}
