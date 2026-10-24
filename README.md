@@ -105,6 +105,12 @@ EmulatorJS: GPL-3.0-or-later; core memiliki lisensi tersendiri. Saat mendistribu
 
 Fallback SHA-256 menggunakan `@noble/hashes` (MIT), dibundel bersama aplikasi, bukan dimuat dari CDN.
 
+## Kredit
+
+- maindulu: dirakit oleh [ArdiputraCode](https://github.com/ardiputracode/maindulu).
+- Kode: full assisted by AI.
+- Engine emulator & core: EmulatorJS v4.2.3 (Ethan O'Brien, GPL-3.0-or-later) dan core upstream masing-masing — lihat `third_party/emulatorjs/README.md`.
+
 ## Deployment
 
 Gunakan hosting statis yang mendukung fallback route SPA ke `index.html`, **tetapi jangan menulis ulang permintaan aset yang hilang menjadi HTML**. Folder `/vendor/`, `/player/`, `/catalog/`, `/games/`, `/bios/`, `/covers/`, dan `/assets/` harus mengembalikan 404 nyata untuk file yang tidak ada. Contoh Nginx tersedia di `deploy/nginx.conf`.

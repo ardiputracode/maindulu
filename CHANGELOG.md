@@ -9,7 +9,11 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ## [Belum dirilis]
 
-Tidak ada.
+### Ditambahkan
+
+- Kredit/attribution di footer aplikasi dan README: maindulu dirakit oleh
+  [ArdiputraCode](https://github.com/ardiputracode/maindulu), kode full assisted
+  by AI; engine emulator (EmulatorJS) dan core-nya milik pembuat aslinya.
 
 ## 0.2.0 — 2026-10-23
 
