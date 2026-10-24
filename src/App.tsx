@@ -11,6 +11,8 @@ import type { LaunchSession } from './components/Player'
 import { DEFAULT_SETTINGS, STORAGE_KEYS, isSafeLocalUrl, readGames, readSettings, recordHistory, toggleFavorite } from './lib/domain'
 import type { Bios, ConsoleInfo, Game } from './lib/domain'
 import { useStored } from './lib/storage'
+import { useBackendStatus } from './lib/useBackendStatus'
+import BackendStatus from './components/BackendStatus'
 
 const navigation: { path: string; title: string; icon: LucideIcon }[] = [
   { path: '/', title: 'Beranda', icon: House },
@@ -30,6 +32,7 @@ function EmptyState({ icon: Icon = Gamepad2, title, text, action, onClick }: { i
 }
 
 export default function App() {
+  const backend = useBackendStatus()
   const [consoles, setConsoles] = useState<ConsoleInfo[]>([])
   const [games, setGames] = useState<Game[]>([])
   const [biosList, setBiosList] = useState<Bios[]>([])
@@ -150,6 +153,7 @@ export default function App() {
           <Route path="/main" element={session ? <Player key={session.id} session={session} settings={settings} favorite={favorites.some(g => g.id === session.game.id)} onFavorite={() => favorite(session.game)} onStart={() => { setGameStarted(true); setHistory(previous => recordHistory(previous, session.game, settings.history)) }} onExit={leave} onWidescreen={next => setSettings(s => ({ ...s, widescreen: next }))} /> : <EmptyState title="Ruang mainnya masih kosong." text="Sesi file lokal tidak bertahan setelah refresh. Pilih kembali game dan BIOS untuk mulai bermain." action="Pilih permainan" onClick={() => navigate('/console')} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>}
+        {!loading && !catalogError && location.pathname === '/pengaturan' && <BackendStatus state={backend.state} onRetry={backend.retry} />}
         <footer className="footer"><span><img src="/assets/maindulu.svg" alt="" width="19" height="19" />maindulu<span className="footer-dot">·</span><span className="footer-motto">Jeda kecil. Kenangan besar.</span></span><span>Powered by EmulatorJS <b>4.2.3</b><span className="footer-dot">·</span><a href="/vendor/emulatorjs/4.2.3/LICENSE" target="_blank" rel="noreferrer">Lisensi</a><span className="footer-dot">·</span><Link to="/cara-bermain">Bantuan & privasi<ArrowUpRight size={12} /></Link></span><span className="footer-dot">·</span><span>catatan kecil: maindulu dirakit oleh <a href="https://github.com/ardiputracode/maindulu" target="_blank" rel="noopener noreferrer">ArdiputraCode</a> dengan bantuan AI penuh. Engine emulator (EmulatorJS) dan core-nya milik pembuat aslinya.</span></footer>
       </main>
     </div>

@@ -1,8 +1,8 @@
 # Rencana Login Opsional dan Penyimpanan Progres Server
 
-Status: rencana, belum diimplementasikan.
+Status: M1 dan M2 selesai. Backend lokal dan SQLite persisten tersedia; M3 dan milestone berikutnya belum dimulai. Akun serta penyimpanan progres server belum diimplementasikan.
 
-Pelaksanaan dilakukan per milestone. Semua milestone masih belum dimulai; lihat bagian [Milestone Implementasi](#milestone-implementasi) untuk checklist dan kriteria selesai.
+Pelaksanaan dilakukan per milestone. Lihat bagian [Milestone Implementasi](#milestone-implementasi) untuk checklist dan kriteria selesai, serta [hasil pembuktian M1](milestone-1-integrasi-save.md) untuk kontrak engine, bukti pengujian, dan batasan integrasi berikutnya.
 
 ## Tujuan
 
@@ -29,7 +29,7 @@ Target deployment utama adalah satu komputer yang menjalankan aplikasi beserta p
 - Player EmulatorJS berjalan dalam iframe melalui `src/components/Player.tsx` dan `public/player/player.js`.
 - Pengaturan, favorit, dan riwayat menggunakan penyimpanan browser.
 - Bridge player saat ini mengatur lokasi save state ke browser.
-- Belum ada backend akun atau API penyimpanan progres.
+- Backend lokal M2 tersedia untuk menyajikan hasil build, health API, dan SQLite persisten. Backend akun serta API penyimpanan progres belum tersedia.
 
 Implementasi akun tidak boleh menjadikan backend sebagai syarat agar katalog dan mode tamu dapat digunakan.
 
@@ -60,7 +60,7 @@ Contoh alamat penggunaan lokal: `http://localhost:7777`. Nomor port merupakan co
 | Frontend dan backend Node.js | Login opsional dan penyimpanan progres server |
 | Deployment Docker opsional | Kemampuan sama dengan backend Node.js langsung |
 
-Alur penggunaan backend nantinya: instal Node.js, instal dependensi, build frontend, lalu jalankan satu perintah untuk menyalakan web dan API. Nama perintah akan ditentukan saat implementasi; belum ada perintah baru yang tersedia dari dokumen ini.
+Alur backend M2: instal Node.js 24+, instal dependensi, jalankan `npm run build`, lalu `npm start` untuk menyalakan web dan API dalam satu proses. Lihat [panduan M2](milestone-2-backend-lokal.md) untuk konfigurasi dan batas kemampuan yang sudah tersedia.
 
 Frontend statis harus dapat beroperasi tanpa konfigurasi backend. Jika backend tidak diaktifkan, fitur akun dan cloud save disembunyikan. Bedakan kondisi tersebut dengan backend yang dikonfigurasi tetapi sedang tidak dapat dihubungi; kondisi kedua harus menampilkan status gangguan.
 
@@ -251,8 +251,8 @@ Saat sesi dicabut akibat pergantian atau pemulihan password, player mengikuti at
 
 | Milestone | Hasil utama | Dependensi | Status |
 | --- | --- | --- | --- |
-| M1 | Bukti ekspor/impor save pada engine nyata | — | Belum dimulai |
-| M2 | Web dan API lokal satu proses, SQLite persisten | M1 | Belum dimulai |
+| M1 | Bukti ekspor/impor save pada engine nyata | — | Selesai — otomatis NES, manual PS1 |
+| M2 | Web dan API lokal satu proses, SQLite persisten | M1 | Selesai |
 | M3 | Daftar, login, logout, dan sesi akun lokal | M2 | Belum dimulai |
 | M4 | Pemulihan password dan reset admin lokal | M3 | Belum dimulai |
 | M5 | Save/load state manual ke server | M1–M4 | Belum dimulai |
@@ -264,13 +264,15 @@ Saat sesi dicabut akibat pergantian atau pemulihan password, player mengikuti at
 
 Tujuan: membuktikan jalur ekspor/impor sebelum membangun penyimpanan server.
 
-- [ ] Identifikasi API ekspor/impor save state dan save game pada engine yang dipaketkan.
-- [ ] Buktikan save state demo NES dapat dimuat pada sesi emulator baru.
-- [ ] Buktikan save game menggunakan fixture sah yang mendukung penyimpanan dalam game; demo NES tidak otomatis membuktikan SRAM.
-- [ ] Uji memory card PS1 menggunakan game/BIOS yang sah dan mendukung penyimpanan.
-- [ ] Tentukan fase pemulihan memcard, cara mendeteksi perubahan, dan metadata kompatibilitas.
-- [ ] Catat matriks dukungan core, hasil pengujian, dan keterbatasan. Core yang belum diuji tidak dinyatakan didukung.
-- [ ] Jika perlu perubahan engine, gunakan sumber serta proses vendoring yang dapat direproduksi, bukan mengedit bundle hasil generate secara manual.
+- [x] Identifikasi API ekspor/impor save state dan save game pada engine yang dipaketkan.
+- [x] Buktikan save state demo NES dapat dimuat pada sesi emulator baru.
+- [x] Buktikan save game menggunakan fixture sah yang mendukung penyimpanan dalam game; demo NES tidak otomatis membuktikan SRAM.
+- [x] Uji memory card PS1 menggunakan aset lokal pengguna: pengguna mengonfirmasi memcard dan save state, termasuk ekspor/impor lintas sesi/browser, lulus manual; bukan hasil tes otomatis.
+- [x] Tentukan fase pemulihan save sebelum boot, cara mendeteksi perubahan, dan metadata kompatibilitas. Layout save aktif PS1 sudah diobservasi; integrasi pemulihan sebelum boot PS1 masih harus diuji di M6.
+- [x] Catat matriks dukungan core, hasil pengujian, dan keterbatasan. Core yang belum diuji tidak dinyatakan didukung.
+- [x] Evaluasi kebutuhan perubahan engine: pembuktian NES tidak membutuhkan patch; mode storage akun di M5/M6 perlu isolasi dari IDBFS browser. Jika perlu patch nanti, gunakan proses vendoring yang dapat direproduksi.
+
+Hasil: tiga tes browser M1 NES lulus (state lintas context, SRAM sebelum boot, serta event ekspor/impor pada core berjalan), ditambah verifikasi manual pengguna untuk memcard dan state PS1 lintas sesi/browser. M1 selesai. Lihat [laporan M1](milestone-1-integrasi-save.md) untuk pemisahan bukti otomatis/manual dan batasan yang harus diuji kembali saat integrasi server.
 
 **Selesai jika:** hasil save dapat dipulihkan pada sesi baru melalui engine nyata, dan kontrak integrasi serta batas dukungan sudah jelas. Jika fixture PS1 belum tersedia, catat sebagai blocker dan jangan menyatakan dukungan memcard PS1 selesai.
 
@@ -278,13 +280,17 @@ Tujuan: membuktikan jalur ekspor/impor sebelum membangun penyimpanan server.
 
 Tujuan: menjalankan web dan API di satu komputer melalui satu proses Node.js.
 
-- [ ] Tentukan framework backend, library SQLite, versi Node.js minimum, serta sistem operasi yang didukung.
-- [ ] Tambahkan server untuk hasil build frontend dan API same-origin, dengan port serta folder data yang dapat dikonfigurasi.
-- [ ] Tambahkan SQLite dan migrasi skema; simpan data di luar folder aset publik/build.
-- [ ] Sediakan satu perintah menjalankan server dan petunjuk penggunaan awal.
-- [ ] Bedakan frontend tanpa backend dengan backend terkonfigurasi yang sedang gagal dihubungi.
-- [ ] Uji persistensi setelah restart serta pastikan database/folder data tidak dapat diunduh sebagai aset web.
-- [ ] Uji bahwa frontend statis, katalog, dan permainan tamu tetap berjalan tanpa backend.
+Implementasi dan panduan operasi: [M2 — Backend Lokal](milestone-2-backend-lokal.md). Pilihan teknologi: Fastify 5, `@fastify/static` 10, SQLite bawaan Node.js 24+.
+
+- [x] Tentukan framework backend, library SQLite, versi Node.js minimum, serta sistem operasi yang didukung. Fastify 5, SQLite bawaan Node.js 24+, Windows terverifikasi; Linux menjadi target portabilitas yang belum diuji langsung.
+- [x] Tambahkan server untuk hasil build frontend dan API same-origin, dengan port serta folder data yang dapat dikonfigurasi.
+- [x] Tambahkan SQLite dan migrasi skema; simpan data di luar folder aset publik/build.
+- [x] Sediakan satu perintah menjalankan server (`npm start`) dan petunjuk penggunaan awal.
+- [x] Bedakan frontend tanpa backend dengan backend terkonfigurasi yang sedang gagal dihubungi, termasuk timeout dan retry.
+- [x] Uji persistensi setelah restart proses CLI serta pastikan database/folder data tidak dapat diunduh sebagai aset web.
+- [x] Uji bahwa frontend statis, katalog, dan permainan tamu tetap berjalan tanpa backend.
+
+Hasil: build lulus, 34 unit/integrasi lulus, 22 tes browser development lulus, 22 tes browser production statis lulus, dan 17 tes terhadap backend Node.js nyata lulus. Suite server juga lulus pada Node.js 24.22.1. M2 selesai; login serta save server belum tersedia. Detail verifikasi ada pada [laporan M2](milestone-2-backend-lokal.md#hasil-verifikasi).
 
 **Selesai jika:** web dan API berjalan tanpa Docker dalam satu proses, data bertahan setelah restart, dan mode statis tidak mengalami regresi.
 
@@ -325,6 +331,7 @@ Tujuan: menyediakan alur cloud save pertama dari browser sampai penyimpanan serv
 - [ ] Implementasikan API daftar, baca, tulis, dan hapus save dengan pemeriksaan kepemilikan di server.
 - [ ] Terapkan checksum, penulisan atomik, konsistensi metadata/berkas, dan pemeriksaan revisi untuk menolak overwrite usang sejak awal.
 - [ ] Integrasikan pesan save/load antara host React dan bridge iframe dengan validasi origin, source, channel, serta session ID.
+- [ ] Pisahkan jalur save state pengguna login dari store browser tamu; `EJS_disableDatabases` tidak mematikan store state engine.
 - [ ] Tambahkan tombol save/load state, slot, status upload, dan peringatan kompatibilitas.
 - [ ] Tangani sesi kedaluwarsa, pergantian akun, dan kegagalan jaringan tanpa mencampurkan data tamu atau akun lain.
 - [ ] Uji save lalu restart server/buka sesi browser baru dan pulihkan state melalui engine nyata.
@@ -338,6 +345,7 @@ Tujuan: menyediakan alur cloud save pertama dari browser sampai penyimpanan serv
 Tujuan: menjadikan server penyimpanan utama progres dalam game pada core yang sudah diverifikasi.
 
 - [ ] Ambil serta pasang save game/memcard sebelum fase permainan yang memerlukannya.
+- [ ] Isolasi storage pengguna login dari IDBFS tamu/akun lain; pertahankan persistence browser untuk tamu. Buktikan mode memori akun tanpa otomatis membaca/menulis store bersama.
 - [ ] Tambahkan deteksi perubahan, pembatasan frekuensi upload, dan retry terbatas selama sesi berlangsung.
 - [ ] Tampilkan status tersimpan hanya setelah konfirmasi server; jangan mengandalkan penutupan tab sebagai jalur sinkronisasi utama.
 - [ ] Cegah save kosong menimpa server ketika pengambilan save awal gagal.

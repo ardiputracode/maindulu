@@ -6,7 +6,7 @@ Frontend emulator berbahasa Indonesia, bertema hijau hutan/mint. Logo dan banner
 
 ## Jalankan
 
-Node.js **24+** disarankan (tes unit memakai dukungan TypeScript native Node).
+Gunakan Node.js **24+** (backend opsional memakai SQLite bawaan Node, dan tes unit memakai dukungan TypeScript native Node).
 
 ```sh
 npm install
@@ -22,6 +22,17 @@ npm run preview
 
 Folder `dist/` berisi aplikasi **dan seluruh aset engine**. Tidak ada langkah unduh engine saat build biasa. Jangan hapus `public/vendor` dari deployment.
 
+### Web + backend lokal, tanpa Docker
+
+```sh
+npm run build
+npm start
+```
+
+Buka **http://localhost:7777**. Satu proses Node.js menyajikan frontend dan API, dengan SQLite persisten di `data/maindulu.sqlite`. Default hanya mendengarkan komputer sendiri. Port, host, dan folder data dapat diubah lewat konfigurasi lingkungan; lihat [panduan backend M2](doc/milestone-2-backend-lokal.md).
+
+M2 baru menyediakan fondasi backend dan status koneksi di **Pengaturan**. **Login dan save server belum tersedia; progres tetap di browser.** `npm run dev`, `npm run preview`, dan deployment statis tetap berfungsi tanpa backend atau request API. Mode backend aktif otomatis hanya saat halaman dilayani server Node.js (atau melalui opt-in frontend yang dikonfigurasi khusus).
+
 Untuk mencoba dari HP di Wi-Fi yang sama, buka `http://IP-KOMPUTER:5173`. Server dev/preview mendengarkan pada semua interface. Membuka ROM lokal juga bekerja lewat HTTP jaringan: SHA-256 memiliki fallback JavaScript yang dibundel lokal, dan ID sesi memakai `crypto.getRandomValues` bila `randomUUID` tidak tersedia. Tidak perlu mematikan pengamanan browser. Gunakan HTTP hanya di jaringan tepercaya; HTTPS tetap disarankan untuk deployment publik.
 
 ## Yang tersedia
@@ -34,6 +45,7 @@ Untuk mencoba dari HP di Wi-Fi yang sama, buka `http://IP-KOMPUTER:5173`. Server
 - Player iframe terisolasi, validasi pesan/sesi, konfirmasi keluar, dan pembersihan instance.
 - Core lokal NES (`fceumm`), SNES (`snes9x`), GB/GBC (`gambatte`), GBA (`mgba`), Mega Drive (`genesis_plus_gx`), PS1 (`pcsx_rearmed`). Varian non-threaded normal dan legacy dibundel.
 - **Jalan Pulang**, homebrew NES orisinal berlisensi CC0, dapat dimainkan langsung. Gerakkan karakter kiri/kanan untuk menangkap bintang. Ini contoh teknis, bukan ROM komersial.
+- Backend Node.js opsional tanpa Docker: web + API satu proses, SQLite persisten, dan status koneksi; belum mencakup akun/cloud save.
 
 ## Tambahkan game server
 
@@ -123,6 +135,8 @@ docker compose -f deploy/docker-compose.yml up --build
 
 Default porta host `7777`, dapat diubah lewat `MAIN_DULU_PORT`. Perilaku serving container sama persis dengan template `deploy/nginx.conf`; detail arsitektur dan verifikasi dituang di `deploy/README.md`.
 
+Container lama tetap menyajikan frontend statis lewat Nginx, bukan backend Node.js M2. Gunakan `npm start` untuk web + API tanpa Docker. Jangan menaruh database/folder data di `public/` atau `dist/`; seluruh aset publik, termasuk berkas yang diabaikan Git, tetap ikut hasil build dan dapat diunduh pengunjung.
+
 Gunakan HTTPS, MIME JavaScript/CSS/WASM yang benar, dan cache panjang hanya untuk aset ber-versi/ber-hash. Manifest sebaiknya revalidate. Player membutuhkan WebAssembly serta script blob; jangan menerapkan CSP global yang menolak kebutuhan tersebut. Threaded cores tidak diaktifkan sehingga COOP/COEP tidak diwajibkan MVP.
 
 ## Pengujian
@@ -132,6 +146,7 @@ npm test
 npm run test:e2e
 npm run build
 npm run test:e2e:production
+npm run test:e2e:backend
 ```
 
 Tes browser menggunakan Microsoft Edge yang terpasang di Windows. Jika tidak tersedia, ubah `channel` di `playwright.config.ts` atau instal Chromium Playwright. Tes mencakup desktop/mobile, file lokal, BIOS plumbing lokal/server, riwayat/favorit/pengaturan, peluncuran demo server, round-trip save/load state, penutupan player, core yang hilang, serta cold-cache dengan semua request origin eksternal diblokir. BIOS sintetis pada tes hanya menguji jalur file, bukan kompatibilitas firmware proprietary. Screenshot hasil uji berada di `test-results/` (diabaikan Git). Build sebelum menjalankan `test:e2e:production` agar yang diuji benar-benar aset produksi terbaru.
