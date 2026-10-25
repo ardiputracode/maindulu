@@ -2,6 +2,8 @@
 
 Status: **M7 selesai dalam cakupan terverifikasi: NES legacy otomatis dan tes PS1 manual yang dikonfirmasi berhasil oleh pengguna.** Retensi tanpa penghapusan otomatis, impor browser/file, serta pengelolaan cadangan tersedia. Konfirmasi PS1 ini merupakan penerimaan manual M7, bukan pengangkatan hasil M6 atau klaim semua game/card/varian. Rincian skenario PS1 belum dicatat; lihat bagian hasil manual dan batas verifikasi.
 
+Operasi instalasi terbaru: [backup/verify/restore offline M8](milestone-8-backup-operasi.md) kini tersedia. Keterangan "tetap M8" di bawah mencatat batas saat penutupan M7; cadangan konflik per akun tetap berbeda dari backup seluruh instalasi.
+
 Keputusan persiapan yang disetujui pengguna dirangkum di bawah. Panduan ini menjadi acuan perilaku implementasi aktual dan membedakan bukti otomatis, konfirmasi manual, serta cakupan yang belum dirinci.
 
 ## Keputusan

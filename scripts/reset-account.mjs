@@ -25,7 +25,7 @@ async function main() {
 
 main().catch(error => {
   // No stack, request data, or raw database errors in administrative output.
-  const safe = /^(Gunakan:|Reset admin|Database akun|Username tidak valid|Password baru harus|Konfirmasi password|Akun tidak ditemukan|Akun berubah|Reset dibatalkan|Input terminal|Input password)/
+  const safe = /^(Gunakan:|Reset admin|Database akun|Username tidak valid|Password baru harus|Konfirmasi password|Akun tidak ditemukan|Akun berubah|Reset dibatalkan|Input terminal|Input password|Data sedang dipakai|Lock data)/
   process.stderr.write((safe.test(error.message) ? error.message : 'Reset gagal. Periksa konfigurasi dan akses folder data; tidak ada rahasia yang dicetak.') + '\n')
   process.exitCode = 1
 })

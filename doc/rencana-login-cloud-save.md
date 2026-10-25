@@ -1,6 +1,6 @@
 # Rencana Login Opsional dan Penyimpanan Progres Server
 
-Status: M1–M7 selesai dalam cakupan terverifikasi masing-masing. Konflik, impor browser/file, dan cadangan M7 dibuktikan otomatis pada NES legacy; pengguna juga mengonfirmasi tes PS1 M7 berhasil secara manual, tanpa rincian skenario/konfigurasi. Hasil ini bukan tes otomatis PS1 atau klaim seluruh game/card/varian. Bukti manual M6 tetap dicatat terpisah. Backup/restore terkoordinasi M8 belum tersedia. Lihat [panduan M6 dan hasil manual PS1](milestone-6-progres-game.md) serta [panduan M7](milestone-7-konflik-impor-save.md).
+Status: **M1–M8 selesai dalam cakupan terverifikasi masing-masing; M8 ditutup untuk penggunaan lokal.** Konflik, impor browser/file, dan cadangan M7 dibuktikan otomatis pada NES legacy; pengguna juga mengonfirmasi tes PS1 M7 berhasil manual, tanpa rincian skenario/konfigurasi. M8 menyediakan backup/verify/restore offline melalui CLI dan pembuktian pemulihan instalasi NES ke folder bersih; pengguna mengonfirmasi progres PS1 terbaca setelah restore instalasi. Bukti manual M6, M7, dan M8 tetap terpisah, bukan tes otomatis PS1 atau klaim seluruh game/card/varian. **HTTPS belum diimplementasikan/diuji oleh pengguna dan ditunda; akun dari perangkat lain belum dinyatakan siap.** Lihat [panduan M6 dan hasil manual PS1](milestone-6-progres-game.md), [panduan M7](milestone-7-konflik-impor-save.md), serta [operasi dan bukti M8](milestone-8-backup-operasi.md).
 
 Pelaksanaan dilakukan per milestone. Lihat bagian [Milestone Implementasi](#milestone-implementasi) untuk checklist dan kriteria selesai, serta [hasil pembuktian M1](milestone-1-integrasi-save.md) untuk kontrak engine, bukti pengujian, dan batasan integrasi berikutnya.
 
@@ -258,7 +258,7 @@ Saat sesi dicabut akibat pergantian atau pemulihan password, player mengikuti at
 | M5 | Save/load state manual ke server | M1–M4 | Selesai — NES otomatis; core lain belum terverifikasi |
 | M6 | Sinkronisasi save game/memcard | M5 | Selesai — NES otomatis; round-trip memcard aktif PS1 manual pengguna |
 | M7 | Penyelesaian konflik dan impor save browser/file | M6 | Selesai — NES legacy otomatis; PS1 manual pengguna, cakupan rinci belum dicatat |
-| M8 | Backup/restore, verifikasi akhir, dan panduan operasi | M7 | Belum dimulai |
+| M8 | Backup/restore, verifikasi akhir, dan panduan operasi | M7 | Selesai untuk lokal — NES otomatis, PS1 manual; HTTPS ditunda |
 
 ### M1 — Pembuktian Integrasi Player
 
@@ -394,13 +394,15 @@ Hasil M7: 100 unit/integrasi lulus; build/sintaks/TypeScript tes lulus; backend 
 
 Tujuan: menyiapkan penggunaan sehari-hari serta pemulihan ketika komputer/server bermasalah.
 
-- [ ] Sediakan prosedur backup konsisten untuk SQLite dan berkas save, serta prosedur restore.
-- [ ] Uji restore ke folder data bersih dan verifikasi akun, metadata, serta save dapat digunakan kembali.
-- [ ] Dokumentasikan instalasi, build, satu perintah menjalankan server, konfigurasi data/port, pembaruan aplikasi, dan reset admin tanpa Docker.
-- [ ] Dokumentasikan akses localhost versus perangkat lain, kebutuhan server tetap menyala, dan HTTPS untuk akses jaringan.
-- [ ] Jalankan regresi mode frontend statis, tamu, akun lokal, pemulihan, save state, memcard, konflik, serta kegagalan backend.
-- [ ] Publikasikan matriks core yang benar-benar diuji dan keterbatasan kompatibilitasnya.
-- [ ] Cocokkan hasil dengan seluruh kriteria selesai di bawah; catat batasan yang masih ada sebelum menyatakan fitur siap digunakan.
+- [x] Sediakan prosedur backup konsisten untuk SQLite dan berkas save, serta prosedur restore: CLI offline, manifest/checksum, integritas dan referensi blob, tujuan baru, sesi hasil restore dicabut.
+- [x] Uji restore ke folder data bersih dan verifikasi akun, metadata, serta save dapat digunakan kembali: unit/API seluruh jenis save dan engine NES nyata di browser baru. Pengguna mengonfirmasi progres PS1 terbaca setelah restore instalasi M8.
+- [x] Dokumentasikan instalasi, build, satu perintah menjalankan server, konfigurasi data/port, pembaruan aplikasi, dan reset admin tanpa Docker.
+- [x] Dokumentasikan akses localhost versus perangkat lain, kebutuhan server tetap menyala, dan HTTPS untuk akses jaringan. Contoh reverse proxy bukan bukti deployment HTTPS nyata.
+- [x] Jalankan regresi otomatis mode frontend statis, tamu, akun lokal, pemulihan, save state, paket memcard API, SRAM NES engine nyata, konflik, serta kegagalan backend. Progres PS1 setelah restore M8 dikonfirmasi terbaca oleh pengguna secara manual; bukan tes otomatis atau klaim seluruh konfigurasi PS1.
+- [x] Publikasikan matriks core yang benar-benar diuji dan keterbatasan kompatibilitasnya.
+- [x] Cocokkan hasil dengan seluruh kriteria selesai di bawah; catat batasan yang masih ada sebelum menyatakan fitur siap digunakan.
+
+Hasil otomatis M8: 109 unit/integrasi lulus, build/sintaks/TypeScript tes lulus, backend browser penuh 46 lulus (guard restore akhir diuji ulang melalui 1 skenario M8), statis development/production masing-masing 22 lulus + 29 skenario akun/server dilewati. Jalur backup/server/admin pada Node.js 24.22.1: 23 lulus. Keputusan pengguna: backup offline manual berformat folder, tanpa enkripsi/scheduler/pruning bawaan, restore hanya ke folder belum ada dan sesi dicabut. **M8 selesai untuk penggunaan lokal** setelah pengguna mengonfirmasi progres PS1 terbaca setelah restore. Bukti ini berasal dari tes manual M8, bukan pengangkatan hasil M6/M7; rincian konfigurasi belum dicatat. HTTPS belum diimplementasikan/diuji oleh pengguna dan ditunda, bukan dinyatakan lulus atau syarat penutupan lokal. Panduan, pemetaan kriteria, serta checklist pencatatan tambahan PS1 dan penerapan HTTPS ada di [M8 — Backup dan Operasi](milestone-8-backup-operasi.md).
 
 **Selesai jika:** aplikasi dapat dipasang tanpa Docker, backup terbukti dapat dipulihkan, dan alur utama serta skenario kegagalan lolos pengujian yang terdokumentasi.
 

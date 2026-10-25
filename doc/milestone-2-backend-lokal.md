@@ -123,7 +123,7 @@ Migrasi dilakukan dalam transaksi; menjalankan server lagi tidak mengulang atau 
 
 Folder `data/` default diabaikan Git. Untuk lokasi custom di dalam repository, tambahkan aturan ignore sendiri; lebih aman memakai lokasi privat di luar repository. Perubahan/build ulang frontend tidak menghapus folder data. Jangan menghapus database untuk mengatasi masalah startup; periksa konfigurasi dan versi aplikasi terlebih dahulu.
 
-Backup/restore terkoordinasi akan ditambahkan di M8. Untuk saat ini, hentikan server sebelum membuat salinan konsisten folder data dan simpan cadangan di lokasi lain. Jangan menyalin berkas SQLite aktif secara sembarang atau menghapus berkas WAL/SHM saat database berjalan.
+Pada penutupan M2, backup/restore terkoordinasi belum tersedia. **Versi terbaru menyediakan CLI offline M8**; gunakan [prosedur backup/verifikasi/restore M8](milestone-8-backup-operasi.md), bukan salinan sembarang SQLite aktif. Hentikan server/admin sesuai panduan dan simpan cadangan di lokasi lain; jangan menghapus WAL/SHM saat database berjalan.
 
 ## Batas Penyajian Berkas dan Keamanan
 

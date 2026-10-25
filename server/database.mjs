@@ -1,7 +1,9 @@
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
+import { acquireDataLock } from './data-lock.mjs'
+import { canonicalPath } from './config.mjs'
 
 const migrations = [
   {
@@ -107,9 +109,20 @@ const migrations = [
   },
 ]
 
+export const schemaVersion = migrations.at(-1).version
+
 export async function openDatabase(dataDir) {
-  await mkdir(dataDir, { recursive: true, mode: 0o700 })
-  const db = new DatabaseSync(join(dataDir, 'maindulu.sqlite'))
+  dataDir = await canonicalPath(resolve(dataDir))
+  await mkdir(dirname(dataDir), { recursive: true, mode: 0o700 })
+  const release = await acquireDataLock(dataDir)
+  let db
+  try {
+    await mkdir(dataDir, { recursive: true, mode: 0o700 })
+    db = new DatabaseSync(join(dataDir, 'maindulu.sqlite'))
+  } catch (error) { release(); throw error }
+  const close = db.close.bind(db)
+  db.close = () => { close(); release() }
+  db[Symbol.dispose] = () => { if (db.isOpen) db.close() }
   try {
     db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;')
     db.exec('BEGIN IMMEDIATE')

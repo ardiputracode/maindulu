@@ -5,22 +5,34 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { DatabaseSync } from 'node:sqlite'
+import type { readConfig } from '../../server/config.mjs'
 import { createApp } from '../../server/app.mjs'
+import { createDataBackup, restoreDataBackup } from '../../server/data-backup.mjs'
 import { buildNesBatteryFixture } from '../fixtures/nes-battery.mjs'
 import { startPlayer } from './helpers/player'
 
-type TestApp = Awaited<ReturnType<typeof createApp>> & { database: DatabaseSync }
-type Backend = { app: TestApp; address: string; restart: () => Promise<void> }
+type TestApp = Awaited<ReturnType<typeof createApp>> & { database: DatabaseSync; appConfig: Awaited<ReturnType<typeof readConfig>> }
+type Backend = { app: TestApp; address: string; restart: () => Promise<void>; restore: () => Promise<void> }
 const test = base.extend<{ backend: Backend | null }>({
   backend: async ({}, use, info) => {
     if (info.project.name !== 'node-backend') { await use(null); return }
     const parent = process.platform === 'win32' && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Temp/opencode') : tmpdir()
     const folder = await mkdtemp(join(parent, 'm6-browser-'))
-    let app = await createApp({ env: { MAIN_DULU_DATA_DIR: folder } }) as TestApp
+    let data = join(folder, 'data')
+    let app = await createApp({ env: { MAIN_DULU_DATA_DIR: data } }) as TestApp
     const address = await app.listen({ host: '127.0.0.1', port: 0 })
     const backend: Backend = { app, address, restart: async () => {
       await app.close()
-      app = await createApp({ env: { MAIN_DULU_DATA_DIR: folder } }) as TestApp
+      app = await createApp({ env: { MAIN_DULU_DATA_DIR: data } }) as TestApp
+      await app.listen({ host: '127.0.0.1', port: Number(new URL(address).port) })
+      backend.app = app
+    }, restore: async () => {
+      const config = app.appConfig
+      await app.close()
+      await createDataBackup(config, join(folder, 'backup'))
+      data = join(folder, 'restored')
+      await restoreDataBackup(config, join(folder, 'backup'), data)
+      app = await createApp({ env: { MAIN_DULU_DATA_DIR: data } }) as TestApp
       await app.listen({ host: '127.0.0.1', port: Number(new URL(address).port) })
       backend.app = app
     } }
@@ -84,6 +96,56 @@ async function reviewTransfer(page: Page) {
   await dialog.getByRole('checkbox').check()
   return dialog
 }
+async function openStates(page: Page, frame: FrameLocator) {
+  await page.bringToFront()
+  const box = await frame.locator('canvas').boundingBox()
+  if (box) {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height - 5, { steps: 5 })
+  }
+  // Dispatch the actual toolbar DOM event, avoiding the engine's transient
+  // auto-hiding bar during pointer movement; no bridge/RPC or save is mocked.
+  await frame.getByRole('button', { name: 'Save state server', exact: true }).dispatchEvent('click')
+  const overlay = page.getByRole('dialog', { name: 'Save state server', exact: true })
+  await expect(overlay).toBeVisible()
+  return overlay
+}
+test('M8: offline backup restores SRAM and state on a clean data folder, revokes cookies and boots real NES in a fresh browser', async ({ page, browser, backend }) => {
+  const name = username()
+  await register(page, name)
+  const frame = await launchBattery(page)
+  await increment(frame, 1)
+  await progress(page).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
+  await expect(progress(page)).toContainText('dikonfirmasi server')
+  const overlay = await openStates(page, frame)
+  await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
+  await expect(overlay).toContainText('Tersimpan di server')
+  const saved = backend!.app.database.prepare('SELECT * FROM saves WHERE slot = 1').get()!
+  const owner = backend!.app.database.prepare('SELECT id FROM users WHERE username = ?').get(name)!.id
+  const oldCookies = await page.context().cookies()
+  // Close the working player before maintenance, not merely its API connection.
+  await page.close()
+  await backend!.restore()
+  expect(backend!.app.database.prepare('SELECT COUNT(*) AS n FROM sessions').get()!.n).toBe(0)
+  expect(backend!.app.database.prepare('SELECT id FROM users WHERE username = ?').get(name)!.id).toBe(owner)
+  expect(backend!.app.database.prepare('SELECT checksum FROM saves WHERE id = ?').get(saved.id)!.checksum).toBe(saved.checksum)
+  const context = await browser.newContext({ baseURL: backend!.address })
+  try {
+    await context.addCookies(oldCookies)
+    const other = await context.newPage()
+    await login(other, name) // Old cookie must not silently authenticate after restore.
+    const restored = await launchBattery(other, 'renamed-after-restore.nes')
+    await expect.poll(async () => (await bytes(restored))[2]).toBe(1)
+    await increment(restored, 2) // Proves game RAM saw the pre-boot SRAM restore.
+    const states = await openStates(other, restored)
+    other.once('dialog', d => d.accept())
+    await states.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Muat', exact: true }).click()
+    await expect(states).toContainText('Perintah muat dikirim ke core')
+    await states.getByRole('button', { name: 'Tutup dialog', exact: true }).click()
+    await expect.poll(async () => (await bytes(restored))[2]).toBe(1)
+    await increment(restored, 2)
+  } finally { await context.close() }
+})
 test('M7: explicit two-tab SRAM choices retain both losing versions and restart before boot for server choice', async ({ page, context, backend }) => {
   await register(page, username())
   const first = await launchBattery(page)

@@ -10,7 +10,7 @@ export function isWithin(path, parent) {
 }
 
 // Resolve symlinked ancestors even when the final data directory is new.
-async function canonicalPath(path) {
+export async function canonicalPath(path) {
   try { return await realpath(path) }
   catch (error) {
     if (error.code !== 'ENOENT' || dirname(path) === path) throw error
@@ -46,7 +46,7 @@ export async function readConfig(env = process.env, root = projectRoot) {
   for (const served of [distDir, publicDir]) {
     if (isWithin(dataDir, served) || isWithin(served, dataDir)) throw new Error('Folder data harus terpisah dari folder public dan hasil build, termasuk target symlink.')
   }
-  return { host, port: Number(rawPort), distDir, dataDir, registrationOpen: registration === 'true', publicOrigin,
+  return { host, port: Number(rawPort), distDir, publicDir, dataDir, registrationOpen: registration === 'true', publicOrigin,
     stateMaxBytes: bytes('MAIN_DULU_STATE_MAX_BYTES', 32 * 1024 * 1024, 64 * 1024 * 1024),
     gameSaveMaxBytes: bytes('MAIN_DULU_GAME_SAVE_MAX_BYTES', 8 * 1024 * 1024, 8 * 1024 * 1024),
     saveQuotaBytes: bytes('MAIN_DULU_SAVE_QUOTA_BYTES', 256 * 1024 * 1024, 16 * 1024 * 1024 * 1024) }
