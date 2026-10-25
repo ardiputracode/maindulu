@@ -1,19 +1,40 @@
-# Konteks build dibuat sekecil mungkin: tahap build hanya membutuhkan
-# package.json, package-lock.json, index.html, vite.config.ts,
-# tsconfig*.json, src/, public/, dan deploy/nginx.docker.conf.
-.git/
-.gitignore
-.opencode/
-node_modules/
-dist/
-test-results/
-playwright-report/
-tests/
-scripts/
-third_party/
-playwright.config.ts
-playwright.production.config.ts
-README.md
-RENCANA.md
-*.log
-.DS_Store
+# Allowlist untuk kedua image. Data/backup di luar direktori sumber/aset yang
+# diizinkan (termasuk nama custom), environment dan artefak host tidak ikut.
+**
+!package.json
+!package-lock.json
+!index.html
+!vite.config.ts
+!tsconfig.json
+!tsconfig.app.json
+!tsconfig.node.json
+!src/
+!src/**
+!public/
+!public/**
+!server/
+server/**
+!server/*.mjs
+!server/auth/
+server/auth/**
+!server/auth/*.mjs
+!scripts/
+scripts/**
+!scripts/reset-account.mjs
+!scripts/data-backup.mjs
+!deploy/
+deploy/**
+!deploy/Dockerfile
+!deploy/Dockerfile.backend
+!deploy/nginx.docker.conf
+!deploy/healthcheck.mjs
+
+# Bahkan di dalam direktori sumber yang diizinkan, jangan kirim data privat.
+**/.env
+**/.env.*
+**/*.sqlite
+**/*.sqlite-*
+**/*.maindulu-lock
+**/*.partial-*
+**/node_modules
+**/.git

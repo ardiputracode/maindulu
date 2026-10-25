@@ -9,8 +9,11 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ## [Belum dirilis]
 
+## 0.3.0 — 2026-10-25
+
 ### Ditambahkan
 
+- Opsi Docker backend Node.js 24 terpisah dari container Nginx statis: akun/save server, CLI admin/backup, volume privat untuk data dan lock, runtime non-root/read-only, healthcheck API, serta publish port localhost secara default. Konfigurasi/panduan tersedia di `deploy/Dockerfile.backend`, `deploy/docker-compose.backend.yml`, dan `deploy/README.backend.md`. Docker CLI belum tersedia pada lingkungan verifikasi ini; build/runtime container belum diklaim lulus.
 - M8 selesai untuk penggunaan lokal: CLI `data:backup`, `data:verify`, dan `data:restore` untuk backup instalasi offline berformat folder + manifest SHA-256. Snapshot SQLite resmi dan blob aktif/cadangan M7 diverifikasi sebagai satu kumpulan; restore hanya ke folder baru, mempertahankan ID/revisi/receipt dan mencabut seluruh sesi. Lease antarproses mengecualikan maintenance dari server/reset admin tanpa menghapus dukungan koneksi bersama. Restore NES dibuktikan otomatis; pengguna mengonfirmasi progres PS1 terbaca setelah restore instalasi secara manual, bukan klaim seluruh game/card/varian. HTTPS belum diimplementasikan/diuji pengguna dan ditunda; akun jaringan belum dinyatakan siap. Panduan operasi/HTTPS/pembaruan dan matriks bukti: `doc/milestone-8-backup-operasi.md`. Tanpa enkripsi, scheduler, pruning, atau backup ROM/BIOS/aplikasi bawaan.
 - M7: UI penyelesaian konflik state/progres dengan pilihan eksplisit dan cadangan versi tersisih; impor read-only save browser serta file native `.srm`/`.state`; restart player sebelum boot untuk progres server/impor. Pengelola cadangan lintas game menyediakan unduh/pulihkan/hapus, tanpa penghapusan otomatis. Metadata impor membedakan build tujuan yang dikonfirmasi dari build sumber yang tidak diketahui. NES legacy diverifikasi otomatis; pengguna mengonfirmasi tes PS1 M7 berhasil manual, dengan rincian cakupan/konfigurasi belum dicatat. Panduan dan keputusan persiapan: `doc/milestone-7-konflik-impor-save.md`.
 - Migrasi SQLite versi 6: `save_backups` dan receipt `save_decisions` untuk keputusan idempoten, pemeriksaan revisi, kuota aktif+cadangan, serta pembersihan blob yang menghitung semua referensi. Bundle/fingerprint engine M6 tidak diubah.
@@ -27,11 +30,14 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ### Diubah
 
+- Versi aplikasi menjadi **0.3.0**, konsisten dengan lockfile, UI, dan tag image backend. Skema SQLite tetap **6**, engine tetap **4.2.3**.
+- Build context Docker menggunakan allowlist sumber agar folder data/backup custom, environment privat, dan artefak host tidak ikut dikirim. Dua CLI administrasi disertakan secara eksplisit untuk image backend; image statis tetap seperti sebelumnya.
 - Tombol native **Import Save File** sesi akun tetap disembunyikan; gunakan wizard impor eksplisit M7 agar tidak melewati cadangan/revisi server. Ekspor native dan impor tamu tetap tersedia. Muat state server memperingatkan kemungkinan SRAM/memcard lama ikut dipulihkan dan tersinkron ulang. Dukungan PS1 di luar skenario manual yang dikonfirmasi tetap percobaan, bukan klaim seluruh card/slot/multi-disk atau tes otomatis PS1 M7.
 - Menu **Save States** di dalam gerigi emulator disembunyikan untuk akun maupun tamu. Tombol native Save State/Load State untuk tamu serta nilai dan mekanisme internal **System Save interval** tidak diubah.
 
 ### Diperbaiki
 
+- Lease data mencatat identitas host/namespace PID. Proses tidak boleh membersihkan lease container/host lain berdasarkan PID lokal; namespace berbeda/tidak diketahui pada Linux ditahan untuk pemeriksaan operator. Ini tidak menggantikan kewajiban menghentikan server saat backup/restore offline.
 - Pesan startup backend kini menyatakan kemampuan save server yang tersedia, bukan keterangan fondasi M2 yang sudah usang.
 - Overlay **Save state server** tidak lagi menyusun seluruh bagian secara horizontal: satu dialog vertikal responsif, kartu slot manual/Autosave terpisah, status yang lebih jelas, serta navigasi Tab/Escape dan pemulihan fokus.
 - Overlay save dan pengelola simpanan sesi akun kini tetap muncul saat fullscreen. Fullscreen mencakup pembungkus player bersama iframe, overlay, dan notifikasi; status tombol fullscreen engine mengikuti keadaan browser.

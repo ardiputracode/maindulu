@@ -1,0 +1,44 @@
+# Opsi akun/save server, bukan pengganti docker-compose.yml (statis).
+# docker compose -f deploy/docker-compose.backend.yml up -d --build
+name: maindulu-backend
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    image: maindulu-backend:0.3.0
+    init: true
+    ports:
+      - "${MAIN_DULU_BIND_ADDRESS:-127.0.0.1}:${MAIN_DULU_PORT:-7777}:7777"
+    environment:
+      - MAIN_DULU_HOST=0.0.0.0
+      - MAIN_DULU_PORT=7777
+      - MAIN_DULU_DIST_DIR=/app/dist
+      - MAIN_DULU_DATA_DIR=${MAIN_DULU_CONTAINER_DATA_DIR:-/var/lib/maindulu/data}
+      - MAIN_DULU_REGISTRATION_OPEN=${MAIN_DULU_REGISTRATION_OPEN:-true}
+      # Bare key: jika tidak disetel di host/.env Compose, jangan kirim string kosong.
+      - MAIN_DULU_PUBLIC_ORIGIN
+      - MAIN_DULU_STATE_MAX_BYTES=${MAIN_DULU_STATE_MAX_BYTES:-33554432}
+      - MAIN_DULU_GAME_SAVE_MAX_BYTES=${MAIN_DULU_GAME_SAVE_MAX_BYTES:-8388608}
+      - MAIN_DULU_SAVE_QUOTA_BYTES=${MAIN_DULU_SAVE_QUOTA_BYTES:-268435456}
+    volumes:
+      - storage:/var/lib/maindulu
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "deploy/healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  storage:

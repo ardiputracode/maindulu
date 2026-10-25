@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { launchDemo } from './helpers/player'
 
+const appVersion = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version as string
+
 test('desktop navigation, original assets, and responsive layout', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', e => errors.push(e.message))
@@ -28,7 +30,7 @@ test('favorite and settings survive refresh; history toggle is a real switch', a
   await page.reload()
   await expect(page.getByRole('button', { name: 'Hapus Jalan Pulang dari favorit' })).toBeVisible()
   await page.getByRole('link', { name: 'Pengaturan', exact: true }).click()
-  await expect(page.locator('.page-footnote')).toContainText(/maindulu v\d+\.\d+\.\d+/)
+  await expect(page.locator('.page-footnote')).toContainText(`maindulu v${appVersion}`)
   await page.getByRole('slider', { name: 'Volume awal' }).fill('23')
   await page.getByRole('switch', { name: 'Simpan riwayat bermain' }).click()
   await page.reload()
