@@ -9,6 +9,7 @@ import { registerAuth } from './auth/routes.mjs'
 import { AuthError } from './auth/limits.mjs'
 import { registerSaves } from './saves.mjs'
 import { registerGameSaves } from './game-saves.mjs'
+import { registerSaveBackups } from './save-backups.mjs'
 
 const pages = ['/', '/index.html', '/console', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main']
 const assetDirectories = new Set(['assets', 'vendor', 'player', 'catalog', 'games', 'bios', 'covers'])
@@ -57,6 +58,7 @@ export async function createApp({ env = process.env, root, logger = false } = {}
     const security = registerAuth(app, config)
     registerSaves(app, config, security)
     registerGameSaves(app, config, security)
+    registerSaveBackups(app, config, security)
     for (const page of pages) app.get(page, (_request, reply) => reply.type('text/html; charset=utf-8').send(html))
     await app.register(fastifyStatic, {
       root: config.distDir,

@@ -84,6 +84,27 @@ const migrations = [
     ) STRICT;
     CREATE INDEX game_saves_owner ON game_saves(user_id);`,
   },
+  {
+    version: 6,
+    name: 'explicit-save-decisions-and-backups',
+    sql: `CREATE TABLE save_backups (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('state', 'progress')),
+      game_id TEXT NOT NULL, console_id TEXT NOT NULL, core TEXT NOT NULL,
+      slot INTEGER NOT NULL, title TEXT NOT NULL, metadata TEXT NOT NULL,
+      source_revision INTEGER, size INTEGER NOT NULL CHECK(size > 0),
+      checksum TEXT NOT NULL, blob_key TEXT NOT NULL,
+      reason TEXT NOT NULL, created_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX save_backups_owner ON save_backups(user_id);
+    CREATE INDEX save_backups_blob ON save_backups(kind, blob_key);
+    CREATE TABLE save_decisions (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      operation_id TEXT NOT NULL, fingerprint TEXT NOT NULL, result TEXT NOT NULL,
+      PRIMARY KEY(user_id, operation_id)
+    ) STRICT;`,
+  },
 ]
 
 export async function openDatabase(dataDir) {

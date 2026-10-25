@@ -26,10 +26,10 @@ export default function GameSaveLibrary({ userId, onClose }: { userId: string; o
   return <Dialog title="Kelola progres game" onClose={onClose} busy={busy} className="server-state-dialog">
     <p>Save dalam game/SRAM dan memcard, bukan slot save state. Unduh cadangan sebelum menghapus. Tidak ada impor otomatis dari browser.</p>
     {error && <p className="notice" role="alert">{error}</p>}
-    {list ? <><p>Kuota gabungan state + progres: {formatBytes(list.usage.usedBytes)} / {formatBytes(list.usage.quotaBytes)}</p>
+    {list ? <><p>Kuota gabungan state + progres + cadangan: {formatBytes(list.usage.usedBytes)} / {formatBytes(list.usage.quotaBytes)}</p>
       {!list.saves.some(s => !s.deleted) && <p>Belum ada progres game di server.</p>}
       {list.saves.filter(s => !s.deleted).map(save => <article className="server-slot" key={save.id}>
-        <div><strong>{save.title}</strong><p>{save.core} · {formatBytes(save.size)} · revisi {save.revision}</p><p>Engine {save.metadata.engineVersion} · {save.metadata.variant} · core {save.metadata.coreBuild.slice(0, 12)} · {new Date(save.updatedAt).toLocaleString('id-ID')}</p><small>{save.gameId}</small></div>
+        <div><strong>{save.title}</strong><p>{save.core} · {formatBytes(save.size)} · revisi {save.revision}</p><p>Engine {save.metadata.engineVersion} · {save.metadata.variant} · core {save.metadata.coreBuild.slice(0, 12)} · {new Date(save.updatedAt).toLocaleString('id-ID')}</p><small>{save.gameId}</small>{save.metadata.provenance && <p>Impor {save.metadata.provenance.source}: build sumber tidak diketahui; dikonfirmasi untuk build tujuan.</p>}</div>
         <span className="slot-actions"><button className="button secondary small" disabled={!client || busy} onClick={() => void run(async () => { const bytes = await client!.getProgress(save); downloadGameSave(bytes, save.gameId + '-server') })}>Unduh progres</button>
           <button className="button secondary small" disabled={!client || busy} onClick={() => {
             if (window.confirm(`Hapus progres ${save.title}? Seluruh save aktif dalam paket ini dihapus. Pastikan game ini tidak sedang terbuka di tab/perangkat lain; upload lama akan ditolak.`)) void run(async () => { await client!.removeProgress(save); setRetry(n => n + 1) })

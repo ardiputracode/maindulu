@@ -305,7 +305,7 @@
             progressReady = true
           } catch (error) { send('progress-error', { message: error instanceof Error ? error.message : 'Layout progres tidak didukung.' }) }
         }
-        send('started', { metadata, progressReady, supportsStates: window.EJS_emulator.gameManager.supportsStates() })
+        send('started', { metadata, progressReady, supportsStates: window.EJS_emulator.gameManager.supportsStates(), browserKeys: memorySaves ? { state: window.EJS_emulator.getBaseFileName() + '.state', progress: ['fceumm', 'pcsx_rearmed'].includes(config.core) ? window.EJS_emulator.gameManager.getSaveFilePath() : null } : null })
       }
       // Toggle from the engine menu (Settings → Graphics → Layar lebar).
       window.EJS_onWidescreen = value => {

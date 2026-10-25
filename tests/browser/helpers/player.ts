@@ -9,8 +9,9 @@ export async function launchDemo(page: Page) {
 }
 
 export async function startPlayer(page: Page) {
+  await page.bringToFront()
   const player = page.frameLocator('iframe')
-  await player.getByRole('button', { name: 'Mulai bermain', exact: true }).click()
+  await player.getByRole('button', { name: 'Mulai bermain', exact: true }).press('Enter')
   await expect(player.locator('canvas')).toBeVisible({ timeout: 60000 })
   await expect(page.locator('.player-status')).toHaveCount(0, { timeout: 60000 })
   return player

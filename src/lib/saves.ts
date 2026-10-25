@@ -1,6 +1,7 @@
 import { readAccountSession } from './account.ts'
 
-export type StateMetadata = { formatVersion: number; engineVersion: string; coreBuild: string; runtimeBuild: string; variant: 'normal' | 'legacy' }
+export type ImportProvenance = { source: 'browser' | 'file'; sourceBuild: 'unknown'; confirmedForTarget: true }
+export type StateMetadata = { formatVersion: number; engineVersion: string; coreBuild: string; runtimeBuild: string; variant: 'normal' | 'legacy'; provenance?: ImportProvenance }
 export type ServerSave = { id: string; gameId: string; consoleId: string; core: string; slot: number; title: string; revision: number; size: number; checksum: string; updatedAt: number; deleted: boolean; metadata: StateMetadata }
 export type SaveUsage = { usedBytes: number; quotaBytes: number; maxStateBytes: number; slots: number }
 export type SaveList = { saves: ServerSave[]; usage: SaveUsage }
@@ -13,7 +14,9 @@ const hex = (v: unknown) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v)
 export function readStateMetadata(value: unknown): StateMetadata | null {
   if (!value || typeof value !== 'object') return null
   const v = value as StateMetadata
-  return v.formatVersion === 1 && typeof v.engineVersion === 'string' && /^\d+\.\d+\.\d+$/.test(v.engineVersion) && hex(v.coreBuild) && hex(v.runtimeBuild) && ['normal', 'legacy'].includes(v.variant) ? { formatVersion: 1, engineVersion: v.engineVersion, coreBuild: v.coreBuild, runtimeBuild: v.runtimeBuild, variant: v.variant } : null
+  const p = v.provenance
+  if (p !== undefined && (!p || !['file', 'browser'].includes(p.source) || p.sourceBuild !== 'unknown' || p.confirmedForTarget !== true)) return null
+  return v.formatVersion === 1 && typeof v.engineVersion === 'string' && /^\d+\.\d+\.\d+$/.test(v.engineVersion) && hex(v.coreBuild) && hex(v.runtimeBuild) && ['normal', 'legacy'].includes(v.variant) ? { formatVersion: 1, engineVersion: v.engineVersion, coreBuild: v.coreBuild, runtimeBuild: v.runtimeBuild, variant: v.variant, ...(p ? { provenance: { source: p.source, sourceBuild: 'unknown', confirmedForTarget: true } as ImportProvenance } : {}) } : null
 }
 export function compatibleState(a: StateMetadata, b: StateMetadata) {
   return a.formatVersion === b.formatVersion && a.engineVersion === b.engineVersion && a.coreBuild === b.coreBuild && a.runtimeBuild === b.runtimeBuild && a.variant === b.variant

@@ -12,3 +12,7 @@
 Tes browser harus membuktikan progres ditulis oleh CPU emulasi dan tetap dapat dilanjutkan setelah impor. Hanya menulis/membaca berkas virtual atau memeriksa ukurannya belum membuktikan save berhasil dimuat core.
 
 Jalankan tes ini melalui `tests/browser/save-proof.spec.ts`. Fixture ini bukan bukti dukungan memory card PS1 atau core selain `fceumm`.
+
+## Pengujian M7
+
+Suite M7 memakai kembali fixture NES/homebrew proyek untuk menghasilkan SRAM dan state melalui engine nyata, lalu membaca persistence tamu atau mengimpor byte hasil ekspornya. Tidak ada ROM/BIOS proprietari baru. Data memcard PS1 sintetis pada API hanya menguji kontrak penyimpanan. Pengguna telah mengonfirmasi tes PS1 M7 berhasil secara manual, terpisah dari suite otomatis; rincian skenario/konfigurasi belum dicatat dan tidak disimpulkan dari fixture sintetis. Lihat `doc/milestone-7-konflik-impor-save.md`.

@@ -1,6 +1,6 @@
 # Rencana Login Opsional dan Penyimpanan Progres Server
 
-Status: M1–M6 selesai dalam cakupan terverifikasi: SRAM NES otomatis, serta ekspor dan pemulihan memcard aktif PS1 lintas sesi/browser yang dikonfirmasi manual pengguna. Dukungan seluruh game/card/varian PS1 tidak diklaim. Impor browser/penyelesaian konflik M7 serta backup/restore terkoordinasi M8 belum tersedia. Lihat [panduan M6 dan hasil manual PS1](milestone-6-progres-game.md).
+Status: M1–M7 selesai dalam cakupan terverifikasi masing-masing. Konflik, impor browser/file, dan cadangan M7 dibuktikan otomatis pada NES legacy; pengguna juga mengonfirmasi tes PS1 M7 berhasil secara manual, tanpa rincian skenario/konfigurasi. Hasil ini bukan tes otomatis PS1 atau klaim seluruh game/card/varian. Bukti manual M6 tetap dicatat terpisah. Backup/restore terkoordinasi M8 belum tersedia. Lihat [panduan M6 dan hasil manual PS1](milestone-6-progres-game.md) serta [panduan M7](milestone-7-konflik-impor-save.md).
 
 Pelaksanaan dilakukan per milestone. Lihat bagian [Milestone Implementasi](#milestone-implementasi) untuk checklist dan kriteria selesai, serta [hasil pembuktian M1](milestone-1-integrasi-save.md) untuk kontrak engine, bukti pengujian, dan batasan integrasi berikutnya.
 
@@ -28,8 +28,8 @@ Target deployment utama adalah satu komputer yang menjalankan aplikasi beserta p
 - Frontend menggunakan React dan Vite.
 - Player EmulatorJS berjalan dalam iframe melalui `src/components/Player.tsx` dan `public/player/player.js`.
 - Pengaturan, favorit, dan riwayat menggunakan penyimpanan browser.
-- Player tamu tetap memakai storage browser; player akun memakai store state dummy dan filesystem save memori terisolasi. State dapat disimpan/dimuat manual melalui server; save game/memcard akun belum tersinkron dan masih sementara di memori.
-- Backend lokal menyajikan hasil build, health API, SQLite persisten, akun/pemulihan M3–M4, serta API save state dan kuota M5. Byte state berada di folder data privat, bukan aset publik.
+- Player tamu tetap memakai storage browser; player akun memakai store state dummy dan filesystem save memori terisolasi. State dapat disimpan/dimuat manual melalui server; progres NES dan memcard aktif PS1 pada cakupan M6 dipulihkan sebelum boot/disinkronkan. Core tanpa adapter tetap sementara di memori.
+- Backend lokal menyajikan hasil build, health API, SQLite persisten, akun/pemulihan M3–M4, save state M5, progres M6, serta cadangan/keputusan eksplisit M7. Byte save berada di folder data privat, bukan aset publik.
 
 Implementasi akun tidak boleh menjadikan backend sebagai syarat agar katalog dan mode tamu dapat digunakan.
 
@@ -257,7 +257,7 @@ Saat sesi dicabut akibat pergantian atau pemulihan password, player mengikuti at
 | M4 | Pemulihan password dan reset admin lokal | M3 | Selesai |
 | M5 | Save/load state manual ke server | M1–M4 | Selesai — NES otomatis; core lain belum terverifikasi |
 | M6 | Sinkronisasi save game/memcard | M5 | Selesai — NES otomatis; round-trip memcard aktif PS1 manual pengguna |
-| M7 | Penyelesaian konflik dan impor save browser | M6 | Belum dimulai |
+| M7 | Penyelesaian konflik dan impor save browser/file | M6 | Selesai — NES legacy otomatis; PS1 manual pengguna, cakupan rinci belum dicatat |
 | M8 | Backup/restore, verifikasi akhir, dan panduan operasi | M7 | Belum dimulai |
 
 ### M1 — Pembuktian Integrasi Player
@@ -377,12 +377,16 @@ M6 selesai untuk cakupan tersebut. Konfirmasi manual PS1 menutup penerimaan pemu
 
 Tujuan: membantu pengguna memilih versi progres tanpa kehilangan simpanan yang sudah ada.
 
-- [ ] Tetapkan retensi cadangan konflik dan pilihan versi yang ditawarkan pengguna.
-- [ ] Tambahkan UI penyelesaian konflik revisi dari dua tab/perangkat, melanjutkan penolakan overwrite usang yang sudah ada di M5.
-- [ ] Buat cadangan sebelum penggantian versi; jangan menggabungkan save biner secara otomatis.
-- [ ] Tambahkan impor save browser ke akun dengan konfirmasi dan pemeriksaan identitas/kompatibilitas.
-- [ ] Pertahankan save lokal asal sampai server mengonfirmasi impor berhasil.
-- [ ] Uji dua perangkat menulis save yang sama, retry usang, impor gagal, dan impor saat server sudah mempunyai save.
+Panduan aktual dan keputusan persiapan: [M7 — Konflik dan Impor Save Lokal](milestone-7-konflik-impor-save.md). Keputusan pengguna: impor browser + file `.srm`/`.state`, cadangan tanpa penghapusan otomatis dan memakai kuota akun, serta sesi player baru untuk progres server/impor sebelum boot. Cadangan bukan riwayat setiap tick/autosave; M8 tetap terpisah.
+
+- [x] Tetapkan retensi cadangan konflik dan pilihan versi yang ditawarkan pengguna: tidak ada penghapusan otomatis, kuota gabungan, pilihan server/sesi dan cadangan versi tersisih.
+- [x] Tambahkan UI penyelesaian konflik revisi dari dua tab/perangkat, melanjutkan penolakan overwrite usang M5. Penulisan ditahan selama peninjauan; pilihan progres server membuka sesi baru sebelum boot.
+- [x] Buat cadangan sebelum penggantian versi; tidak ada merge biner. Cadangan dapat diunduh/pulihkan/hapus eksplisit; kuota/gagal backup menahan penggantian.
+- [x] Tambahkan impor save browser serta file `.srm`/`.state` ke akun dengan konfirmasi identitas/kompatibilitas. Build sumber yang tidak diketahui tidak diklaim terverifikasi; pengguna mengonfirmasi build tujuan.
+- [x] Pertahankan save lokal asal, termasuk sesudah impor berhasil. Pembaca IndexedDB read-only, mempertahankan byte Int8Array/Uint8Array dan tidak membuat database kosong.
+- [x] Uji penulisan bersamaan lewat dua tab/koneksi, retry usang, respons impor hilang setelah commit, impor gagal/target terisi, restart/cadangan, serta keutuhan storage tamu pada NES otomatis. PS1 M7 dikonfirmasi berhasil manual oleh pengguna; dua perangkat fisik dan setiap skenario PS1 tidak diklaim terverifikasi satu per satu.
+
+Hasil M7: 100 unit/integrasi lulus; build/sintaks/TypeScript tes lulus; backend browser penuh 45 lulus dan M7 terarah pada guard akhir 5 lulus. Jalur M7+M5/M6/server pada Node.js 24.22.1: 44 lulus. Pengguna mengonfirmasi tes manual PS1 M7 berhasil; rincian skenario/konfigurasi belum dicatat. Regresi statis dan batas verifikasi lengkap ada di [panduan M7](milestone-7-konflik-impor-save.md). Sesi percobaan impor sebelum commit belum tersedia; source dan cadangan dipertahankan untuk pemulihan.
 
 **Selesai jika:** konflik dapat diselesaikan secara eksplisit dan impor tidak menghapus atau menimpa progres tanpa konfirmasi.
 
@@ -417,7 +421,7 @@ Tujuan: menyiapkan penggunaan sehari-hari serta pemulihan ketika komputer/server
 - Framework backend dan library SQLite yang digunakan.
 - Dukungan sistem operasi serta versi Node.js minimum backend.
 - Perintah reset admin dan prosedur verifikasi pemilik telah ditetapkan pada [M4](milestone-4-pemulihan-akun.md); kebijakan akun dan format kode awal ditetapkan pada M3.
-- Slot, batas ukuran state, dan kuota akun telah ditetapkan pada M5; retensi cadangan konflik tetap M7.
+- Slot, batas ukuran state, dan kuota akun telah ditetapkan pada M5; retensi M7 ditetapkan tanpa penghapusan otomatis, dengan kuota gabungan dan hapus eksplisit oleh pengguna.
 - Kebijakan cache offline untuk pengguna login.
 - Penyajian HTTPS jika server diakses perangkat lain.
 - Daftar core yang dinyatakan mendukung sinkronisasi setelah pengujian nyata.

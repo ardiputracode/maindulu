@@ -2,6 +2,8 @@
 
 Status: M5 selesai untuk save state server manual dan autosave opsional pada NES yang terverifikasi. Kuota/pengelola, isolasi akun/tamu, dan regresi telah diuji; pengguna telah mengonfirmasi tes manual perubahan UI terakhir. Batas dukungan core serta fitur lanjutan tetap dicatat di bawah.
 
+Catatan M7: [konflik, impor browser/file, dan cadangan server](milestone-7-konflik-impor-save.md) kini ditambahkan; skema terbaru versi 6 dan kuota juga menghitung cadangan tanpa penghapusan otomatis. Pernyataan fitur belum tersedia serta hasil pengujian di bawah merupakan kondisi historis M5.
+
 Catatan lanjutan: [M6 — Progres Game](milestone-6-progres-game.md) menambahkan sinkronisasi SRAM NES, jalur memcard PS1 percobaan, migrasi versi 5, serta kuota gabungan. Keterangan memcard sementara/belum tersinkron di bawah mencatat kondisi penutupan M5. Pada sesi akun terbaru, tombol Import Save File ditunda sampai alur impor M7; ekspor native tetap ada.
 
 M5 menambahkan save/load state manual dari engine nyata ke penyimpanan server privat, tanpa upload ROM/BIOS. **Save dalam game/memcard otomatis tetap M6.** Dukungan server yang dibuktikan otomatis saat ini adalah **NES / fceumm varian legacy**, yaitu pilihan default loader yang teramati pada suite ini. Core/varian lain dapat dicoba dengan peringatan, tetapi tidak dinyatakan terverifikasi hanya karena `supportsStates()` tersedia atau pernah lulus ekspor/impor manual M1.

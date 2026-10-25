@@ -33,13 +33,14 @@ export function SaveManager({ client, list, onRefresh, onClose }: { client: Save
   const saves = list.saves.filter(s => !s.deleted)
   return <Dialog title="Kelola simpanan server." onClose={onClose} busy={busy}>
     <SaveQuota list={list} />
-    <p>Semua save state akun ini, lintas game. Save dalam game/memcard dikelola terpisah melalui Kelola progres game di dialog akun; kuota akun dipakai bersama.</p>
+    <p>Semua save state akun ini, lintas game. Save dalam game/memcard dan cadangan konflik/impor dikelola terpisah melalui dialog akun; semuanya memakai kuota akun yang sama.</p>
     {error && <p className="notice" role="alert">{error}</p>}
     <div className="save-list">{saves.length ? saves.map(save => <article className="save-item" key={save.id} aria-label={`${save.title}, ${save.gameId}, slot ${save.slot}`}>
       <strong>{save.title} — slot {save.slot}</strong>
       <p>Identitas game: {save.gameId}</p>
       <p>{save.consoleId} / {save.core} · {formatBytes(save.size)} · revisi {save.revision}</p>
       <p>Engine {save.metadata.engineVersion} · {save.metadata.variant} · build core {save.metadata.coreBuild.slice(0, 12)}</p>
+      {save.metadata.provenance && <p>Impor {save.metadata.provenance.source}: build sumber tidak diketahui; dikonfirmasi untuk build tujuan.</p>}
       <time dateTime={new Date(save.updatedAt).toISOString()}>{new Date(save.updatedAt).toLocaleString('id-ID')}</time>
       <div className="account-actions"><button className="button secondary small" disabled={busy} onClick={() => void act(save, false)}>Unduh cadangan {save.title} slot {save.slot}</button><button className="button secondary small" disabled={busy} onClick={() => void act(save, true)}>Hapus {save.title} slot {save.slot}</button></div>
     </article>) : <p>Belum ada save state di server.</p>}</div>

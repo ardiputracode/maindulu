@@ -57,6 +57,7 @@ export class GameSaveSync {
   private closed = false
   private initialized = false
   private blocked = false
+  private held = false
   private retries = 0
   private retryAt = 0
   private operation: Promise<boolean> | null = null
@@ -86,12 +87,29 @@ export class GameSaveSync {
   }
   start(metadata: GameSaveMetadata) { this.metadata = metadata }
   snapshot() { return this.latest }
+  async hold() { this.held = true; await this.operation }
+  release() { this.held = false }
+  async conflictSnapshot() {
+    await this.hold()
+    if (this.closed) throw new SaveError('Sesi progres ditutup.')
+    const bytes = await this.capture()
+    if (this.closed) throw new SaveError('Sesi progres ditutup.')
+    if (!bytes) throw new SaveError('Progres sesi tidak tersedia. Gunakan ekspor native sebelum keluar.')
+    this.latest = bytes
+    return bytes
+  }
+  acceptDecision(save: ServerGameSave, bytes: Uint8Array) {
+    if (this.closed) return
+    this.revision = save.revision; this.checksum = save.checksum; this.latest = bytes
+    this.pending = null; this.blocked = false; this.retries = 0; this.retryAt = 0
+    this.report('saved', 'Keputusan progres dikonfirmasi server; versi sebelumnya dicadangkan.')
+  }
   close(clear = true) { this.closed = true; this.client.close(); if (clear) { this.pending = null; this.latest = null } }
   // Captures are serialized with uploads. A changed core is sampled again on
   // the next tick/exit; a successful upload never acknowledges unseen changes.
   async sync(explicit = false): Promise<boolean> {
     if (this.operation) { await this.operation; return explicit ? this.sync(true) : false }
-    if (this.closed || !this.initialized || !this.metadata) return false
+    if (this.closed || this.held || !this.initialized || !this.metadata) return false
     if (this.blocked || !explicit && this.retries > 3) return false
     if (!explicit && Date.now() < this.retryAt) return false
     this.operation = this.run(explicit)

@@ -1,5 +1,7 @@
 # M6 — Sinkronisasi Progres Game
 
+Catatan M7: [penyelesaian konflik, impor browser/file, dan cadangan](milestone-7-konflik-impor-save.md) kini mempunyai implementasi terpisah; kuota menghitung cadangan dan SQLite terbaru versi 6. Pernyataan impor/retensi belum tersedia di bawah mencatat kondisi penutupan M6, bukan status fitur terbaru. Verifikasi manual PS1 M6 tidak otomatis membuktikan M7.
+
 Status: **M6 selesai untuk cakupan terverifikasi: SRAM NES otomatis dan memcard aktif PS1 yang diuji manual pengguna.** Pengguna mengonfirmasi ekspor serta pemulihan progres server pada sesi/browser baru tanpa impor manual atau muat state M5. Bukti PS1 ini berasal dari tes M6, bukan pengangkatan hasil M1. Dukungan di luar skenario PS1 tersebut tetap percobaan; UI penyelesaian konflik/impor tetap M7 dan backup server terkoordinasi tetap M8.
 
 ## Cara menggunakan

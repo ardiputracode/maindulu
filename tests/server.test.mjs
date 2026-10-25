@@ -39,7 +39,7 @@ test('SQLite migrations are atomic, idempotent and preserve metadata across reop
   const dataDir = join(root, 'data')
   let db = await openDatabase(dataDir)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 5)
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 6)
     assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1)
     assert.equal(db.prepare('PRAGMA journal_mode').get().journal_mode, 'wal')
     const id = db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get().value
@@ -48,7 +48,7 @@ test('SQLite migrations are atomic, idempotent and preserve metadata across reop
     db = await openDatabase(dataDir)
     assert.equal(db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get().value, id)
     assert.equal(db.prepare("SELECT value FROM app_metadata WHERE key = 'persist-test'").get().value, 'retained')
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 5)
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 6)
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE name IN ('users', 'sessions')").get().count, 2)
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE name = 'saves'").get().count, 1)
   } finally { db.close() }

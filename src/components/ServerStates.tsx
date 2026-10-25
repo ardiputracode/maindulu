@@ -7,6 +7,7 @@ import { hashRom } from '../lib/identity'
 import { useSaveLibrary } from '../lib/useSaveLibrary'
 import { SaveManager, SaveQuota } from './SaveLibrary'
 import Dialog from './Dialog'
+import type { TransferRequest } from './SaveTransfer'
 
 export type StateRpc = (type: 'export-state' | 'import-state', bytes?: Uint8Array) => Promise<Uint8Array | null>
 export type AutosaveStatus = 'saving' | 'saved' | 'error'
@@ -15,10 +16,12 @@ type Pending = { bytes: Uint8Array; checksum: string; slot: number; revision: nu
 // Slot 99 is reserved for the automatic "Autosave" state; 1-3 stay manual.
 const AUTOSAVE_SLOT = 99
 
-export default function ServerStates({ session, owner, enabled, accountChanged, metadata, rpc, show, onToggle, gameActive, overlayContainer, onAutosaveStatus }: {
+export default function ServerStates({ session, owner, enabled, accountChanged, metadata, rpc, show, onToggle, gameActive, overlayContainer, onAutosaveStatus, onTransfer, resolution, progressAvailable, progressConflict }: {
   session: LaunchSession; owner: string; enabled: boolean; accountChanged: boolean; metadata: StateMetadata | null; rpc: StateRpc;
   show: boolean; onToggle: () => void; gameActive: boolean;
   overlayContainer: HTMLElement | null; onAutosaveStatus: (status: AutosaveStatus) => void;
+  onTransfer: (request: TransferRequest) => void; resolution: number;
+  progressAvailable: boolean; progressConflict: boolean;
 }) {
   const library = useSaveLibrary(owner, enabled)
   const [pendingState, setPendingState] = useState<Pending | null>(null)
@@ -26,12 +29,16 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
   const [manager, setManager] = useState(false)
+  const [conflict, setConflict] = useState(false)
   const live = useRef(true)
   // Autosave is off by default; the interval value must be picked explicitly.
   const [autosave, setAutosave] = useState({ active: false, intervalMs: 0 })
   const changed = useRef(accountChanged)
   changed.current = accountChanged
   useEffect(() => { live.current = true; return () => { live.current = false } }, [])
+  useEffect(() => {
+    if (resolution) { setPendingState(null); setConflict(false); setErr(''); setMsg('Keputusan server dikonfirmasi. State tidak dimuat otomatis.'); void library.refresh() }
+  }, [resolution])
   useEffect(() => {
     if (accountChanged) { setPendingState(null); setMsg(''); setErr('Akun berganti. Snapshot akun sebelumnya dibersihkan dan tidak diteruskan ke akun baru.') }
   }, [accountChanged])
@@ -44,10 +51,11 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
     if (busy) return
     setBusy(true); setErr(''); setMsg('')
     try { await work() }
-    catch (e) { if (live.current && !changed.current) { setMsg(''); setErr(e instanceof Error ? e.message : 'Operasi save gagal.') } }
+    catch (e) { if (live.current && !changed.current) { setMsg(''); setErr(e instanceof Error ? e.message : 'Operasi save gagal.'); if (e instanceof SaveError && e.code === 'REVISION_CONFLICT') setConflict(true) } }
     finally { if (live.current) setBusy(false) }
   }
   async function upload(snapshot: Pending) {
+    if (conflict) throw new SaveError('Ada konflik simpanan. Tinjau konflik dahulu; retry tidak boleh menimpa revisi baru.', 409, 'REVISION_CONFLICT')
     if (!ready || !library.client) throw new SaveError('Sesi/daftar save belum siap. Jangan tutup tab sebelum mengunduh cadangan.')
     if (snapshot.bytes.length > library.list!.usage.maxStateBytes) throw new SaveError(`State ${formatBytes(snapshot.bytes.length)} melebihi batas ${formatBytes(library.list!.usage.maxStateBytes)}. Unduh cadangan atau hubungi pengelola.`)
     setMsg('Menyimpan…')
@@ -99,9 +107,10 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
         const checksum = await hashRom(new Blob([new Uint8Array(bytes)]))
         if (!live.current || changed.current) return
         const snapshot: Pending = { bytes, checksum, slot: AUTOSAVE_SLOT, revision: slotInfo(AUTOSAVE_SLOT)?.revision ?? 0, metadata: metadata }
+        setPendingState(snapshot)
         await upload(snapshot)
       } catch (e) {
-        if (live.current && !changed.current) { setMsg(''); setErr(e instanceof Error ? e.message : 'Autosave gagal.'); onAutosaveStatus('error') }
+        if (live.current && !changed.current) { setMsg(''); setErr(e instanceof Error ? e.message : 'Autosave gagal.'); if (e instanceof SaveError && e.code === 'REVISION_CONFLICT') setConflict(true); onAutosaveStatus('error') }
       } finally { capturing = false }
     }, autosave.intervalMs)
     return () => clearInterval(timer)
@@ -145,8 +154,8 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
               <div className={info && !info.deleted ? 'server-slot-info' : 'server-slot-empty'}>{info && !info.deleted ? `${formatBytes(info.size)} · revisi ${info.revision}` : 'Kosong'}</div>
             </div>
             <span className="slot-actions">
-              <button className="button secondary small" disabled={busy || !ready || !info || info.deleted} onClick={() => void run(() => load(slot))}>Muat</button>
-              <button className="button secondary small" disabled={busy || !ready || !metadata} onClick={() => void run(() => capture(slot))}>Ganti</button>
+              <button className="button secondary small" disabled={busy || conflict || !ready || !info || info.deleted} onClick={() => void run(() => load(slot))}>Muat</button>
+              <button className="button secondary small" disabled={busy || conflict || !ready || !metadata} onClick={() => void run(() => capture(slot))}>Ganti</button>
             </span>
           </article>)}
         </div>
@@ -165,12 +174,15 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
         <p className="autosave-hint">Slot Autosave ditimpa otomatis saat autosave aktif; tiga slot manual hanya berubah saat kamu menekan Ganti.</p>
       </div>
       {pendingState && <div className="save-pending"><p>State {pendingSlotName(pendingState.slot)} belum dikonfirmasi server ({formatBytes(pendingState.bytes.length)}). {library.list && `Ruang tersisa ${formatBytes(Math.max(0, library.list.usage.quotaBytes - library.list.usage.usedBytes))}; penggantian slot hanya dihitung selisih ukurannya.`} Menutup tab dapat menghilangkan snapshot ini.</p><div className="account-actions"><button className="button secondary small" disabled={busy} onClick={() => downloadState(pendingState.bytes, `${session.game.id}-${pendingSlotName(pendingState.slot).replace(' ', '-')}-cadangan`)}>Unduh cadangan state terbaru</button><button className="button secondary small" disabled={!ready || busy} onClick={() => void run(() => upload(pendingState))}>Coba simpan lagi</button><button className="button secondary small" disabled={busy} onClick={() => { if (window.confirm('Abaikan snapshot yang belum tersimpan? Pastikan cadangan sudah diunduh.')) setPendingState(null) }}>Abaikan state tertunda</button></div></div>}
-      <div className="account-actions">
+       <div className="account-actions">
+         {progressAvailable && <button className="button secondary small" disabled={busy || !ready} onClick={() => onTransfer({ mode: progressConflict ? 'conflict' : 'import', kind: 'progress' })}>{progressConflict ? 'Tinjau konflik progres' : 'Impor progres'}</button>}
+         <button className="button secondary small" disabled={busy || !ready || !!pendingState} onClick={() => onTransfer({ mode: 'import', kind: 'state' })}>Impor state</button>
+         {conflict && pendingState && <button className="button primary small" disabled={busy || !ready} onClick={() => onTransfer({ mode: 'conflict', kind: 'state', slot: pendingState.slot, bytes: pendingState.bytes })}>Tinjau konflik state</button>}
         <button className="button primary small" disabled={busy || !library.client || !library.list} onClick={() => setManager(true)}>Kelola simpanan</button>
         <button className="button secondary small" disabled={busy || !enabled} onClick={() => void library.refresh()}>Muat ulang daftar save</button>
         <button className="text-link" disabled={!metadata || busy || !enabled} onClick={() => void run(async () => { const bytes = await rpc('export-state'); if (bytes) downloadState(bytes, `${session.game.id}-cadangan`) })}>Unduh state saat ini</button>
       </div>
-      <details className="server-state-help"><summary>Tentang penyimpanan progres</summary><p>State tidak dimuat otomatis dan save browser tamu tidak diimpor. Sinkronisasi progres game terpisah dari Autosave state.</p><p>Periksa status sinkronisasi progres di halaman player. NES tersedia, memcard PS1 masih percobaan; core lain tetap memerlukan ekspor cadangan. Memuat state lama dapat ikut mengembalikan save dalam game lama.</p></details>
+      <details className="server-state-help"><summary>Tentang penyimpanan progres</summary><p>State tidak dimuat otomatis dan save browser tamu tidak diimpor otomatis. Gunakan Impor state/progres untuk meninjau sumber dan tujuan secara eksplisit. Sinkronisasi progres game terpisah dari Autosave state; cadangan konflik/impor memakai kuota akun tanpa penghapusan otomatis.</p><p>Periksa status sinkronisasi progres di halaman player. NES tersedia, memcard PS1 masih percobaan; core lain tetap memerlukan ekspor cadangan. Memuat state lama dapat ikut mengembalikan save dalam game lama.</p></details>
       </div>
     </Dialog>
     {manager && library.client && library.list && <div className="server-save-manager"><SaveManager client={library.client} list={library.list} onRefresh={library.refresh} onClose={() => setManager(false)} /></div>}

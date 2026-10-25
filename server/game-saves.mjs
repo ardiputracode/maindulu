@@ -5,6 +5,7 @@ import { transaction } from './auth/mutations.mjs'
 import { AuthError, createLimiter } from './auth/limits.mjs'
 import { protectRequest } from './auth/security.mjs'
 import { decodeGameSave, gameSaveLayout } from '../src/lib/game-save-format.ts'
+import { archive, decisionReceipt, parseOperation, parseProvenance, readSaveBlob, recordDecision, referenced, usedBytes } from './save-backups.mjs'
 
 const cores = { nes: 'fceumm', psx: 'pcsx_rearmed' }
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
@@ -27,7 +28,7 @@ function parseMetadata(header) {
   if (v.gameId.startsWith('local-') && !new RegExp(`^local-${v.consoleId}-[a-f0-9]{64}$`).test(v.gameId)) throw invalid()
   const m = v.metadata
   if (!m || m.formatVersion !== 1 || m.layout !== gameSaveLayout(v.core) || typeof m.engineVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(m.engineVersion) || m.engineVersion.length > 30 || !['normal', 'legacy'].includes(m.variant) || !/^[a-f0-9]{64}$/.test(m.coreBuild) || !/^[a-f0-9]{64}$/.test(m.runtimeBuild)) throw invalid()
-  return { ...v, metadata: { formatVersion: 1, layout: m.layout, engineVersion: m.engineVersion, variant: m.variant, coreBuild: m.coreBuild, runtimeBuild: m.runtimeBuild } }
+  return { gameId: v.gameId, consoleId: v.consoleId, core: v.core, title: v.title, expectedRevision: v.expectedRevision, checksum: v.checksum, operation: parseOperation(v.operation), metadata: { formatVersion: 1, layout: m.layout, engineVersion: m.engineVersion, variant: m.variant, coreBuild: m.coreBuild, runtimeBuild: m.runtimeBuild, ...parseProvenance(m) } }
 }
 
 export function registerGameSaves(app, config, security) {
@@ -38,7 +39,7 @@ export function registerGameSaves(app, config, security) {
   if (realpathSync(folder) !== folder) throw new Error('Folder game-saves tidak boleh berupa symlink/junction.')
   function remove(key) { try { unlinkSync(join(folder, key)) } catch (e) { if (e.code !== 'ENOENT') app.log.warn('Pembersihan progres ditunda sampai restart.') } }
   transaction(db, () => {
-    const live = new Set(db.prepare('SELECT blob_key FROM game_saves WHERE blob_key IS NOT NULL').all().map(r => r.blob_key))
+    const live = new Set(db.prepare("SELECT blob_key FROM game_saves WHERE blob_key IS NOT NULL UNION SELECT blob_key FROM save_backups WHERE kind = 'progress'").all().map(r => r.blob_key))
     for (const name of readdirSync(folder)) if (blobName.test(name) && !live.has(name)) remove(name)
   })
   function owner(request) {
@@ -48,7 +49,7 @@ export function registerGameSaves(app, config, security) {
     return session.user_id
   }
   function usage(user) {
-    return { usedBytes: db.prepare('SELECT (SELECT COALESCE(SUM(size), 0) FROM saves WHERE user_id = ?) + (SELECT COALESCE(SUM(size), 0) FROM game_saves WHERE user_id = ?) AS size').get(user, user).size, quotaBytes: config.saveQuotaBytes, maxGameSaveBytes: config.gameSaveMaxBytes }
+    return { usedBytes: usedBytes(db, user), quotaBytes: config.saveQuotaBytes, maxGameSaveBytes: config.gameSaveMaxBytes }
   }
   function rowFor(id, user) {
     if (!uuid.test(id)) throw invalid()
@@ -100,12 +101,15 @@ export function registerGameSaves(app, config, security) {
       try {
         saved = transaction(db, () => {
           owner(request)
+          const receipt = decisionReceipt(db, user, 'progress', v)
+          if (receipt?.replay) { replay = true; return receipt.replay }
           previous = db.prepare('SELECT * FROM game_saves WHERE user_id = ? AND game_id = ? AND console_id = ? AND core = ?').get(user, v.gameId, v.consoleId, v.core)
           // Exact immediate replay is safe if the previous response was lost.
-          if (previous?.blob_key && previous.revision === v.expectedRevision + 1 && previous.checksum === v.checksum && previous.metadata === JSON.stringify(v.metadata)) { readBlob(previous); replay = true; return previous }
+          if (!v.operation && previous?.blob_key && previous.revision === v.expectedRevision + 1 && previous.checksum === v.checksum && previous.metadata === JSON.stringify(v.metadata)) { readBlob(previous); replay = true; return { save: publicSave(previous), backupId: null } }
           if ((previous?.revision ?? 0) !== v.expectedRevision) throw conflict()
           if (!previous && db.prepare('SELECT COUNT(*) AS count FROM game_saves WHERE user_id = ?').get(user).count >= 5000) throw new GameSaveError(409, 'IDENTITY_LIMIT', 'Batas identitas progres akun tercapai.')
-          if (usage(user).usedBytes - (previous?.size ?? 0) + bytes.length > config.saveQuotaBytes) throw new GameSaveError(409, 'QUOTA_EXCEEDED', 'Kuota akun tidak cukup. Progres lama tetap aman; unduh cadangan atau kelola simpanan.')
+          if (usage(user).usedBytes - (v.operation ? 0 : previous?.size ?? 0) + bytes.length > config.saveQuotaBytes) throw new GameSaveError(409, 'QUOTA_EXCEEDED', 'Kuota akun tidak cukup, termasuk cadangan. Progres lama tetap aman; hapus cadangan pilihan sendiri dahulu.')
+          if (v.operation && previous?.blob_key) readSaveBlob(config, 'progress', previous)
           const fileId = randomUUID()
           newKey = fileId + '.tmp'
           const fd = openSync(join(folder, newKey), 'wx', 0o600)
@@ -113,19 +117,29 @@ export function registerGameSaves(app, config, security) {
           renameSync(join(folder, newKey), join(folder, fileId + '.bin'))
           newKey = fileId + '.bin'
           if (process.platform !== 'win32') { const dir = openSync(folder, 'r'); try { fsyncSync(dir) } finally { closeSync(dir) } }
+          let backupId = null
+          if (v.operation?.action === 'preserve') {
+            backupId = archive(db, 'progress', user, { game_id: v.gameId, console_id: v.consoleId, core: v.core, title: v.title, metadata: JSON.stringify(v.metadata), size: bytes.length, checksum: v.checksum, blob_key: newKey }, 'conflict-local')
+            const result = { save: previous ? publicSave(previous) : null, backupId }
+            recordDecision(db, user, v, receipt, result)
+            return result
+          }
+          if (v.operation && previous?.blob_key) backupId = archive(db, 'progress', user, previous, v.operation.reason)
           const id = previous?.id ?? randomUUID()
           db.prepare(`INSERT INTO game_saves (id, user_id, game_id, console_id, core, title, metadata, revision, size, checksum, blob_key, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET title=excluded.title, metadata=excluded.metadata, revision=excluded.revision, size=excluded.size, checksum=excluded.checksum, blob_key=excluded.blob_key, updated_at=excluded.updated_at`)
             .run(id, user, v.gameId, v.consoleId, v.core, v.title, JSON.stringify(v.metadata), (previous?.revision ?? 0) + 1, bytes.length, v.checksum, newKey, Date.now())
-          return db.prepare('SELECT * FROM game_saves WHERE id = ?').get(id)
+          const result = { save: publicSave(db.prepare('SELECT * FROM game_saves WHERE id = ?').get(id)), backupId }
+          recordDecision(db, user, v, receipt, result)
+          return result
         })
       } catch (error) {
-        if (newKey) { try { if (!db.prepare('SELECT id FROM game_saves WHERE blob_key = ?').get(newKey)) remove(newKey) } catch { app.log.warn('Pembersihan progres ditunda.') } }
+        if (newKey) { try { transaction(db, () => { if (!referenced(db, 'progress', newKey)) remove(newKey) }) } catch { app.log.warn('Pembersihan progres ditunda.') } }
         throw error
       }
-      if (!replay && previous?.blob_key) remove(previous.blob_key)
-      return reply.code(replay || previous?.blob_key ? 200 : 201).send({ save: publicSave(saved), usage: usage(user) })
+      if (!replay && previous?.blob_key) transaction(db, () => { if (!referenced(db, 'progress', previous.blob_key)) remove(previous.blob_key) })
+      return reply.code(replay || previous?.blob_key ? 200 : 201).send({ ...saved, usage: usage(user) })
     })
     api.post('/:id/delete', async request => {
       const user = owner(request)
@@ -136,7 +150,7 @@ export function registerGameSaves(app, config, security) {
         db.prepare('UPDATE game_saves SET blob_key = NULL, size = 0, revision = revision + 1, updated_at = ? WHERE id = ?').run(Date.now(), row.id)
         return row
       })
-      remove(old.blob_key)
+      transaction(db, () => { if (!referenced(db, 'progress', old.blob_key)) remove(old.blob_key) })
       return { ok: true, usage: usage(user) }
     })
   }, { prefix: '/api/game-saves' })

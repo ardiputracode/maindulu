@@ -78,6 +78,114 @@ async function increment(frame: FrameLocator, value: number) {
 }
 test.beforeEach(({}, info) => { test.skip(info.project.name !== 'node-backend', 'M6 membutuhkan backend akun nyata.') })
 
+async function reviewTransfer(page: Page) {
+  const dialog = page.getByRole('dialog', { name: /Tinjau konflik simpanan|Impor save/ })
+  await dialog.getByRole('button', { name: 'Tinjau versi server', exact: true }).click()
+  await dialog.getByRole('checkbox').check()
+  return dialog
+}
+test('M7: explicit two-tab SRAM choices retain both losing versions and restart before boot for server choice', async ({ page, context, backend }) => {
+  await register(page, username())
+  const first = await launchBattery(page)
+  const other = await context.newPage()
+  await other.goto('/')
+  const second = await launchBattery(other)
+  await increment(first, 1)
+  await progress(page).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
+  await expect(progress(page)).toContainText('dikonfirmasi server')
+  await increment(second, 1); await increment(second, 2)
+  await progress(other).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
+  await expect(progress(other)).toContainText('Progres server berubah')
+  await progress(other).getByRole('button', { name: 'Tinjau konflik progres' }).click()
+  const review = await reviewTransfer(other)
+  await review.getByRole('button', { name: 'Gunakan snapshot sesi ini', exact: true }).click()
+  await expect(review).toHaveCount(0)
+  expect(backend!.app.database.prepare('SELECT COUNT(*) AS n FROM save_backups').get()!.n).toBe(1)
+  await increment(first, 2); await increment(first, 3)
+  await progress(page).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
+  await expect(progress(page)).toContainText('Progres server berubah')
+  await progress(page).getByRole('button', { name: 'Tinjau konflik progres' }).click()
+  const serverReview = await reviewTransfer(page)
+  await serverReview.getByRole('button', { name: 'Gunakan versi server', exact: true }).click()
+  const restored = await startPlayer(page)
+  await expect.poll(async () => (await bytes(restored))[2]).toBe(2)
+  await increment(restored, 3) // RAM really restored, not only filesystem contents
+  expect(backend!.app.database.prepare('SELECT COUNT(*) AS n FROM save_backups').get()!.n).toBe(2)
+  expect(backend!.app.database.prepare('SELECT revision FROM game_saves').get()!.revision).toBe(2)
+})
+
+test('M7: browser SRAM and native file import preserve guest source and restore through a fresh boot', async ({ page, backend }) => {
+  await page.goto('/')
+  const guest = await launchBattery(page)
+  await increment(guest, 1)
+  const native = await guest.locator('body').evaluate(async () => {
+    const gm = (window as unknown as Engine).EJS_emulator.gameManager as Engine['EJS_emulator']['gameManager'] & { FS: { syncfs: (populate: boolean, done: (error?: unknown) => void) => void } }
+    const value = Array.from(gm.getSaveFile()!)
+    await new Promise<void>((resolve, reject) => gm.FS.syncfs(false, e => e ? reject(e) : resolve()))
+    return value
+  })
+  const storage = await page.evaluate(async () => {
+    const output = []
+    for (const info of await indexedDB.databases()) {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => { const r = indexedDB.open(info.name!); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error) })
+      for (const store of Array.from(db.objectStoreNames)) {
+        const records = await new Promise<unknown[]>((resolve, reject) => { const r = db.transaction(store, 'readonly').objectStore(store).getAll(); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error) })
+        const keys = await new Promise<IDBValidKey[]>((resolve, reject) => { const r = db.transaction(store, 'readonly').objectStore(store).getAllKeys(); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error) })
+        output.push({ name: info.name, store, keys, records: records.map(r => ({ keys: Object.keys(r as object), type: (r as { contents?: unknown }).contents?.constructor.name })) })
+      }
+      db.close()
+    }
+    return output
+  })
+  const idbfs = storage.find(s => s.name === '/data/saves' && s.store === 'FILE_DATA')
+  expect(idbfs?.keys.some(k => String(k).endsWith('.srm'))).toBe(true)
+  expect(idbfs?.records.some(r => r.type === 'Int8Array')).toBe(true)
+  page.once('dialog', d => d.accept())
+  await page.getByRole('button', { name: 'Kembali', exact: true }).click()
+  await register(page, username())
+  const account = await launchBattery(page)
+  await expect.poll(async () => (await bytes(account))[2]).toBe(0)
+  await progress(page).getByRole('button', { name: 'Impor progres', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Impor save', exact: true })
+  await dialog.getByRole('button', { name: 'Baca save browser ini' }).click()
+  await expect(dialog.getByText('Sumber browser', { exact: true })).toBeVisible()
+  await reviewTransfer(page)
+  await dialog.getByRole('button', { name: 'Konfirmasi impor ke server' }).click()
+  const restored = await startPlayer(page)
+  await expect.poll(async () => (await bytes(restored))[2]).toBe(1)
+  expect(JSON.parse(String(backend!.app.database.prepare('SELECT metadata FROM game_saves').get()!.metadata)).provenance).toEqual({ source: 'browser', sourceBuild: 'unknown', confirmedForTarget: true })
+  await increment(restored, 2)
+  await progress(page).getByRole('button', { name: 'Impor progres', exact: true }).click()
+  await dialog.getByLabel('File save', { exact: true }).setInputFiles({ name: 'backup.srm', mimeType: 'application/octet-stream', buffer: Buffer.from(native) })
+  await reviewTransfer(page)
+  // Lose the response AFTER the real commit: the same decision must replay.
+  let lost = false
+  await page.route('**/api/game-saves/', async route => {
+    if (!lost && route.request().method() === 'PUT' && decodeURIComponent(route.request().headers()['x-save-metadata'] ?? '').includes('operation')) { lost = true; await route.fetch(); await route.abort() }
+    else await route.continue()
+  })
+  await dialog.getByRole('button', { name: 'Konfirmasi impor ke server' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('Gagal sinkron')
+  const count = Number(backend!.app.database.prepare('SELECT COUNT(*) AS n FROM save_backups').get()!.n)
+  await page.route('**/api/auth/session', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Account status outage fixture' }) }))
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(dialog).toContainText('Kandidat dan ID retry tetap ditahan')
+  await expect(dialog.getByRole('button', { name: 'Coba keputusan yang sama lagi' })).toBeDisabled()
+  await page.unroute('**/api/auth/session')
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(dialog.getByRole('button', { name: 'Coba keputusan yang sama lagi' })).toBeEnabled()
+  await dialog.getByRole('button', { name: 'Coba keputusan yang sama lagi' }).click()
+  const fromFile = await startPlayer(page)
+  await expect.poll(async () => (await bytes(fromFile))[2]).toBe(1)
+  expect(Number(backend!.app.database.prepare('SELECT COUNT(*) AS n FROM save_backups').get()!.n)).toBe(count)
+  page.once('dialog', d => d.accept())
+  await page.getByRole('button', { name: 'Kembali', exact: true }).click()
+  await page.getByRole('button', { name: /^Akun / }).click()
+  await page.getByRole('button', { name: 'Keluar akun', exact: true }).click()
+  const guestAgain = await launchBattery(page)
+  await expect.poll(async () => (await bytes(guestAgain))[2]).toBe(1)
+})
+
 test('M6: automatic CPU-written SRAM survives server restart and a new browser with a renamed ROM', async ({ page, browser, backend }) => {
   const name = username()
   const payloads: Buffer[] = []

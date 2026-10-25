@@ -10,13 +10,17 @@ import type { AutosaveStatus } from './ServerStates'
 import { decodeGameSave, encodeGameSave, gameSaveLayout } from '../lib/game-save-format'
 import { downloadGameSave, GameSaveClient, GameSaveSync } from '../lib/game-saves'
 import type { ProgressView } from '../lib/game-saves'
+import type { ServerGameSave } from '../lib/game-saves'
+import SaveTransfer from './SaveTransfer'
+import type { TransferRequest } from './SaveTransfer'
+import { createPortal } from 'react-dom'
 
 export type LaunchSession = { id: string; game: Game; consoleInfo: ConsoleInfo; rom?: File; bios?: File; biosUrl?: string; storageOwner?: string | null; gameSaves?: boolean }
 
-export default function Player({ session, settings, favorite, onFavorite, onStart, onExit, onWidescreen, account, registerExitGuard }: {
+export default function Player({ session, settings, favorite, onFavorite, onStart, onExit, onWidescreen, account, registerExitGuard, onRestart }: {
   session: LaunchSession; settings: Settings; favorite: boolean;
   onFavorite: () => void; onStart: () => void; onExit: () => void; onWidescreen: (widescreen: boolean) => void;
-  account: AccountState;
+  account: AccountState; onRestart: () => void;
   registerExitGuard: (guard: (() => Promise<boolean>) | null) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null)
@@ -35,9 +39,15 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
   const [terminated, setTerminated] = useState(false)
   const [stateError, setStateError] = useState('')
   const [saveOverlay, setSaveOverlay] = useState(false)
+  const [transfer, setTransfer] = useState<TransferRequest | null>(null)
+  const [preparingTransfer, setPreparingTransfer] = useState(false)
+  const [browserKeys, setBrowserKeys] = useState<{ state: string; progress: string | null }>({ state: '', progress: null })
+  const [stateResolution, setStateResolution] = useState(0)
+  const modalOpen = saveOverlay || !!transfer || preparingTransfer
   const [gameRunning, setGameRunning] = useState(false)
   const [saveNotice, setSaveNotice] = useState<{ kind: 'saving' | 'success' | 'error'; message: string } | null>(null)
   const owner = session.storageOwner
+  const ownerName = useRef(account.user && account.user.id === owner ? account.user.username : '')
   const layout = gameSaveLayout(session.consoleInfo.core)
   const progressAvailable = !!owner && session.gameSaves === true && !!layout
   const progressSync = useRef<GameSaveSync | null>(null)
@@ -75,23 +85,24 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
   // Opening the overlay always pauses; closing resumes only games that were
   // running when the overlay opened (the bridge keeps that decision).
   useEffect(() => {
-    if (!saveOverlay) return
+    if (!modalOpen) return
     const win = frame.current?.contentWindow
     if (!win) return
     win.postMessage({ channel: 'maindulu:host', type: 'pause-session', sessionId: session.id }, location.origin)
     return () => { frame.current?.contentWindow?.postMessage({ channel: 'maindulu:host', type: 'resume-session', sessionId: session.id }, location.origin) }
-  }, [saveOverlay, session.id])
+  }, [modalOpen, session.id])
 
   useEffect(() => {
     if (!progressAvailable) return
     const timer = setInterval(() => {
-      if (active.current && started.current && !document.hidden && gameRunning && !saveOverlay) void progressSync.current?.sync()
+      if (active.current && started.current && !document.hidden && gameRunning && !modalOpen) void progressSync.current?.sync()
     }, 10000)
     return () => clearInterval(timer)
-  }, [progressAvailable, gameRunning, saveOverlay])
+  }, [progressAvailable, gameRunning, modalOpen])
   useEffect(() => {
     if (!progressAvailable) return
     registerExitGuard(async () => {
+      if (transfer || preparingTransfer) return false
       if (!started.current) return true
       if (!active.current) return window.confirm('Sesi sinkronisasi tidak tersedia. Keluar tanpa sinkronisasi? Pilih Batal untuk mengunduh cadangan progres terlebih dahulu.')
       const win = frame.current?.contentWindow
@@ -101,11 +112,11 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
         if (saved) return true
         return window.confirm('Progres belum tersinkron. Keluar tanpa sinkronisasi? Pilih Batal untuk mencoba lagi atau mengunduh cadangan progres.')
       } finally {
-        if (!saveOverlay) win?.postMessage({ channel: 'maindulu:host', type: 'resume-session', sessionId: session.id }, location.origin)
+        if (!modalOpen) win?.postMessage({ channel: 'maindulu:host', type: 'resume-session', sessionId: session.id }, location.origin)
       }
     })
     return () => registerExitGuard(null)
-  }, [progressAvailable, registerExitGuard, session.id, saveOverlay])
+  }, [progressAvailable, registerExitGuard, session.id, modalOpen, transfer, preparingTransfer])
 
   useEffect(() => {
     let configured = false
@@ -168,6 +179,8 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
         clearTimeout(timeout); setStatus('')
         setGameRunning(true)
         if (session.storageOwner) {
+          const keys = event.data.browserKeys
+          if (keys && typeof keys.state === 'string' && keys.state.length < 512 && (keys.progress === null || typeof keys.progress === 'string' && keys.progress.length < 512)) setBrowserKeys(keys)
           const value = event.data.supportsStates === true ? readStateMetadata(event.data.metadata) : null
           setMetadata(value)
           if (!value) setStateError('Core tidak mendukung state atau metadata build tidak tersedia. Save server tidak diaktifkan.')
@@ -218,6 +231,20 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
   }, [session, progressRetry])
 
   function exit() { onExit() }
+  async function openTransfer(request: TransferRequest) {
+    if (!enabled || transfer || preparingTransfer) return
+    setPreparingTransfer(true)
+    frame.current?.contentWindow?.postMessage({ channel: 'maindulu:host', type: 'pause-session', sessionId: session.id }, location.origin)
+    try {
+      // Before importing different SRAM, preserve the CURRENT paused game at
+      // the server baseline so the atomic replacement backs up that version.
+      if (request.mode === 'import' && request.kind === 'progress' && !await progressSync.current?.sync(true)) throw new Error('Sinkronkan/selesaikan konflik progres sesi ini dahulu sebelum impor.')
+      await progressSync.current?.hold()
+      if (active.current) setTransfer(request)
+    } catch (e) { if (active.current) setStateError(e instanceof Error ? e.message : 'Tidak dapat membuka impor.') }
+    finally { setPreparingTransfer(false) }
+  }
+  function closeTransfer() { setTransfer(null); progressSync.current?.release() }
   return <div className="player-page">
     <div className="player-heading"><button className="button secondary small" onClick={exit}><ArrowLeft size={17} />Kembali</button><div className="player-title"><h1>{session.game.title}</h1><span>{session.consoleInfo.shortName} <i>·</i> {session.game.source === 'local' ? 'ROM lokal' : 'Koleksi server'}</span></div><button className={`icon-button ${favorite ? 'is-favorite' : ''}`} onClick={onFavorite} aria-label={favorite ? 'Hapus dari favorit' : 'Tambahkan ke favorit'} aria-pressed={favorite}><Heart fill={favorite ? 'currentColor' : 'none'} size={21} /></button></div>
     <div ref={shell} className={`player-shell${widescreen ? ' is-widescreen' : ''}`}>{!terminated && <iframe key={progressRetry} ref={frame} src="/player/index.html" title={`Emulator ${session.game.title}`} allow="autoplay; fullscreen; gamepad" allowFullScreen />}{(error || terminated) && <div className="player-error" role="alert"><Info size={27} /><h2>{terminated ? 'Sesi akun berakhir.' : 'Belum bisa mulai.'}</h2><p>{terminated ? 'Player dibersihkan untuk mencegah pencampuran data akun. Unduh snapshot tertunda di bawah bila tersedia, lalu login dan buka game kembali.' : error}</p>{!terminated && !started.current && progressAvailable && <button className="button secondary" onClick={() => setProgressRetry(v => v + 1)}>Coba ambil progres lagi</button>}<button className="button primary" onClick={onExit}>Kembali dan coba lagi<ArrowLeft size={17} /></button></div>}
@@ -226,6 +253,19 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
         <span>{saveNotice.message}</span>
       </div>}
       {progressAvailable && enabled && ['failed', 'conflict', 'stopped'].includes(progress.status) && <div className="player-progress-notice" role="alert">Progres belum tersinkron. {progress.message} Gunakan kontrol progres di bawah player; keluar fullscreen bila perlu.</div>}
+      {transfer && owner && !terminated && !(account.status === 'authenticated' && account.user?.id !== owner) && metadata && createPortal(<SaveTransfer owner={owner} ownerName={ownerName.current} enabled={enabled} request={transfer}
+        target={{ gameId: session.game.id, consoleId: session.consoleInfo.id, core: session.consoleInfo.core, title: session.game.title }}
+        metadata={transfer.kind === 'progress' && layout ? { ...metadata, layout } as StateMetadata : metadata}
+        stateKey={browserKeys.state} progressPath={browserKeys.progress}
+        capture={async () => { const bytes = transfer.kind === 'progress' ? await progressSync.current?.conflictSnapshot() : await rpc('export-state'); if (!bytes) throw new Error('Snapshot tidak tersedia.'); return bytes }}
+        onClose={closeTransfer} onApplied={(save, bytes, action) => {
+          if (!active.current) return
+          if (transfer.kind === 'progress') {
+            if (action === 'preserve' || transfer.mode === 'import') { progressSync.current?.close(); registerExitGuard(null); onRestart(); return }
+            if (save) progressSync.current?.acceptDecision(save as ServerGameSave, bytes)
+          } else setStateResolution(n => n + 1)
+          closeTransfer()
+        }} />, shell.current ?? document.body)}
     </div>
     {status && <p className="player-status" role="status"><LoaderCircle size={15} className="spin" />{status}</p>}
     <div className="player-note"><ShieldCheck size={16} /><span>{session.game.source === 'local' ? 'File tetap di perangkatmu.' : 'Dimuat dari server maindulu.'} Semua core berjalan lokal di browser.</span></div>
@@ -234,6 +274,8 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
       <p role="status" aria-live="polite">{!enabled && !terminated ? 'Sinkronisasi ditahan sampai sesi akun dapat dipastikan. Tidak dialihkan ke penyimpanan tamu.' : progress.message}</p>
       {metadata && <small>Core {session.consoleInfo.core} · {metadata.variant} · engine {metadata.engineVersion} · build {metadata.coreBuild.slice(0, 12)}</small>}
       <div className="account-actions"><button className="button secondary small" disabled={!enabled || !started.current || progress.status === 'saving' || progress.status === 'conflict'} onClick={() => void progressSync.current?.sync(true)}>Sinkronkan progres sekarang</button>
+        {progress.status === 'conflict' && <button className="button primary small" disabled={!enabled || !!transfer || preparingTransfer} onClick={() => void openTransfer({ mode: 'conflict', kind: 'progress' })}>Tinjau konflik progres</button>}
+        <button className="button secondary small" disabled={!enabled || !metadata || !!transfer || preparingTransfer || progress.status === 'conflict'} onClick={() => void openTransfer({ mode: 'import', kind: 'progress' })}>Impor progres</button>
         <button className="button secondary small" disabled={!progressSync.current?.snapshot() && (!enabled || !started.current)} onClick={() => void (async () => {
           try {
             const current = enabled && started.current ? await rpc('export-progress') : null
@@ -246,7 +288,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
       {session.consoleInfo.core === 'fceumm' && metadata?.variant === 'normal' && <p className="notice">Sinkronisasi NES varian normal belum diuji terpisah. Bukti otomatis M6 saat ini menggunakan varian legacy; unduh cadangan progres.</p>}
     </section>}
     {owner && !progressAvailable && <p className="notice">Sinkronisasi save dalam game belum tersedia untuk core/backend ini. Save akun sementara di memori; ekspor cadangan atau simpan state sebelum keluar.</p>}
-    {owner && <ServerStates session={session} owner={owner} enabled={enabled} accountChanged={account.status === 'authenticated' && account.user?.id !== owner} metadata={metadata} rpc={rpc} show={saveOverlay} onToggle={() => setSaveOverlay(!saveOverlay)} gameActive={gameRunning && !saveOverlay} overlayContainer={shell.current} onAutosaveStatus={notifyAutosave} />}
+    {owner && <ServerStates session={session} owner={owner} enabled={enabled} accountChanged={account.status === 'authenticated' && account.user?.id !== owner} metadata={metadata} rpc={rpc} show={saveOverlay && !transfer && !preparingTransfer} onToggle={() => setSaveOverlay(!saveOverlay)} gameActive={gameRunning && !modalOpen} overlayContainer={shell.current} onAutosaveStatus={notifyAutosave} onTransfer={request => void openTransfer(request)} resolution={stateResolution} progressAvailable={progressAvailable} progressConflict={progress.status === 'conflict'} />}
     {!owner && account.status === 'authenticated' && <p className="notice">Sesi ini dimulai sebagai tamu. Buka ulang game untuk memakai save state akun; save browser tidak otomatis diimpor.</p>}
     <button className="controls-toggle" aria-expanded={controls} onClick={() => setControls(!controls)}><Keyboard size={18} />Panduan kontrol & simpan progres<ChevronDown size={17} className={controls ? 'rotated' : ''} /></button>
     {controls && <div className="controls-panel"><p>Klik layar emulator agar input keyboard masuk ke permainan. Buka menu emulator untuk melihat atau memetakan kontrol sesuai console, atau menyalakan <strong>Layar lebar</strong> (Settings → Graphics Settings) bila ingin gambar stretched mengisi layar.</p><div className="key-grid"><span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> Arah</span><span><kbd>Z</kbd><kbd>X</kbd> Tombol NES A/B</span><span><kbd>Enter</kbd> Start</span><span><kbd>Shift</kbd> Select</span></div><p><strong>Progres:</strong> save dalam game dan save state berbeda. Gunakan menu emulator untuk save/load serta ekspor cadangan. Riwayat maindulu hanya mencatat game yang dimainkan. Data browser dapat hilang saat penyimpanan situs dibersihkan.</p><p>Gamepad mengikuti dukungan browser; kontrol sentuh tersedia pada perangkat mobile. Core dan pemetaan tombol bisa berbeda.</p></div>}

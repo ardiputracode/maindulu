@@ -4,6 +4,7 @@ import type { useAccount } from '../lib/useAccount'
 import { readRecoveryResult } from '../lib/account'
 import SaveLibrary from './SaveLibrary'
 import GameSaveLibrary from './GameSaveLibrary'
+import BackupLibrary from './BackupLibrary'
 
 export default function AccountDialog({ account, onClose }: { account: ReturnType<typeof useAccount>; onClose: () => void }) {
   const { state } = account
@@ -21,6 +22,7 @@ export default function AccountDialog({ account, onClose }: { account: ReturnTyp
   const [message, setMessage] = useState('')
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [progressOpen, setProgressOpen] = useState(false)
+  const [backupsOpen, setBackupsOpen] = useState(false)
   useEffect(() => {
     if (!code || saved) return
     const warn = (event: BeforeUnloadEvent) => event.preventDefault()
@@ -55,6 +57,7 @@ export default function AccountDialog({ account, onClose }: { account: ReturnTyp
   const title = code ? 'Simpan kode pemulihanmu.' : authenticated ? mode === 'password' ? 'Ganti password.' : mode === 'recovery-code' ? 'Terbitkan ulang kode.' : 'Akunku.' : mode === 'register' ? 'Buat akun lokal.' : mode === 'recover' ? 'Pulihkan akun.' : 'Masuk ke maindulu.'
   if (libraryOpen && authenticated && state.user && !code) return <SaveLibrary key={state.user.id} userId={state.user.id} onClose={() => setLibraryOpen(false)} />
   if (progressOpen && authenticated && state.user && !code) return <GameSaveLibrary key={state.user.id} userId={state.user.id} onClose={() => setProgressOpen(false)} />
+  if (backupsOpen && authenticated && state.user && !code) return <BackupLibrary key={state.user.id} userId={state.user.id} onClose={() => setBackupsOpen(false)} />
   return <Dialog title={title} onClose={onClose} busy={busy || !!code}>
     {error && <p className="notice" role="alert">{error}</p>}
     {message && <p className="notice" role="status">{message}</p>}
@@ -81,6 +84,7 @@ export default function AccountDialog({ account, onClose }: { account: ReturnTyp
         <button className="button primary" disabled={busy || mode === 'register' && !state.registrationOpen}>{busy ? 'Memproses…' : authenticated ? mode === 'recovery-code' ? 'Buat kode baru' : 'Simpan password baru' : mode === 'register' ? 'Daftar akun' : mode === 'recover' ? 'Reset password' : 'Masuk'}</button>
         {!authenticated && <>{state.registrationOpen && <button type="button" className="text-link" disabled={busy} onClick={() => switchMode(mode === 'register' ? 'login' : 'register')}>{mode === 'register' ? 'Sudah punya akun? Masuk' : 'Belum punya akun? Daftar'}</button>}{!state.registrationOpen && <p>Pendaftaran sedang ditutup oleh pengelola.</p>}<button type="button" className="text-link" disabled={busy} onClick={() => switchMode(mode === 'recover' ? 'login' : 'recover')}>{mode === 'recover' ? 'Kembali ke masuk' : 'Lupa password?'}</button><p>Login opsional. Kamu tetap bisa bermain tanpa akun.</p></>}
       </form>}
+      {authenticated && <button className="button secondary small" disabled={busy} onClick={() => setBackupsOpen(true)}>Kelola cadangan konflik/impor</button>}
     </>}
   </Dialog>
 }
