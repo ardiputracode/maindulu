@@ -19,6 +19,7 @@
     "Memory-only state store and save filesystem for account players; retain guest persistence",
     "Expose selected core filename and publish build fingerprints",
     "Report play/pause transitions to the bridge (EJS_onPlayPause) for autosave and overlay gating",
-    "Accept fully specified custom bottom-bar buttons through buildButtonOptions (bridge save-state overlay button)"
+    "Accept fully specified custom bottom-bar buttons through buildButtonOptions (bridge save-state overlay button)",
+    "Synchronous account progress restore hook after ROM extraction and before callMain (EJS_mainduluBeforeBoot)"
   ]
 }

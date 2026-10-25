@@ -10,7 +10,7 @@ export type SetupSelection = { game?: Game; consoleId?: string; file?: File }
 
 export default function SetupDialog({ selection, consoles, biosList, onClose, onLaunch }: {
   selection: SetupSelection; consoles: ConsoleInfo[]; biosList: Bios[];
-  onClose: () => void; onLaunch: (session: LaunchSession) => void;
+  onClose: () => void; onLaunch: (session: LaunchSession) => void | boolean | Promise<void | boolean>;
 }) {
   const [rom, setRom] = useState<File | undefined>(selection.file)
   const [consoleId, setConsoleId] = useState(selection.game?.consoleId || selection.consoleId || (selection.file ? detectConsole(selection.file.name, consoles) : ''))
@@ -53,7 +53,8 @@ export default function SetupDialog({ selection, consoles, biosList, onClose, on
         if (selection.game?.source === 'local' && selection.game.id !== id) throw new Error('File ini berbeda dari game yang dipilih. Pilih ROM yang sama, atau buka sebagai game baru lewat Buka ROM.')
         game = { id, title: rom!.name.replace(/\.[^.]+$/, '').slice(0, 180), consoleId, source: 'local', fileName: rom!.name }
       }
-      onLaunch({ id: createSessionId(), game, consoleInfo, rom, bios: biosSource === 'local' ? bios : undefined, biosUrl: serverBios?.url })
+      const launched = await onLaunch({ id: createSessionId(), game, consoleInfo, rom, bios: biosSource === 'local' ? bios : undefined, biosUrl: serverBios?.url })
+      if (launched === false) setBusy(false)
     } catch (e) { setError(e instanceof Error ? e.message : 'File tidak dapat dibaca. Coba pilih ulang file ROM.'); setBusy(false) }
   }
 

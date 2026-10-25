@@ -48,5 +48,6 @@ export async function readConfig(env = process.env, root = projectRoot) {
   }
   return { host, port: Number(rawPort), distDir, dataDir, registrationOpen: registration === 'true', publicOrigin,
     stateMaxBytes: bytes('MAIN_DULU_STATE_MAX_BYTES', 32 * 1024 * 1024, 64 * 1024 * 1024),
+    gameSaveMaxBytes: bytes('MAIN_DULU_GAME_SAVE_MAX_BYTES', 8 * 1024 * 1024, 8 * 1024 * 1024),
     saveQuotaBytes: bytes('MAIN_DULU_SAVE_QUOTA_BYTES', 256 * 1024 * 1024, 16 * 1024 * 1024 * 1024) }
 }

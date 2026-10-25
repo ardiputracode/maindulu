@@ -11,10 +11,11 @@ Reproducible patch/build: `scripts/vendor-engine.mjs`.
 2. Missing local cores produce an actionable error instead of falling back to the CDN.
 3. Remove the default public netplay server; the frontend hides netplay.
 4. Add the Layar lebar display toggle and bridge callback.
-5. Account players opt into memory-only save state storage and an unmounted MEMFS save directory; guest IndexedDB/IDBFS behavior remains unchanged. The loader forwards the explicit `EJS_mainduluMemorySaves` flag. This does not implement memcard synchronization.
+5. Account players opt into memory-only save state storage and an unmounted MEMFS save directory; guest IndexedDB/IDBFS behavior remains unchanged. The loader forwards the explicit `EJS_mainduluMemorySaves` flag. Server progress synchronization is implemented separately in the M6 host/bridge.
 6. Expose the selected core filename and generate `public/player/builds.json` with SHA-256 core/runtime fingerprints for save-state compatibility checks.
 7. Report play/pause transitions to the bridge (`EJS_onPlayPause`) so the app can pause around the save-state overlay and gate autosave to running sessions.
 8. Accept fully specified custom bottom-bar buttons through `buildButtonOptions`; upstream 4.2.3 rejected unknown keys before its custom-button validation.
+9. Call the synchronous account-only `EJS_mainduluBeforeBoot` hook immediately before `Module.callMain`, after ROM extraction selected the final runtime filename. The host prefetches progress first; the bridge validates compatibility and writes native save bytes before the core starts. A hook failure aborts boot rather than starting with empty saves. This does not await asynchronous `saveDatabaseLoaded` listeners.
 
 Both WebGL and legacy, non-threaded variants are included for six cores. Core selection is pinned by the manifest. Threaded cores and unsupported systems are not advertised. Account state integration is automatically verified on NES only; availability of the other cores is not proof of server-save compatibility.
 

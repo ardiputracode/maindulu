@@ -14,6 +14,24 @@
   let overlayState = null
   let gameRunning = false
   let builds = null
+  let progressEnabled = false
+  let progressPath = null
+  let progressLayout = null
+  let progressBootError = ''
+  function buildMetadata() {
+    const file = window.EJS_emulator?.mainduluCoreFile
+    const hash = builds?.cores?.[file]
+    return memorySaves && typeof hash === 'string' ? { formatVersion: 1, engineVersion: builds.engineVersion, runtimeBuild: builds.runtimeBuild, coreBuild: hash, variant: file.includes('-legacy-') ? 'legacy' : 'normal' } : null
+  }
+  function checkProgressPath() {
+    const gm = window.EJS_emulator?.gameManager
+    if (!progressEnabled || !progressPath || gm?.getSaveFilePath() !== progressPath) throw new Error('Layout save core tidak cocok. Sinkronisasi dihentikan; ekspor save melalui emulator.')
+    const folder = progressPath.slice(0, progressPath.lastIndexOf('/'))
+    // Do not silently claim to synchronize cores that create extra card files.
+    const extra = gm.FS.analyzePath(folder).exists ? gm.FS.readdir(folder).filter(name => name !== '.' && name !== '..' && `${folder}/${name}` !== progressPath) : []
+    if (extra.length) throw new Error('Core menghasilkan berkas save tambahan. Cakupan layout belum didukung; ekspor cadangan sebelum keluar.')
+    return gm
+  }
   function syncHostFullscreen(fullscreen) {
     const e = window.EJS_emulator
     const buttons = e?.elements?.bottomBar?.fullscreen
@@ -31,7 +49,9 @@
   }
   const maxStateBytes = 64 * 1024 * 1024
   const send = (type, extra = {}) => parent.postMessage({ channel: 'maindulu:player', type, sessionId, ...extra }, location.origin)
-  const fail = message => send('error', { message })
+  // An engine abort may emit later generic errors/rejections. Preserve the
+  // actionable restore failure instead of replacing it with that fallout.
+  const fail = message => send('error', { message: progressBootError || message })
   const localUrl = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') && !/[\u0000-\u0020]/.test(value)
 
   function hideNativeStateSettings() {
@@ -140,9 +160,17 @@
       if (resume) window.EJS_emulator?.play?.()
       return
     }
-    if (!['export-state', 'import-state'].includes(type) || typeof requestId !== 'string' || !/^[a-f0-9-]{36}$/.test(requestId)) return
+    if (!['export-state', 'import-state', 'export-progress'].includes(type) || typeof requestId !== 'string' || !/^[a-f0-9-]{36}$/.test(requestId)) return
     try {
       const e = window.EJS_emulator
+      if (type === 'export-progress') {
+        const gm = checkProgressPath()
+        const bytes = gm.getSaveFile()
+        checkProgressPath()
+        if (bytes !== null && (!(bytes instanceof Uint8Array) || bytes.length < 1 || bytes.length > 8 * 1024 * 1024 - 4096)) throw new Error('Ukuran save dalam game tidak valid.')
+        send('state-result', { requestId, bytes })
+        return
+      }
       if (!e.gameManager.supportsStates()) throw new Error('Core tidak mendukung save state.')
       const paused = e.paused
       e.pause()
@@ -169,6 +197,9 @@
     sessionId = config.sessionId; configured = true
     try {
       memorySaves = config.memorySaves === true
+      progressEnabled = memorySaves && config.gameSaves === true && ['fceumm', 'pcsx_rearmed'].includes(config.core)
+      progressLayout = config.core === 'fceumm' ? 'nes-sram-v1' : 'ps1-active-memcard-v1'
+      if (progressEnabled && config.initialProgress !== null && (!(config.initialProgress?.bytes instanceof Uint8Array) || !config.initialProgress.bytes.length || config.initialProgress.bytes.length > 8 * 1024 * 1024 || config.initialProgress.metadata?.layout !== progressLayout)) throw new Error('Pemulihan progres awal tidak valid.')
       if (memorySaves) {
         const response = await fetch('/player/builds.json', { cache: 'no-store' })
         if (!response.ok) throw new Error('Metadata build engine tidak tersedia.')
@@ -197,6 +228,21 @@
       window.EJS_disableDatabases = true
       window.EJS_mainduluMemorySaves = memorySaves
       window.EJS_disableLocalStorage = memorySaves
+      window.EJS_mainduluBeforeBoot = progressEnabled ? e => {
+        try {
+          const metadata = buildMetadata()
+          if (!metadata) throw new Error('Metadata core tidak tersedia untuk pemulihan progres.')
+          const initial = config.initialProgress
+          if (initial && ['formatVersion', 'engineVersion', 'coreBuild', 'runtimeBuild', 'variant'].some(key => initial.metadata[key] !== metadata[key])) throw new Error('Versi engine/core progres berbeda. Game ditahan agar save tidak tertimpa; unduh cadangan dari pengelola progres.')
+          // fileName is final only after downloadRom/extraction. Unlike state
+          // names, server PS1 names may originate from the CHD URL.
+          const name = e.fileName
+          if (typeof name !== 'string' || !/^[^/\\\x00-\x1f]{1,240}$/.test(name) || name === '.' || name === '..') throw new Error('Nama ROM tidak cocok dengan layout progres yang didukung.')
+          const stem = name.replace(/\.[^.]+$/, '')
+          progressPath = `/data/saves/${config.core === 'fceumm' ? 'FCEUmm' : 'PCSX-ReARMed'}/${stem}.srm`
+          if (initial) e.gameManager.writeFile(progressPath, initial.bytes)
+        } catch (error) { progressBootError = error instanceof Error ? error.message : 'Pemulihan progres gagal.'; fail(progressBootError); throw error }
+      } : undefined
       window.EJS_CacheLimit = 0
       window.EJS_defaultOptions = { 'save-state-location': 'browser', ejs_threads: 'disabled', mainduluWidescreen: config.widescreen === true ? 'enabled' : 'disabled' }
       window.EJS_hideSettings = memorySaves ? ['ejs_threads', 'save-state-location', 'save-state-slot'] : ['ejs_threads']
@@ -213,6 +259,7 @@
           loadState: false,
           quickSave: false,
           quickLoad: false,
+          loadSavFiles: false,
           mainduluServerState: {
             visible: true,
             custom: true,
@@ -239,7 +286,7 @@
         }
         send('loaded')
         const original = window.EJS_emulator.startGameError.bind(window.EJS_emulator)
-        window.EJS_emulator.startGameError = message => { fail(String(message)); return original(message) }
+        window.EJS_emulator.startGameError = message => { fail(progressBootError || String(message)); return original(message) }
       }
       window.EJS_onGameStart = () => {
         // The engine rebuilds its settings menu when the core starts.
@@ -248,10 +295,17 @@
         gameRunning = true
         applyWidescreen()
         send('session-running', { running: true })
-        const file = window.EJS_emulator.mainduluCoreFile
-        const hash = builds?.cores?.[file]
-        const metadata = memorySaves && typeof hash === 'string' ? { formatVersion: 1, engineVersion: builds.engineVersion, runtimeBuild: builds.runtimeBuild, coreBuild: hash, variant: file.includes('-legacy-') ? 'legacy' : 'normal' } : null
-        send('started', { metadata, supportsStates: window.EJS_emulator.gameManager.supportsStates() })
+        const metadata = buildMetadata()
+        let progressReady = false
+        if (progressEnabled) {
+          try {
+            // getSaveFilePath is defined after boot. A mismatch never enables uploads.
+            const gm = window.EJS_emulator.gameManager
+            if (gm.getSaveFilePath() !== progressPath) throw new Error('Path save aktual berbeda dari layout pemulihan. Sinkronisasi dihentikan; ekspor cadangan.')
+            progressReady = true
+          } catch (error) { send('progress-error', { message: error instanceof Error ? error.message : 'Layout progres tidak didukung.' }) }
+        }
+        send('started', { metadata, progressReady, supportsStates: window.EJS_emulator.gameManager.supportsStates() })
       }
       // Toggle from the engine menu (Settings → Graphics → Layar lebar).
       window.EJS_onWidescreen = value => {

@@ -93,3 +93,8 @@
   .server-state-content > .account-actions { align-items: stretch; flex-direction: column; }
   .server-state-dialog .save-pending .account-actions > button { width: 100%; }
 }
+.progress-sync { margin: 1rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: 12px; overflow-wrap: anywhere; }
+.progress-sync > p:first-child { margin-top: 0; }
+.progress-sync { font-size: 13px; line-height: 1.65; background: var(--surface); }
+.progress-sync .account-actions { margin-top: 10px; }
+.player-progress-notice { position: absolute; top: 12px; left: 12px; z-index: 6; max-width: min(420px, calc(100% - 24px)); padding: 10px; border: 1px solid #8d6543; border-radius: 8px; color: #f4d5af; background: #102017ed; font-size: 12px; line-height: 1.5; pointer-events: none; }

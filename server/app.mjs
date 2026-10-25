@@ -8,6 +8,7 @@ import { openDatabase } from './database.mjs'
 import { registerAuth } from './auth/routes.mjs'
 import { AuthError } from './auth/limits.mjs'
 import { registerSaves } from './saves.mjs'
+import { registerGameSaves } from './game-saves.mjs'
 
 const pages = ['/', '/index.html', '/console', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main']
 const assetDirectories = new Set(['assets', 'vendor', 'player', 'catalog', 'games', 'bios', 'covers'])
@@ -50,11 +51,12 @@ export async function createApp({ env = process.env, root, logger = false } = {}
   app.get('/api/health', async (_request, reply) => {
     try { db.prepare('SELECT 1').get() }
     catch { return reply.code(503).send({ error: 'Penyimpanan server belum tersedia.' }) }
-    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true } }
+    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true } }
   })
   try {
     const security = registerAuth(app, config)
     registerSaves(app, config, security)
+    registerGameSaves(app, config, security)
     for (const page of pages) app.get(page, (_request, reply) => reply.type('text/html; charset=utf-8').send(html))
     await app.register(fastifyStatic, {
       root: config.distDir,

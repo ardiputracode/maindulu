@@ -1,6 +1,6 @@
 export type BackendHealth = {
   service: 'maindulu'; apiVersion: 1; status: 'ok';
-  capabilities: { accounts: boolean; serverSaves: boolean };
+  capabilities: { accounts: boolean; serverSaves: boolean; gameSaves?: boolean };
 }
 
 export type BackendState =
@@ -12,7 +12,8 @@ export function readBackendHealth(value: unknown): BackendHealth | null {
   const v = value as Record<string, unknown>
   const capabilities = v.capabilities as Record<string, unknown> | null
   if (v.service !== 'maindulu' || v.apiVersion !== 1 || v.status !== 'ok' || !capabilities || typeof capabilities.accounts !== 'boolean' || typeof capabilities.serverSaves !== 'boolean') return null
-  return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: capabilities.accounts, serverSaves: capabilities.serverSaves } }
+  if (capabilities.gameSaves !== undefined && typeof capabilities.gameSaves !== 'boolean') return null
+  return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: capabilities.accounts, serverSaves: capabilities.serverSaves, ...(capabilities.gameSaves !== undefined ? { gameSaves: capabilities.gameSaves } : {}) } }
 }
 
 export function backendConfigured(marker: string | null, buildEnabled: string | undefined) {

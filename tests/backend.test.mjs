@@ -15,5 +15,7 @@ test('backend discovery requires explicit server marker or opt-in build setting'
 test('backend health validates identity, API version, status and real capability booleans', () => {
   assert.deepEqual(readBackendHealth(health), health)
   assert.deepEqual(readBackendHealth({ ...health, ignored: 'extra' }), health)
+  assert.equal(readBackendHealth({ ...health, capabilities: { ...health.capabilities, gameSaves: true } }).capabilities.gameSaves, true)
+  assert.equal(readBackendHealth({ ...health, capabilities: { ...health.capabilities, gameSaves: 'true' } }), null)
   for (const value of [null, [], '<html>SPA fallback</html>', {}, { ...health, service: 'other' }, { ...health, apiVersion: 2 }, { ...health, status: 'down' }, { ...health, capabilities: null }, { ...health, capabilities: { accounts: 'false', serverSaves: false } }]) assert.equal(readBackendHealth(value), null)
 })

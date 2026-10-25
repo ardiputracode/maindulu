@@ -90,3 +90,5 @@ React, TypeScript, Vite, React Router, Lucide, dan CSS bertoken dengan tema kons
 - [x] 10 tes browser terhadap build produksi lulus, termasuk desktop/mobile, ROM/BIOS lokal/server, pembatasan origin eksternal dengan cache kosong, error aset, konfirmasi keluar, dan save/load state bawaan engine.
 
 Pengujian permainan end-to-end memakai demo NES orisinal. Core lain telah dibundel/divalidasi asetnya, tetapi kompatibilitas game dan BIOS asli tetap harus diuji per perangkat. Tidak ada BIOS proprietary maupun koleksi ROM komersial yang dibundel.
+
+Perkembangan backend/akun setelah catatan MVP di atas ada di [rencana login dan save server](doc/rencana-login-cloud-save.md). M6 selesai untuk SRAM NES yang diuji otomatis serta ekspor/pemulihan memcard aktif PS1 lintas sesi/browser yang dikonfirmasi manual pengguna. Lihat [panduan, hasil manual, dan batas dukungan PS1](doc/milestone-6-progres-game.md); seluruh game/card/varian tidak diklaim terverifikasi. Impor dan penyelesaian konflik tetap M7. Angka tes MVP di atas adalah historis, bukan hasil regresi versi terbaru.

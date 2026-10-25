@@ -1,6 +1,6 @@
 # Rencana Login Opsional dan Penyimpanan Progres Server
 
-Status: M1–M5 selesai. Akun lokal, pemulihan akun, serta save state server manual dengan kuota tersedia. Integrasi server terverifikasi otomatis pada NES; core lain belum dinyatakan didukung. M6 dan berikutnya belum dimulai: sinkronisasi save game/memcard otomatis, impor browser/penyelesaian konflik, serta backup/restore terkoordinasi belum tersedia.
+Status: M1–M6 selesai dalam cakupan terverifikasi: SRAM NES otomatis, serta ekspor dan pemulihan memcard aktif PS1 lintas sesi/browser yang dikonfirmasi manual pengguna. Dukungan seluruh game/card/varian PS1 tidak diklaim. Impor browser/penyelesaian konflik M7 serta backup/restore terkoordinasi M8 belum tersedia. Lihat [panduan M6 dan hasil manual PS1](milestone-6-progres-game.md).
 
 Pelaksanaan dilakukan per milestone. Lihat bagian [Milestone Implementasi](#milestone-implementasi) untuk checklist dan kriteria selesai, serta [hasil pembuktian M1](milestone-1-integrasi-save.md) untuk kontrak engine, bukti pengujian, dan batasan integrasi berikutnya.
 
@@ -256,7 +256,7 @@ Saat sesi dicabut akibat pergantian atau pemulihan password, player mengikuti at
 | M3 | Daftar, login, logout, dan sesi akun lokal | M2 | Selesai |
 | M4 | Pemulihan password dan reset admin lokal | M3 | Selesai |
 | M5 | Save/load state manual ke server | M1–M4 | Selesai — NES otomatis; core lain belum terverifikasi |
-| M6 | Sinkronisasi save game/memcard | M5 | Belum dimulai |
+| M6 | Sinkronisasi save game/memcard | M5 | Selesai — NES otomatis; round-trip memcard aktif PS1 manual pengguna |
 | M7 | Penyelesaian konflik dan impor save browser | M6 | Belum dimulai |
 | M8 | Backup/restore, verifikasi akhir, dan panduan operasi | M7 | Belum dimulai |
 
@@ -357,15 +357,19 @@ Hasil: 75 unit/integrasi lulus; build lulus. Verifikasi awal development/product
 
 Tujuan: menjadikan server penyimpanan utama progres dalam game pada core yang sudah diverifikasi.
 
-- [ ] Ambil serta pasang save game/memcard sebelum fase permainan yang memerlukannya.
-- [ ] Isolasi storage pengguna login dari IDBFS tamu/akun lain; pertahankan persistence browser untuk tamu. Fondasi MEMFS akun telah dibuktikan di M5; validasi pemulihan memcard per core dan sebelum boot tetap dilakukan di M6.
-- [ ] Tambahkan deteksi perubahan, pembatasan frekuensi upload, dan retry terbatas selama sesi berlangsung.
-- [ ] Tampilkan status tersimpan hanya setelah konfirmasi server; jangan mengandalkan penutupan tab sebagai jalur sinkronisasi utama.
-- [ ] Cegah save kosong menimpa server ketika pengambilan save awal gagal.
-- [ ] Tangani navigasi keluar, logout, sesi dicabut, dan pergantian akun; hentikan antrean lama dan tawarkan ekspor jika sinkronisasi gagal.
-- [ ] Uji round-trip save dalam game/memcard pada sesi baru, termasuk PS1 sesuai hasil M1.
-- [ ] Uji gangguan jaringan, retry, pencabutan sesi saat bermain, dan antrean yang tidak boleh diteruskan ke akun lain.
-- [ ] Pastikan fitur tidak mengunggah ROM atau BIOS lokal.
+Panduan, API, konfigurasi, batas layout, dan checklist penerimaan: [M6 — Progres Game](milestone-6-progres-game.md).
+
+- [x] Ambil serta pasang save sebelum boot; hook sinkron sesudah ekstraksi ROM dan sebelum `callMain`. NES dibuktikan engine nyata; pemulihan PS1 lintas sesi/browser dikonfirmasi manual pengguna tanpa impor atau muat state M5.
+- [x] Pertahankan MEMFS akun dan persistence IDBFS tamu; tidak ada impor otomatis browser/file ke akun.
+- [x] Deteksi checksum melalui flush 10 detik saat aktif, satu upload berjalan, replay idempoten, dan maksimal tiga retry otomatis.
+- [x] Konfirmasi tersimpan hanya setelah respons server; tutup tab bukan jalur sinkronisasi utama.
+- [x] Gagal ambil save awal menahan boot; `null` tidak menghapus/menimpa progres server.
+- [x] Tangani navigasi keluar dengan flush, logout, sesi dicabut, dan pergantian akun; antrean tidak direbinding, ekspor `.srm` tersedia.
+- [x] Terima round-trip memcard aktif PS1 berdasarkan konfirmasi manual pengguna: ekspor berhasil dan progres server pulih pada sesi/browser baru melalui Continue/Load dalam game. Seluruh card/slot/varian tidak diklaim; detail konfigurasi belum dicatat. Round-trip SRAM NES lintas restart server/browser baru sudah lulus otomatis.
+- [x] Uji gangguan jaringan/retry, revisi usang, logout/pencabutan sesi, serta antrean yang tidak boleh diteruskan ke akun lain.
+- [x] Payload jalur aplikasi hanya progres native yang dikemas, bukan ROM/BIOS lokal.
+
+M6 selesai untuk cakupan tersebut. Konfirmasi manual PS1 menutup penerimaan pemulihan progres aktif, bukan bukti semua game/card/slot atau tes otomatis PS1. Core lain serta semua varian tidak diklaim terverifikasi hanya karena asetnya tersedia. Hasil pengujian dan batasan dicatat pada panduan M6; impor file/browser serta UI penyelesaian konflik tetap M7.
 
 **Selesai jika:** progres dalam game pulih dari server pada core terverifikasi dan perubahan tersinkron selama bermain, dengan kegagalan yang aman serta terlihat.
 

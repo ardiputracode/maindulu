@@ -51,7 +51,7 @@ export class SaveClient {
   readonly userId: string
   constructor(userId: string) { this.userId = userId }
   close() { this.closed = true; for (const c of this.controllers) c.abort() }
-  private async fetch(path: string, init: RequestInit = {}) {
+  protected async fetch(path: string, init: RequestInit = {}) {
     if (this.closed) throw new SaveError('Sesi save dihentikan. Buka ulang permainan.', 401)
     const controller = new AbortController()
     this.controllers.add(controller)
@@ -73,7 +73,7 @@ export class SaveClient {
       throw new SaveError('Gagal sinkron — coba lagi. Koneksi terputus atau terlalu lama. Unduh cadangan sebelum keluar.')
     } finally { clearTimeout(timer); this.controllers.delete(controller) }
   }
-  private async headers(binary = false) {
+  protected async headers(binary = false) {
     const { data } = await this.fetch('/api/auth/csrf')
     const session = readAccountSession(data)
     if (session?.user?.id !== this.userId || !session.csrfToken) throw new SaveError('Sesi berakhir atau akun berubah. Masuk kembali lalu buka ulang permainan.', 401, 'ACCOUNT_CHANGED')

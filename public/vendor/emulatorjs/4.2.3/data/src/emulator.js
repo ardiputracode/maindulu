@@ -959,6 +959,7 @@ class EmulatorJS {
             if (this.debug) args.push("-v");
             args.push("/" + this.fileName);
             if (this.debug) console.log(args);
+            if (this.config.mainduluMemorySaves && typeof window.EJS_mainduluBeforeBoot === "function") window.EJS_mainduluBeforeBoot(this);
             this.Module.callMain(args);
             if (typeof this.config.softLoad === "number" && this.config.softLoad > 0) {
                 this.resetTimeout = setTimeout(() => {

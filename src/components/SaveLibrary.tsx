@@ -33,7 +33,7 @@ export function SaveManager({ client, list, onRefresh, onClose }: { client: Save
   const saves = list.saves.filter(s => !s.deleted)
   return <Dialog title="Kelola simpanan server." onClose={onClose} busy={busy}>
     <SaveQuota list={list} />
-    <p>Semua save state akun ini, lintas game. Save dalam game/memcard belum disinkronkan pada M5.</p>
+    <p>Semua save state akun ini, lintas game. Save dalam game/memcard dikelola terpisah melalui Kelola progres game di dialog akun; kuota akun dipakai bersama.</p>
     {error && <p className="notice" role="alert">{error}</p>}
     <div className="save-list">{saves.length ? saves.map(save => <article className="save-item" key={save.id} aria-label={`${save.title}, ${save.gameId}, slot ${save.slot}`}>
       <strong>{save.title} — slot {save.slot}</strong>

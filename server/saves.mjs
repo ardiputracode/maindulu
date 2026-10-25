@@ -54,7 +54,7 @@ export function registerSaves(app, config, security) {
     return session.user_id
   }
   function usage(user) {
-    return { usedBytes: db.prepare('SELECT COALESCE(SUM(size), 0) AS size FROM saves WHERE user_id = ?').get(user).size,
+    return { usedBytes: db.prepare('SELECT (SELECT COALESCE(SUM(size), 0) FROM saves WHERE user_id = ?) + (SELECT COALESCE(SUM(size), 0) FROM game_saves WHERE user_id = ?) AS size').get(user, user).size,
       quotaBytes: config.saveQuotaBytes, maxStateBytes: config.stateMaxBytes, slots: 3 }
   }
   function rowFor(id, user) {

@@ -69,6 +69,21 @@ const migrations = [
     ALTER TABLE saves_v4 RENAME TO saves;
     CREATE INDEX saves_owner ON saves(user_id);`,
   },
+  {
+    version: 5,
+    name: 'automatic-game-saves',
+    sql: `CREATE TABLE game_saves (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      game_id TEXT NOT NULL, console_id TEXT NOT NULL, core TEXT NOT NULL,
+      title TEXT NOT NULL, metadata TEXT NOT NULL,
+      revision INTEGER NOT NULL CHECK(revision > 0),
+      size INTEGER NOT NULL CHECK(size >= 0), checksum TEXT NOT NULL,
+      blob_key TEXT, updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, game_id, console_id, core)
+    ) STRICT;
+    CREATE INDEX game_saves_owner ON game_saves(user_id);`,
+  },
 ]
 
 export async function openDatabase(dataDir) {

@@ -11,6 +11,8 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ### Ditambahkan
 
+- M6 selesai dalam cakupan terverifikasi: pemulihan progres asli game sebelum boot, pemeriksaan SRAM NES otomatis setiap 10 detik saat aktif, memcard aktif PS1, checksum/revisi, retry terbatas/idempoten, flush saat navigasi, status dan ekspor `.srm`, serta **Akun → Kelola progres game**. NES lulus otomatis; pengguna mengonfirmasi ekspor dan pemulihan PS1 dari server pada sesi/browser baru melalui Continue/Load dalam game, tanpa impor manual atau muat state M5. Seluruh game/card/varian PS1 belum diklaim. Gagal pengambilan awal menahan boot; konflik tidak ditimpa otomatis. Panduan dan hasil manual: `doc/milestone-6-progres-game.md`.
+- Migrasi SQLite versi 5 untuk `game_saves` dan blob privat terpisah; paket M6 maksimal 8 MiB, kuota akun gabungan dengan state M5. Hook vendoring sinkron `EJS_mainduluBeforeBoot` memasang save setelah ekstraksi ROM tetapi sebelum `callMain`, tanpa mengubah persistence tamu.
 - Save state server manual M5: tombol **Save state server** di toolbar emulator (di sebelah Import Save File) membuka overlay yang mem-pause permainan saat terbuka dan melanjutkan hanya permainan yang berjalan saat ditutup; tiga slot manual plus slot **Autosave** khusus (slot 99) dengan toggle dan interval (Nonaktif default, 30 detik, 1–15 menit) yang ditimpa otomatis saat aktif. Checksum/revisi, penyimpanan privat atomik, kuota terkonfigurasi dengan peringatan 80%, pengelola lintas game, serta unduhan cadangan dan retry eksplisit. Player akun terisolasi dari storage tamu; sinkronisasi save game/memcard tetap M6. Dukungan server dibuktikan otomatis pada NES.
 - Migrasi SQLite versi 4: tabel `saves` dibangun ulang agar slot 99 (Autosave) diizinkan di CHECK constraint; data lama dipindahkan apa adanya.
 - Dua patch vendoring engine baru: `togglePlaying` melaporkan transisi play/pause ke bridge (`EJS_onPlayPause` untuk jeda overlay dan gating autosave), dan `buildButtonOptions` menerima tombol bar kustom lengkap (displayName + icon + callback) yang upstream 4.2.3 menolak.
@@ -22,6 +24,7 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ### Diubah
 
+- Tombol native **Import Save File** sesi akun disembunyikan sampai alur impor eksplisit M7 tersedia; ekspor native dan impor tamu tetap tersedia. Muat state server memperingatkan kemungkinan SRAM/memcard lama ikut dipulihkan dan tersinkron ulang. Dukungan PS1 di luar skenario manual yang dikonfirmasi tetap percobaan, bukan klaim seluruh card/slot/multi-disk.
 - Menu **Save States** di dalam gerigi emulator disembunyikan untuk akun maupun tamu. Tombol native Save State/Load State untuk tamu serta nilai dan mekanisme internal **System Save interval** tidak diubah.
 
 ### Diperbaiki

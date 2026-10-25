@@ -97,4 +97,7 @@ test('account storage patches and published core fingerprints match shipped asse
   for (const [file, digest] of Object.entries(builds.cores)) assert.equal(hash(await readFile(new URL('cores/' + file, root))), digest)
   assert.ok((await readFile(new URL('src/GameManager.js', root), 'utf8')).includes('if (this.EJS.config.mainduluMemorySaves) { resolve(); return; }'))
   assert.ok((await readFile(new URL('src/emulator.js', root), 'utf8')).includes('this.config.mainduluMemorySaves ? new window.EJS_DUMMYSTORAGE()'))
+  const engine = await readFile(new URL('src/emulator.js', root), 'utf8')
+  const hook = engine.indexOf('window.EJS_mainduluBeforeBoot(this)')
+  assert.ok(hook > 0 && hook < engine.indexOf('this.Module.callMain(args)'))
 })

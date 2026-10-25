@@ -74,7 +74,7 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
     const target = slotInfo(slot)
     if (!target || target.deleted || !library.client || !metadata) return
     if (!compatibleState(target.metadata, metadata) && !window.confirm('Versi engine/core/format save berbeda. State mungkin tidak kompatibel. Tetap coba memuat?')) return
-    if (!window.confirm(`Muat state server ${pendingSlotName(slot)} dan ganti kondisi permainan saat ini? Cadangkan progres terbaru terlebih dahulu.`)) return
+    if (!window.confirm(`Muat state server ${pendingSlotName(slot)} dan ganti kondisi permainan saat ini? State lama dapat ikut mengembalikan SRAM/memcard lama lalu disinkronkan sebagai progres terbaru. Unduh cadangan progres terlebih dahulu.`)) return
     setMsg('Memuat progres…')
     const bytes = await library.client.get(target)
     if (await hashRom(new Blob([new Uint8Array(bytes)])) !== target.checksum) throw new SaveError('Checksum state tidak sesuai. State tidak dimuat.')
@@ -170,7 +170,7 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
         <button className="button secondary small" disabled={busy || !enabled} onClick={() => void library.refresh()}>Muat ulang daftar save</button>
         <button className="text-link" disabled={!metadata || busy || !enabled} onClick={() => void run(async () => { const bytes = await rpc('export-state'); if (bytes) downloadState(bytes, `${session.game.id}-cadangan`) })}>Unduh state saat ini</button>
       </div>
-      <details className="server-state-help"><summary>Tentang penyimpanan progres</summary><p>Tidak memuat otomatis saat membuka game dan tidak mengimpor save browser tamu.</p><p>Save dalam game/memcard pada sesi akun masih sementara di memori, belum tersinkron ke server. Simpan state atau unduh cadangan sebelum keluar.</p></details>
+      <details className="server-state-help"><summary>Tentang penyimpanan progres</summary><p>State tidak dimuat otomatis dan save browser tamu tidak diimpor. Sinkronisasi progres game terpisah dari Autosave state.</p><p>Periksa status sinkronisasi progres di halaman player. NES tersedia, memcard PS1 masih percobaan; core lain tetap memerlukan ekspor cadangan. Memuat state lama dapat ikut mengembalikan save dalam game lama.</p></details>
       </div>
     </Dialog>
     {manager && library.client && library.list && <div className="server-save-manager"><SaveManager client={library.client} list={library.list} onRefresh={library.refresh} onClose={() => setManager(false)} /></div>}

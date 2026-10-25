@@ -237,7 +237,7 @@ test('M2 databases migrate to accounts without losing installation metadata', as
   old.close()
   const db = await openDatabase(dir)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 4)
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 5)
     assert.equal(db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get().value, 'existing-m2-installation')
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM users').get().count, 0)
   } finally { db.close() }

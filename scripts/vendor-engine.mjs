@@ -108,6 +108,12 @@ if (!emulator.includes(pauseToggle)) throw new Error('Batas patch laporan play/p
 emulator = emulator.replace(pauseToggle, `${pauseToggle}
             // maindulu: report running state to the bridge (save overlay + autosave gating).
             if (typeof window.EJS_onPlayPause === "function") window.EJS_onPlayPause(!this.paused);`)
+// Synchronous startup barrier: the host has already fetched/validated progress.
+// At this point ROM extraction has chosen fileName, but callMain has not run.
+const callMain = '            this.Module.callMain(args);'
+if (!emulator.includes(callMain)) throw new Error('Batas patch pemulihan sebelum boot tidak ditemukan.')
+emulator = emulator.replace(callMain, `            if (this.config.mainduluMemorySaves && typeof window.EJS_mainduluBeforeBoot === "function") window.EJS_mainduluBeforeBoot(this);
+${callMain}`)
 await writeFile(join(target, 'data/src/emulator.js'), emulator)
 let manager = await readFile(join(staging, 'data/src/GameManager.js'), 'utf8')
 const mount = '            this.FS.mount(this.FS.filesystems.IDBFS, { autoPersist: true }, "/data/saves");'
@@ -126,5 +132,5 @@ for (const core of cores) for (const suffix of ['', '-legacy']) {
   builds[name] = sha256(await readFile(join(target, 'data/cores', name)))
 }
 await writeFile(join(root, 'public/player/builds.json'), JSON.stringify({ engineVersion: version, runtimeBuild: sha256(result.code), cores: builds }, null, 2) + '\n')
-await writeFile(join(sourceTarget, 'provenance.json'), JSON.stringify({ version, archive: '4.2.3.7z', sha256: hash, url: 'https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z', cores, patches: ['Disable remote version checks', 'Fail locally instead of CDN fallback', 'Remove default public netplay URL', 'Add widescreen display toggle (Layar lebar) and bridge hook to Graphics Settings', 'Memory-only state store and save filesystem for account players; retain guest persistence', 'Expose selected core filename and publish build fingerprints', 'Report play/pause transitions to the bridge (EJS_onPlayPause) for autosave and overlay gating', 'Accept fully specified custom bottom-bar buttons through buildButtonOptions (bridge save-state overlay button)'] }, null, 2) + '\n')
+await writeFile(join(sourceTarget, 'provenance.json'), JSON.stringify({ version, archive: '4.2.3.7z', sha256: hash, url: 'https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z', cores, patches: ['Disable remote version checks', 'Fail locally instead of CDN fallback', 'Remove default public netplay URL', 'Add widescreen display toggle (Layar lebar) and bridge hook to Graphics Settings', 'Memory-only state store and save filesystem for account players; retain guest persistence', 'Expose selected core filename and publish build fingerprints', 'Report play/pause transitions to the bridge (EJS_onPlayPause) for autosave and overlay gating', 'Accept fully specified custom bottom-bar buttons through buildButtonOptions (bridge save-state overlay button)', 'Synchronous account progress restore hook after ROM extraction and before callMain (EJS_mainduluBeforeBoot)'] }, null, 2) + '\n')
 console.log(`EmulatorJS ${version} siap: ${cores.length} core, varian normal + legacy, tanpa fallback CDN.`)
