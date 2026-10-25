@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
+import { readConfig } from '../server/config.mjs'
 
 const text = path => readFile(new URL('../' + path, import.meta.url), 'utf8')
 
@@ -23,13 +24,14 @@ test('Docker backend has production dependencies, non-root runtime and a volume 
   assert.match(dockerfile, /RUN npm ci --omit=dev/)
   const runtime = dockerfile.split('FROM node:24-alpine AS runtime')[1]
   assert.ok(runtime)
-  for (const source of ['COPY server ./server', 'COPY scripts/reset-account.mjs scripts/data-backup.mjs ./scripts/', 'COPY deploy/healthcheck.mjs ./deploy/healthcheck.mjs', 'USER node', 'VOLUME ["/var/lib/maindulu"]', 'CMD ["node", "server/index.mjs"]']) assert.ok(runtime.includes(source), source)
+  for (const source of ['COPY server ./server', 'COPY src/lib/game-save-format.ts ./src/lib/game-save-format.ts', 'COPY scripts/reset-account.mjs scripts/data-backup.mjs ./scripts/', 'COPY deploy/healthcheck.mjs ./deploy/healthcheck.mjs', 'USER node', 'VOLUME ["/var/lib/maindulu"]', 'CMD ["node", "server/index.mjs"]']) assert.ok(runtime.includes(source), source)
   assert.match(runtime, /MAIN_DULU_HOST=0\.0\.0\.0/)
   assert.match(runtime, /MAIN_DULU_DATA_DIR=\/var\/lib\/maindulu\/data/)
   assert.doesNotMatch(runtime, /COPY \. |COPY public|vendor:engine|npm install|USER root/)
   const compose = await text('deploy/docker-compose.backend.yml')
   for (const value of ['storage:/var/lib/maindulu', 'init: true', 'read_only: true', 'no-new-privileges:true', 'stop_grace_period: 30s', 'MAIN_DULU_HOST=0.0.0.0', 'MAIN_DULU_PORT=7777', '${MAIN_DULU_BIND_ADDRESS:-127.0.0.1}:${MAIN_DULU_PORT:-7777}:7777']) assert.ok(compose.includes(value), value)
   assert.match(compose, /^      - MAIN_DULU_PUBLIC_ORIGIN$/m)
+  assert.ok(compose.includes('MAIN_DULU_ALLOW_INSECURE_HTTP=${MAIN_DULU_ALLOW_INSECURE_HTTP:-false}'))
   assert.doesNotMatch(compose, /MAIN_DULU_PUBLIC_ORIGIN=|pid: host|privileged: true|container_name:/)
 })
 
@@ -41,6 +43,21 @@ test('Docker static deployment remains Nginx-only and its existing ports/healthc
   const compose = await text('deploy/docker-compose.yml')
   assert.ok(compose.includes('${MAIN_DULU_PORT:-7777}:80'))
   assert.match(compose, /"wget", "-q", "--spider", "http:\/\/127\.0\.0\.1\/"/)
+})
+
+test('backend LAN environment example is accepted with explicit HTTP opt-in and a matching browser port', async () => {
+  const env = Object.fromEntries((await text('deploy/backend.env.example')).split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith('#')).map(line => {
+    const separator = line.indexOf('=')
+    assert.ok(separator > 0)
+    return [line.slice(0, separator), line.slice(separator + 1)]
+  }))
+  const config = await readConfig(env)
+  assert.equal(config.allowInsecureHttp, true)
+  assert.equal(config.publicOrigin, env.MAIN_DULU_PUBLIC_ORIGIN)
+  const origin = new URL(config.publicOrigin)
+  assert.equal(origin.protocol, 'http:')
+  assert.equal(origin.port, env.MAIN_DULU_PORT)
+  assert.equal(env.MAIN_DULU_BIND_ADDRESS, '0.0.0.0')
 })
 
 test('Docker context is deny-by-default with narrow source exceptions, not a blacklist of known backup names', async () => {

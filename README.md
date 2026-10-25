@@ -45,11 +45,11 @@ Saat memperbarui backend, hentikan server dan cadangkan seluruh folder data priv
 
 **Backup instalasi (M8):** sinkronkan progres, tutup seluruh player, dan hentikan server/admin sebelum `npm run data:backup -- <folder-backup-baru>`. Periksa dengan `npm run data:verify -- <folder-backup>`, lalu simpan salinan di perangkat/lokasi lain. Pulihkan melalui `npm run data:restore -- <folder-backup> --to <folder-data-baru>`; tujuan harus belum ada, data lama tidak ditimpa, dan semua sesi hasil restore dicabut. Arahkan `MAIN_DULU_DATA_DIR` ke hasil restore, tinjau konfigurasi, lalu login ulang. Backup tidak terenkripsi, berisi data privat semua akun, dan tidak mencakup ROM/BIOS/aplikasi/progres tamu. Lihat [panduan operasi, backup/restore, dan batas verifikasi M8](doc/milestone-8-backup-operasi.md).
 
-**M8 selesai untuk penggunaan lokal:** restore NES dibuktikan otomatis; pengguna mengonfirmasi progres PS1 terbaca setelah restore instalasi secara manual, tanpa klaim semua game/card/varian. HTTPS belum diimplementasikan atau diuji oleh pengguna dan ditunda; akses akun dari perangkat lain tetap memerlukan HTTPS yang dipasang serta diuji.
+**M8 selesai untuk penggunaan lokal:** restore NES dibuktikan otomatis; pengguna mengonfirmasi progres PS1 terbaca setelah restore instalasi secara manual, tanpa klaim semua game/card/varian. HTTPS belum diimplementasikan atau diuji oleh pengguna. Sejak **0.3.1**, tersedia pengecualian HTTP akun untuk LAN tepercaya yang harus diaktifkan secara eksplisit; ini bukan HTTPS atau koneksi terenkripsi.
 
 Overlay tersusun vertikal dan responsif; tutup dengan tombol **×** atau **Escape** saat tidak ada operasi manual berlangsung. Overlay dan pengelola tetap tersedia saat fullscreen sesi akun. Notifikasi autosave muncul singkat di pojok kanan atas player; **Autosave tersimpan** hanya muncul setelah konfirmasi server. Menu **Save States** di dalam gerigi disembunyikan untuk semua pengguna, tetapi tombol native Save State/Load State tamu dan pengaturan internal **System Save interval** tetap tidak diubah.
 
-`npm run dev`, `npm run preview`, dan deployment statis tetap berfungsi tanpa backend atau request API. Mode backend aktif otomatis hanya saat halaman dilayani server Node.js (atau melalui opt-in frontend yang dikonfigurasi khusus). Akun dapat dipakai lewat HTTP localhost; akses akun dari perangkat jaringan memerlukan origin HTTPS yang dikonfigurasi.
+`npm run dev`, `npm run preview`, dan deployment statis tetap berfungsi tanpa backend atau request API. Mode backend aktif otomatis hanya saat halaman dilayani server Node.js (atau melalui opt-in frontend yang dikonfigurasi khusus). Akun dapat dipakai lewat HTTP localhost; default akses jaringan memerlukan origin HTTPS. Untuk **LAN tepercaya saja**, `MAIN_DULU_ALLOW_INSECURE_HTTP=true` bersama `MAIN_DULU_PUBLIC_ORIGIN=http://IP-SERVER:7777` mengizinkan akun HTTP. Origin harus sama dengan URL browser; flag tanpa origin ditolak. **Password, cookie sesi dan save dapat disadap; jangan buka mode HTTP ini ke internet atau gunakan password layanan lain.** Lihat [panduan deploy backend](deploy/README.backend.md).
 
 Untuk mencoba dari HP di Wi-Fi yang sama, buka `http://IP-KOMPUTER:5173`. Server dev/preview mendengarkan pada semua interface. Membuka ROM lokal juga bekerja lewat HTTP jaringan: SHA-256 memiliki fallback JavaScript yang dibundel lokal, dan ID sesi memakai `crypto.getRandomValues` bila `randomUUID` tidak tersedia. Tidak perlu mematikan pengamanan browser. Gunakan HTTP hanya di jaringan tepercaya; HTTPS tetap disarankan untuk deployment publik.
 
@@ -63,7 +63,7 @@ Untuk mencoba dari HP di Wi-Fi yang sama, buka `http://IP-KOMPUTER:5173`. Server
 - Player iframe terisolasi, validasi pesan/sesi, konfirmasi keluar, dan pembersihan instance.
 - Core lokal NES (`fceumm`), SNES (`snes9x`), GB/GBC (`gambatte`), GBA (`mgba`), Mega Drive (`genesis_plus_gx`), PS1 (`pcsx_rearmed`). Varian non-threaded normal dan legacy dibundel.
 - **Jalan Pulang**, homebrew NES orisinal berlisensi CC0, dapat dimainkan langsung. Gerakkan karakter kiri/kanan untuk menangkap bintang. Ini contoh teknis, bukan ROM komersial.
-- Backend Node.js opsional tanpa Docker: web + API satu proses, SQLite persisten, akun lokal dengan sesi cookie HttpOnly, pemulihan akun, save state server berkuota, dan sinkronisasi progres NES; ekspor/pemulihan memcard aktif PS1 lulus manual pada skenario pengguna, bukan semua game/card/varian.
+- Backend Node.js opsional, dengan atau tanpa Docker: web + API satu proses, SQLite persisten, akun lokal dengan sesi cookie HttpOnly, pemulihan akun, save state server berkuota, dan sinkronisasi progres NES; ekspor/pemulihan memcard aktif PS1 lulus manual pada skenario pengguna, bukan semua game/card/varian.
 
 ## Tambahkan game server
 
@@ -155,7 +155,16 @@ docker compose -f deploy/docker-compose.yml up --build
 
 Default porta host `7777`, dapat diubah lewat `MAIN_DULU_PORT`. Perilaku serving container sama persis dengan template `deploy/nginx.conf`; detail arsitektur dan verifikasi dituang di `deploy/README.md`.
 
-Container lama tetap menyajikan frontend statis lewat Nginx, bukan backend Node.js M2. Gunakan `npm start` untuk web + API tanpa Docker. Jangan menaruh database/folder data di `public/` atau `dist/`; seluruh aset publik, termasuk berkas yang diabaikan Git, tetap ikut hasil build dan dapat diunduh pengunjung.
+Compose di atas menyajikan frontend statis lewat Nginx, tanpa API akun. Untuk **backend Docker 0.3.1** (akun, state/progres server, volume privat), gunakan:
+
+```sh
+# Default hanya localhost
+docker compose -f deploy/docker-compose.backend.yml up -d --build
+```
+
+Untuk LAN tanpa domain/HTTPS, salin `deploy/backend.env.example` ke `.env.backend`, ganti IP server, lalu gunakan `docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -d --build`. Ini mengaktifkan HTTP tanpa enkripsi secara eksplisit, hanya untuk jaringan tepercaya. Panduan lengkap: **[Docker backend: konfigurasi, build, deploy, backup/update, dan troubleshooting](deploy/README.backend.md)**. Jangan jalankan Compose statis dan backend pada port host sama.
+
+Gunakan `npm start` untuk web + API tanpa Docker. Jangan menaruh database/folder data di `public/` atau `dist/`; seluruh aset publik, termasuk berkas yang diabaikan Git, tetap ikut hasil build dan dapat diunduh pengunjung.
 
 Gunakan HTTPS, MIME JavaScript/CSS/WASM yang benar, dan cache panjang hanya untuk aset ber-versi/ber-hash. Manifest sebaiknya revalidate. Player membutuhkan WebAssembly serta script blob; jangan menerapkan CSP global yang menolak kebutuhan tersebut. Threaded cores tidak diaktifkan sehingga COOP/COEP tidak diwajibkan MVP.
 

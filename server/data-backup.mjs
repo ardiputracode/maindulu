@@ -177,7 +177,7 @@ export async function createDataBackup(config, input) {
     try { engineBuildsChecksum = (await fingerprint(join(config.distDir, 'player/builds.json'))).checksum }
     catch (error) { if (error.code !== 'ENOENT') throw error }
     const configuration = {}
-    for (const key of ['host', 'port', 'registrationOpen', 'publicOrigin', 'stateMaxBytes', 'gameSaveMaxBytes', 'saveQuotaBytes']) configuration[key] = config[key]
+    for (const key of ['host', 'port', 'registrationOpen', 'publicOrigin', 'allowInsecureHttp', 'stateMaxBytes', 'gameSaveMaxBytes', 'saveQuotaBytes']) configuration[key] = config[key]
     const manifest = { format: 'maindulu-data-backup', formatVersion: 1, schemaVersion, createdAt: new Date().toISOString(), appVersion: pkg.version, nodeVersion: process.versions.node, engineBuildsChecksum, installationId: info.installationId, counts: info.counts, configuration, files }
     await writeFile(join(stage, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
     await sync(join(stage, 'manifest.json'))

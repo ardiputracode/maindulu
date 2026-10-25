@@ -7,7 +7,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.backend
-    image: maindulu-backend:0.3.0
+    image: maindulu-backend:0.3.1
     init: true
     ports:
       - "${MAIN_DULU_BIND_ADDRESS:-127.0.0.1}:${MAIN_DULU_PORT:-7777}:7777"
@@ -19,6 +19,8 @@ services:
       - MAIN_DULU_REGISTRATION_OPEN=${MAIN_DULU_REGISTRATION_OPEN:-true}
       # Bare key: jika tidak disetel di host/.env Compose, jangan kirim string kosong.
       - MAIN_DULU_PUBLIC_ORIGIN
+      # Opt-in HTTP akun hanya untuk LAN tepercaya; origin eksplisit tetap wajib.
+      - MAIN_DULU_ALLOW_INSECURE_HTTP=${MAIN_DULU_ALLOW_INSECURE_HTTP:-false}
       - MAIN_DULU_STATE_MAX_BYTES=${MAIN_DULU_STATE_MAX_BYTES:-33554432}
       - MAIN_DULU_GAME_SAVE_MAX_BYTES=${MAIN_DULU_GAME_SAVE_MAX_BYTES:-8388608}
       - MAIN_DULU_SAVE_QUOTA_BYTES=${MAIN_DULU_SAVE_QUOTA_BYTES:-268435456}

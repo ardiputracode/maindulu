@@ -46,7 +46,8 @@ M2 tetap mendukung konfigurasi host/port/folder data. M3 menambahkan:
 | Variabel | Default | Tujuan |
 | --- | --- | --- |
 | `MAIN_DULU_REGISTRATION_OPEN` | `true` | `true` untuk membuka atau `false` untuk menutup pendaftaran; login akun yang sudah ada tetap tersedia |
-| `MAIN_DULU_PUBLIC_ORIGIN` | tidak diatur | Origin publik yang diizinkan untuk API akun; HTTPS untuk jaringan/produksi, atau HTTP localhost |
+| `MAIN_DULU_PUBLIC_ORIGIN` | tidak diatur | Satu origin akun yang harus cocok dengan URL browser; default HTTPS untuk jaringan, atau HTTP localhost |
+| `MAIN_DULU_ALLOW_INSECURE_HTTP` | `false` | Sejak 0.3.1: opt-in HTTP akun hanya untuk LAN tepercaya; `true` mewajibkan public origin eksplisit |
 
 Contoh PowerShell untuk menutup pendaftaran setelah akun lokal dibuat:
 
@@ -60,11 +61,13 @@ Hentikan proses lama sebelum mengubah konfigurasi dan menjalankan ulang server. 
 ### Localhost Versus Jaringan
 
 - Tanpa public origin, API akun hanya menerima host HTTP `localhost`, `127.0.0.1`, atau `[::1]`. Cookie lokal tidak memakai Secure agar dapat digunakan pada HTTP loopback.
-- Akses akun lewat IP LAN HTTP ditolak; mode tamu dan aset web tetap dapat digunakan. Ini tidak menghilangkan dukungan gameplay HTTP LAN yang sudah ada.
+- Akses akun lewat IP LAN HTTP **ditolak secara default**; mode tamu dan aset web tetap dapat digunakan. Ini tidak menghilangkan dukungan gameplay HTTP LAN yang sudah ada.
 - Untuk akun dari perangkat lain, sediakan reverse proxy HTTPS dan set `MAIN_DULU_PUBLIC_ORIGIN` ke origin yang tepat, misalnya `https://main.example.com`.
 - Saat HTTPS dikonfigurasi, cookie memakai Secure. Gunakan origin publik itu untuk membuka web; akses akun langsung lewat alamat backend localhost yang berbeda akan ditolak.
 - Reverse proxy harus meneruskan Host publik yang sesuai. Backend tidak mempercayai `X-Forwarded-Host`, `X-Forwarded-Proto`, atau `X-Forwarded-For` secara otomatis.
-- Origin harus tanpa path, query, fragment, username, atau password. Konfigurasi HTTP selain loopback ditolak.
+- Origin harus tanpa path, query, fragment, username, atau password. Konfigurasi HTTP selain loopback ditolak kecuali opsi HTTP eksplisit diaktifkan.
+
+**Pengecualian 0.3.1 untuk LAN tepercaya:** set `MAIN_DULU_ALLOW_INSECURE_HTTP=true` dan `MAIN_DULU_PUBLIC_ORIGIN=http://192.168.2.251:7777` sesuai URL browser, serta bind Node `MAIN_DULU_HOST=0.0.0.0` bila tanpa Docker. HTTP tidak memakai cookie Secure, tetapi HttpOnly/SameSite, Host/origin, CSRF dan validasi sesi tetap berlaku. Password/kode pemulihan/cookie/save dapat disadap/diubah dalam perjalanan; jangan gunakan password layanan lain, jangan publikasikan ke internet, dan batasi firewall ke LAN. Tidak ada pembatasan subnet otomatis. Jika memakai Docker, ikuti [panduan backend dan env-file](../deploy/README.backend.md); bind port host Docker diatur terpisah.
 
 Untuk deployment publik, tinjau kebijakan pendaftaran, TLS, akses langsung ke backend, dan pembatasan tambahan di proxy. Pembatasan IP pada backend melihat IP proxy jika proxy dipakai; M3 tidak mengaktifkan trust-proxy secara global.
 

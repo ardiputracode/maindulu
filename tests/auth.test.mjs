@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { createApp } from '../server/app.mjs'
 import { openDatabase } from '../server/database.mjs'
@@ -10,6 +11,7 @@ import { hashPassword, verifyPassword, normalizeUsername, normalizeRecoveryCode,
 import { createLimiter } from '../server/auth/limits.mjs'
 import { replaceCredentials, resetAccountByAdmin } from '../server/auth/mutations.mjs'
 import { backendFixture } from './helpers/backend-fixture.mjs'
+import { encodeGameSave } from '../src/lib/game-save-format.ts'
 
 const password = 'Correct horse battery 42!'
 const nextPassword = 'Another long password 77!'
@@ -175,7 +177,7 @@ test('CSRF protection rejects missing/wrong Origin, cross-site fetch, non-JSON b
   assert.equal((await post(app, 'register', client, payload)).statusCode, 201)
 })
 
-test('network accounts require an explicit secure public origin and use Secure cookies behind HTTPS', async t => {
+test('network accounts default to HTTPS and use Secure cookies behind HTTPS', async t => {
   const { app, root } = await setup(t)
   const insecure = await app.inject({ url: '/api/auth/session', headers: { host: '192.168.1.5:7777' } })
   assert.equal(insecure.statusCode, 403)
@@ -186,6 +188,74 @@ test('network accounts require an explicit secure public origin and use Secure c
   assert.equal(response.statusCode, 200)
   assert.match(String(response.headers['set-cookie']), /; Secure/)
   assert.equal((await secure.app.inject({ url: '/api/auth/session', headers: { host: 'games.example.com', origin: 'https://evil.example' } })).statusCode, 403)
+})
+
+test('HTTP network accounts require explicit opt-in AND an exact public origin', async t => {
+  const root = await backendFixture(t)
+  assert.equal((await readConfig({}, root)).allowInsecureHttp, false)
+  for (const value of ['', 'TRUE', '1', 'yes']) await assert.rejects(readConfig({ MAIN_DULU_ALLOW_INSECURE_HTTP: value }, root), /MAIN_DULU_ALLOW_INSECURE_HTTP/)
+  await assert.rejects(readConfig({ MAIN_DULU_ALLOW_INSECURE_HTTP: 'true' }, root), /MAIN_DULU_PUBLIC_ORIGIN/)
+  await assert.rejects(readConfig({ MAIN_DULU_ALLOW_INSECURE_HTTP: 'false', MAIN_DULU_PUBLIC_ORIGIN: 'http://192.168.2.251:7777' }, root), /MAIN_DULU_PUBLIC_ORIGIN/)
+  for (const origin of ['', 'http://192.168.2.251:7777/path', 'http://user:secret@192.168.2.251:7777', 'http://192.168.2.251:7777?x=1', 'http://192.168.2.251:7777#x', 'ftp://192.168.2.251', 'garbage']) {
+    await assert.rejects(readConfig({ MAIN_DULU_ALLOW_INSECURE_HTTP: 'true', MAIN_DULU_PUBLIC_ORIGIN: origin }, root), /MAIN_DULU_PUBLIC_ORIGIN/)
+  }
+  const config = await readConfig({ MAIN_DULU_ALLOW_INSECURE_HTTP: 'true', MAIN_DULU_PUBLIC_ORIGIN: 'http://192.168.2.251:8888/' }, root)
+  assert.equal(config.publicOrigin, 'http://192.168.2.251:8888')
+  assert.equal(config.allowInsecureHttp, true)
+  const secure = await setup(t, { MAIN_DULU_ALLOW_INSECURE_HTTP: 'true', MAIN_DULU_PUBLIC_ORIGIN: 'https://games.example.com' })
+  const response = await secure.app.inject({ url: '/api/auth/csrf', headers: { host: 'games.example.com', origin: 'https://games.example.com' } })
+  assert.equal(response.statusCode, 200)
+  assert.match(String(response.headers['set-cookie']), /; Secure/)
+})
+
+test('opt-in HTTP LAN supports accounts and save APIs without bypassing origin, CSRF or session protections', async t => {
+  const { app } = await setup(t, { MAIN_DULU_ALLOW_INSECURE_HTTP: 'true', MAIN_DULU_PUBLIC_ORIGIN: 'http://192.168.2.251:7777' })
+  const lan = { host: '192.168.2.251:7777', origin: 'http://192.168.2.251:7777', 'sec-fetch-site': 'same-origin' }
+  const bootstrap = await app.inject({ url: '/api/auth/csrf', headers: lan })
+  assert.equal(bootstrap.statusCode, 200)
+  const client = { cookie: cookieFrom(bootstrap), csrf: bootstrap.json().csrfToken }
+  const payload = { username: 'lan_player', password, passwordConfirmation: password }
+  for (const overrides of [{ host: 'localhost:7777' }, { host: '192.168.2.251:8888' }, { origin: undefined }, { origin: 'https://192.168.2.251:7777' }, { origin: 'http://evil.example' }, { 'sec-fetch-site': 'cross-site' }, { 'x-csrf-token': undefined }, { 'x-csrf-token': 'f'.repeat(64) }, { 'content-type': 'text/plain' }]) {
+    assert.equal((await post(app, 'register', client, payload, { headers: { ...lan, ...overrides } })).statusCode, 403)
+  }
+  const created = await post(app, 'register', client, payload, { headers: lan })
+  assert.equal(created.statusCode, 201, created.body)
+  const cookie = String(created.headers['set-cookie'])
+  assert.match(cookie, /HttpOnly/)
+  assert.match(cookie, /SameSite=Strict/)
+  assert.doesNotMatch(cookie, /; Secure|Domain=/)
+  const owner = { ...lan, cookie: cookieFrom(created), 'x-csrf-token': created.json().csrfToken, 'x-save-user': created.json().user.id }
+  const current = await app.inject({ url: '/api/auth/session', headers: owner })
+  assert.equal(current.statusCode, 200)
+  assert.equal(current.json().user.username, 'lan_player')
+  for (const url of ['/api/saves/', '/api/game-saves/', '/api/save-backups/']) {
+    assert.equal((await app.inject({ url, headers: owner })).statusCode, 200, url)
+    assert.equal((await app.inject({ url, headers: { ...owner, origin: 'http://evil.example' } })).statusCode, 403, url)
+    assert.equal((await app.inject({ url, headers: { ...owner, cookie: '' } })).statusCode, 401, url)
+  }
+  const state = Buffer.alloc(700)
+  state.write('RASTATE')
+  const metadata = { formatVersion: 1, engineVersion: '4.2.3', coreBuild: 'a'.repeat(64), runtimeBuild: 'b'.repeat(64), variant: 'normal' }
+  for (const [url, bytes, extra] of [
+    ['/api/saves/', state, { slot: 1, metadata }],
+    ['/api/game-saves/', encodeGameSave({ layout: 'nes-sram-v1', files: [{ key: 'sram', bytes: new Uint8Array([1, 2, 3]) }] }), { metadata: { ...metadata, layout: 'nes-sram-v1' } }],
+  ]) {
+    const v = { gameId: 'jalan-pulang', title: 'Jalan Pulang', consoleId: 'nes', core: 'fceumm', expectedRevision: 0, checksum: createHash('sha256').update(bytes).digest('hex'), ...extra }
+    const uploadHeaders = { ...owner, 'content-type': 'application/octet-stream', 'x-save-metadata': encodeURIComponent(JSON.stringify(v)) }
+    assert.equal((await app.inject({ method: 'PUT', url, headers: { ...uploadHeaders, 'x-csrf-token': '' }, payload: Buffer.from(bytes) })).statusCode, 403)
+    const uploaded = await app.inject({ method: 'PUT', url, headers: uploadHeaders, payload: Buffer.from(bytes) })
+    assert.equal(uploaded.statusCode, 201, uploaded.body)
+    const downloaded = await app.inject({ url: url + uploaded.json().save.id, headers: owner })
+    assert.equal(downloaded.statusCode, 200)
+    assert.deepEqual(downloaded.rawPayload, Buffer.from(bytes))
+  }
+  const logout = await app.inject({ method: 'POST', url: '/api/auth/logout', headers: owner, payload: {} })
+  assert.equal(logout.statusCode, 200)
+  assert.equal((await app.inject({ url: '/api/auth/session', headers: owner })).json().user, null)
+  const guest = await app.inject({ url: '/api/auth/csrf', headers: lan })
+  const login = await post(app, 'login', { cookie: cookieFrom(guest), csrf: guest.json().csrfToken }, { username: payload.username, password }, { headers: lan })
+  assert.equal(login.statusCode, 200)
+  assert.equal(login.json().user.id, created.json().user.id)
 })
 
 test('rate limits are bounded windows per source/account pair, not permanent account lockouts', async t => {

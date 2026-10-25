@@ -10,3 +10,5 @@ public/games/*.chd
 /data/
 *.maindulu-lock/
 /testbck/
+.env
+.env.*

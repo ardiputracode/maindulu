@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { networkInterfaces, tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createServer } from 'node:net'
+import { createApp } from '../../server/app.mjs'
 
 // Exercise the exact minimum through registration, login and password change.
 const password = 'Uji123'
@@ -100,6 +105,46 @@ test('changing password revokes a second browser session and old credentials but
     await expect(second.getByRole('dialog')).toHaveCount(0)
     await expect(second.getByRole('button', { name: `Akun ${username}`, exact: true })).toBeVisible()
   } finally { await other.close() }
+})
+
+test('opt-in HTTP LAN registers and retains a real browser session without a certificate', async ({ browser }) => {
+  const address = Object.values(networkInterfaces()).flat().find(value => value?.family === 'IPv4' && !value.internal)?.address
+  test.skip(!address, 'An IPv4 LAN interface is required to test a real insecure origin.')
+  const reserve = createServer()
+  let port: number
+  try {
+    await new Promise<void>((resolve, reject) => { reserve.once('error', reject); reserve.listen(0, address, resolve) })
+    const socket = reserve.address()
+    if (!socket || typeof socket === 'string') throw new Error('No LAN test port available')
+    port = socket.port
+  } finally { await new Promise<void>(resolve => reserve.close(() => resolve())) }
+  const origin = `http://${address}:${port}`
+  const parent = process.platform === 'win32' && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Temp/opencode') : tmpdir()
+  const folder = await mkdtemp(join(parent, 'http-lan-account-'))
+  let app: Awaited<ReturnType<typeof createApp>> | undefined
+  try {
+    app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data'), MAIN_DULU_ALLOW_INSECURE_HTTP: 'true', MAIN_DULU_PUBLIC_ORIGIN: origin } })
+    await app.listen({ host: address, port })
+    const context = await browser.newContext({ baseURL: origin })
+    try {
+      const page = await context.newPage()
+      const name = uniqueName()
+      await register(page, name)
+      expect(await page.evaluate(() => window.isSecureContext)).toBe(false)
+      await finishRegistration(page)
+      await page.reload()
+      await expect(page.getByRole('button', { name: `Akun ${name}`, exact: true })).toBeVisible()
+      const cookie = (await context.cookies()).find(value => value.name === 'maindulu_session')
+      expect(cookie).toMatchObject({ httpOnly: true, sameSite: 'Strict', secure: false, path: '/api' })
+      await page.getByRole('button', { name: `Akun ${name}`, exact: true }).click()
+      await page.getByRole('button', { name: 'Keluar akun', exact: true }).click()
+      await expect(page.getByRole('button', { name: 'Masuk ke akun', exact: true })).toBeVisible()
+      await login(page, name)
+      await expect(page.getByRole('button', { name: `Akun ${name}`, exact: true })).toBeVisible()
+    } finally { await context.close() }
+  } finally {
+    try { await app?.close() } finally { await rm(folder, { recursive: true, force: true }) }
+  }
 })
 
 test('mobile account forms remain keyboard-accessible and validation errors do not force an account', async ({ page }) => {

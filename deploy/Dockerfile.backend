@@ -24,6 +24,8 @@ COPY --from=production-dependencies /app/package.json /app/package-lock.json ./
 COPY --from=production-dependencies /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY server ./server
+# Modul format bersama diimpor langsung oleh server/game-saves.mjs (Node.js 24+).
+COPY src/lib/game-save-format.ts ./src/lib/game-save-format.ts
 COPY scripts/reset-account.mjs scripts/data-backup.mjs ./scripts/
 COPY deploy/healthcheck.mjs ./deploy/healthcheck.mjs
 # Mount parent: data dan lock di sebelahnya harus berada pada volume yang sama.

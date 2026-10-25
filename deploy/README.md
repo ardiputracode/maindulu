@@ -1,6 +1,27 @@
 # Deployment Docker (maindulu)
 
-Dokumentasi implementasi container web statis maindulu: Vite membangun `dist/`, lalu Nginx menyajikan keluaran build tersebut tanpa backend.
+Tersedia dua deployment terpisah. Pilih sesuai kebutuhan:
+
+| Kebutuhan | Compose | Panduan |
+| --- | --- | --- |
+| Tamu saja, save browser | `deploy/docker-compose.yml` | Panduan statis di bawah |
+| Akun, save state/progres server, backup/admin | `deploy/docker-compose.backend.yml` | **[Panduan backend lengkap](README.backend.md)** |
+
+**Backend 0.3.1 untuk LAN tanpa HTTPS:** salin `deploy/backend.env.example` ke `.env.backend` di akar repo (jangan timpa file yang sudah ada), ganti IP/origin sesuai server, lalu:
+
+```sh
+docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -d --build
+```
+
+Contoh membuka **http://192.168.2.251:7777**. Akun HTTP LAN memerlukan `MAIN_DULU_ALLOW_INSECURE_HTTP=true` **dan** `MAIN_DULU_PUBLIC_ORIGIN` yang cocok dengan URL browser. **Password/cookie/save tidak terenkripsi; hanya LAN tepercaya, bukan internet.** Default backend tetap localhost/HTTPS untuk jaringan. Lihat panduan backend untuk konfigurasi, update, backup/restore, dan troubleshooting.
+
+Database lokal dari `data/` tidak otomatis masuk image; backend memakai named volume privat. Untuk error lock namespace lama, ikuti [pemeriksaan dan karantina lock](README.backend.md#lock-tertinggal-dari-container-lama), bukan menghapus volume/database.
+
+Kedua Compose memakai port host 7777 secara default; jangan jalankan bersamaan pada port sama. Node/npm tidak diperlukan di host. Perintah contoh dijalankan dari akar repo.
+
+## Web statis (tanpa akun/API)
+
+Bagian berikut khusus container web statis: Vite membangun `dist/`, lalu Nginx menyajikannya tanpa backend. Mengatur environment backend pada image statis tidak mengaktifkan akun.
 
 ## Arsitektur singkat
 
@@ -26,12 +47,15 @@ Image khusus ini disusun dua tahap (`deploy/Dockerfile`) supaya dependensi build
 | `deploy/Dockerfile` | Build dua tahap: Node 24 untuk `npm ci` + `npm run build`, lalu Nginx 1.29 melayani `dist/`. |
 | `deploy/nginx.docker.conf` | Konfigurasi `server {}` bawaan container; dicopy ke `/etc/nginx/conf.d/default.conf`. |
 | `deploy/docker-compose.yml` | Service `web` tunggal: build, porta host, `restart: unless-stopped`, healthcheck. |
-| `.dockerignore` | Menjaga konteks build tetap kecil; hanya berkas yang dibutuhkan build yang ikut ke daemon. |
+| `deploy/Dockerfile.backend` | Runtime Node.js non-root, web + API dan modul format save bersama. |
+| `deploy/docker-compose.backend.yml` | Backend dengan named volume privat, healthcheck API, bind host localhost secara default. |
+| `deploy/backend.env.example` | Contoh opt-in HTTP LAN; salin/edit lalu gunakan `--env-file`. |
+| `.dockerignore` | Allowlist build kedua image; data privat dan environment tidak ikut ke daemon. |
 
 ## Prasyarat
 
-1. Docker Desktop (atau engine Docker lain) dengan backend **WSL2** terpasang. Cek: `docker info` harus menampilkan bagian `Server:` tanpa error.
-2. Jika `docker info` gagal dengan `500 Internal Server Error ... dockerDesktopLinuxEngine`, biasanya **WSL2 belum terpasang**. Pasang lewat PowerShell Administrator: `wsl --install`, lalu restart komputer. Saat implementasi ini dibuat, engine Docker Desktop di mesin pengembang gagal jalan dengan kondisi tersebut, sehingga verifikasi hanya dilakukan secara statik (`docker compose config` valid; lihat bagian Verifikasi).
+1. Docker Engine + Compose v2 di Linux/LXC, atau Docker Desktop dengan Linux containers (Windows: WSL2). Cek `docker info` dan `docker compose version`.
+2. Jika Docker Desktop Windows gagal dengan error engine/WSL2, periksa instalasi WSL2; pemasangan dapat dilakukan melalui PowerShell Administrator: `wsl --install`, lalu restart sesuai petunjuk. WSL2 bukan syarat host Linux.
 
 ## Cara pakai
 
@@ -94,7 +118,7 @@ Semua kontrak hosting di README bagian Deployment dijaga identik dengan template
 
 Perbedaan hanya dua hal dibanding `deploy/nginx.conf` (template hosting umum): root dokumen `/usr/share/nginx/html` (standar image Nginx), dan `listen ... default_server` untuk IPv4 dan IPv6. Template `deploy/nginx.conf` **tidak diubah** dan tetap jadi referensi README.
 
-Konteks build dijaga kecil oleh `.dockerignore`; `node_modules/`, `dist/`, `tests/`, `scripts/`, `third_party/`, dan berkas lain yang tidak dibutuhkan build dikecualikan. Engine EmulatorJS yang dipakai runtime sudah ter-bundle di `public/vendor/emulatorjs/4.2.3/`, sehingga `npm run build` di container mandiri tanpa langkah vendoring.
+Konteks build dijaga oleh allowlist `.dockerignore`; `node_modules/`, `dist/`, `tests/`, `third_party/`, environment dan data privat dikecualikan. Dua CLI admin/backup di `scripts/` diizinkan secara eksplisit untuk image backend, bukan disalin ke runtime Nginx. Engine EmulatorJS sudah dibundel di `public/vendor/emulatorjs/4.2.3/`, sehingga build tidak perlu vendoring ulang.
 
 ## Verifikasi manual
 
@@ -111,7 +135,7 @@ Jalankan saat engine Docker tersedia untuk memverifikasi image build:
 
 Setelah itu uji fungsinya di browser: pilih demo di katalog, halaman player di `/main` harus bisa memulai core NES lokal.
 
-Saat ini yang sudah dijalankan: `docker compose -f deploy/docker-compose.yml config` (struktur compose valid, build context menunjuk akar repo). Build image sendiri belum dieksekusi di mesin ini karena engine Docker Desktop butuh WSL2 yang belum terpasang (lihat Prasyarat) — semua perintah `curl` di atas adalah checklist pertama kali engine berjalan.
+Validasi Compose statis pernah dilakukan saat deployment ini dibuat. Pada lingkungan pengembangan rilis 0.3.1, Docker CLI tidak tersedia; build/runtime Docker tidak diklaim telah diuji lokal. Perintah `curl` di atas tetap checklist untuk host tujuan, bukan hasil verifikasi otomatis.
 
 ## Catatan penting
 

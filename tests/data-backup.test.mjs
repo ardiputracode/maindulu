@@ -66,6 +66,7 @@ test('M8 restores accounts, all save types, tombstones, archives, receipts and q
   assert.equal(manifest.counts.save_backups, 2)
   assert.equal(manifest.files.length, 7) // database, 4 states (incl. archive), 2 progress blobs
   assert.equal(manifest.configuration.saveQuotaBytes, 256 * 1024 * 1024)
+  assert.equal(manifest.configuration.allowInsecureHttp, false)
   assert.ok(!JSON.stringify(manifest).includes(c.root))
   const backupDatabase = await readFile(join(c.backup, 'maindulu.sqlite'))
   assert.deepEqual(await verifyDataBackup(c.config, c.backup), manifest)

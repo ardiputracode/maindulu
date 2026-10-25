@@ -9,6 +9,24 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ## [Belum dirilis]
 
+## 0.3.1 — 2026-10-25
+
+### Ditambahkan
+
+- Mode akun HTTP jaringan yang harus diaktifkan dengan `MAIN_DULU_ALLOW_INSECURE_HTTP=true` dan `MAIN_DULU_PUBLIC_ORIGIN` eksplisit. Hanya untuk LAN tepercaya: password, cookie sesi, kode pemulihan, dan save tidak terenkripsi. Default tetap localhost/HTTPS; Host/origin, CSRF, HttpOnly/SameSite, pembatasan akun dan kuota tidak dilemahkan. Startup menampilkan peringatan untuk mode HTTP ini; backup mencatat opsi tersebut sebagai informasi, bukan menerapkannya otomatis saat restore.
+- Panduan Docker backend lengkap di `deploy/README.backend.md` dan contoh `deploy/backend.env.example`: deploy LAN tanpa domain/sertifikat, localhost, perpindahan ke HTTPS, env-file, build/recreate, firewall, volume, backup/restore offline, reset admin, update, dan troubleshooting. `deploy/README.md` kini membedakan backend dari Nginx statis.
+- Panduan pemeriksaan dan karantina lock namespace container lama setelah semua pemilik berhenti, tanpa menghapus database/save/volume; penjelasan database lokal tidak otomatis diimpor ke image Docker dan perlunya backup/restore seluruh instalasi untuk migrasi.
+- Tes regresi opt-in HTTP, konfigurasi fail-closed, cookie HTTPS/HTTP, origin/CSRF/sesi, serta penyalinan modul format save ke image runtime.
+
+### Diubah
+
+- Versi aplikasi, lockfile, dan tag image backend menjadi **0.3.1**, tanpa perubahan versi dependensi, skema SQLite **6**, engine **4.2.3**, atau format save.
+- Dokumentasi akun/operasi menjelaskan pengecualian HTTP LAN eksplisit dan risikonya; file `.env`/`.env.*` lokal diabaikan Git.
+
+### Diperbaiki
+
+- Backend Docker gagal start dengan `Cannot find module '/app/src/lib/game-save-format.ts'`: modul bersama kini disalin secara eksplisit ke stage runtime, tidak hanya stage build.
+
 ## 0.3.0 — 2026-10-25
 
 ### Ditambahkan

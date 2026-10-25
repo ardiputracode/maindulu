@@ -2,6 +2,8 @@
 
 Status: **M8 selesai untuk cakupan penggunaan lokal:** implementasi/verifikasi otomatis lulus, dan pengguna mengonfirmasi progres PS1 terbaca setelah restore backup instalasi. Bukti PS1 ini merupakan konfirmasi manual M8, bukan pengangkatan hasil M6/M7 atau klaim seluruh game/card/varian. **HTTPS belum diimplementasikan atau diuji** pada instalasi pengguna; penerapannya ditunda dan akses akun dari perangkat lain belum dinyatakan siap.
 
+**Pembaruan 0.3.1:** tersedia opsi HTTP akun untuk LAN tepercaya melalui `MAIN_DULU_ALLOW_INSECURE_HTTP=true` dan origin HTTP eksplisit. Ini tidak mengenkripsi koneksi dan bukan bukti deployment HTTPS/LAN pengguna telah diuji. Panduan Docker terkini: [deploy backend](../deploy/README.backend.md).
+
 ## Keputusan dan cakupan
 
 - Administrasi lokal melalui CLI, bukan endpoint/web admin.
@@ -38,7 +40,8 @@ npm start
 | `MAIN_DULU_DIST_DIR` | `dist`; hasil build frontend |
 | `MAIN_DULU_HOST` | `127.0.0.1`; hanya komputer sendiri |
 | `MAIN_DULU_PORT` | `7777`; web dan API satu port |
-| `MAIN_DULU_PUBLIC_ORIGIN` | Tidak disetel; wajib origin HTTPS untuk akun dari jaringan |
+| `MAIN_DULU_PUBLIC_ORIGIN` | Tidak disetel; default origin HTTPS untuk akun jaringan; harus cocok dengan URL browser |
+| `MAIN_DULU_ALLOW_INSECURE_HTTP` | `false`; opt-in HTTP LAN tepercaya, mewajibkan origin eksplisit |
 | `MAIN_DULU_REGISTRATION_OPEN` | `true`; set `false` untuk menutup pendaftaran baru |
 | `MAIN_DULU_STATE_MAX_BYTES` | 33.554.432 (32 MiB); maksimum state, maksimal konfigurasi 64 MiB |
 | `MAIN_DULU_GAME_SAVE_MAX_BYTES` | 8.388.608 (8 MiB); maksimum paket progres |
@@ -77,7 +80,7 @@ backup/
 
 Database mencakup seluruh akun/hash kredensial, sesi pada waktu backup, metadata save, slot Autosave 99, tombstone penghapusan, cadangan M7, receipt keputusan, dan identitas instalasi. Blob yang dipakai bersama aktif/cadangan disalin satu kali; file orphan/temp tidak ikut dan tidak dihapus dari sumber.
 
-Manifest mencatat versi format, skema, versi aplikasi/Node, checksum `dist/player/builds.json` bila tersedia, jumlah record, checksum/ukuran setiap berkas, waktu, dan konfigurasi allowlist (host/port/origin/pendaftaran/batas/kuota). Tidak menyalin seluruh environment atau path data lokal. Metadata save tetap membawa fingerprint core/runtime aktual masing-masing.
+Manifest mencatat versi format, skema, versi aplikasi/Node, checksum `dist/player/builds.json` bila tersedia, jumlah record, checksum/ukuran setiap berkas, waktu, dan konfigurasi allowlist (host/port/origin/opsi HTTP/pendaftaran/batas/kuota). Tidak menyalin seluruh environment atau path data lokal. Metadata save tetap membawa fingerprint core/runtime aktual masing-masing. Opsi HTTP dicatat sejak 0.3.1; backup lama tetap didukung dan konfigurasi tidak diterapkan otomatis.
 
 **Tidak termasuk:** ROM, BIOS, katalog/cover, kode aplikasi/build/engine, sertifikat HTTPS, konfigurasi process manager, rahasia environment lain, serta pengaturan/favorit/riwayat/progres browser tamu. Simpan distribusi aplikasi yang tepat dan konfigurasi deployment secara terpisah. `appVersion` saja bukan identitas semua perubahan pengembangan yang belum dirilis. Jangan mengganti ROM katalog atau ID game setelah restore lalu menganggap save pasti kompatibel.
 
@@ -121,6 +124,8 @@ npm start
 
 Lock ada di **sebelah** folder terkait: misalnya `C:\.maindulu-data.maindulu-lock\`. Folder lock kosong boleh tetap ada dan tidak termasuk backup. Lease mempunyai PID lokal dan mode shared/exclusive; lease dari PID yang terbukti sudah tidak ada dibersihkan saat percobaan berikutnya. PID yang masih hidup/terpakai ulang, izin pemeriksaan yang ditolak, lease rusak, atau gate tertinggal ditangani konservatif: tidak dianggap aman untuk dilewati.
 
+Pada Linux/Docker, lease juga mencatat namespace PID/hostname. Pemeriksaan PID untuk pembersihan otomatis hanya berlaku pada namespace yang sama; lease namespace lain atau format Linux lama ditolak karena tidak dapat dibuktikan mati dari container sekarang. Crash container lama dapat meninggalkan lease di named volume yang tetap terbawa saat recreate. Setelah semua pemilik dipastikan berhenti, karantina folder lock yang tepat tanpa menyentuh database/blob. Contoh perintah Docker tersedia di [panduan pemulihan lock backend](../deploy/README.backend.md#lock-tertinggal-dari-container-lama).
+
 Jika muncul pesan lock sibuk/rusak:
 
 1. Pastikan semua server/admin/backup/verify/restore pada folder itu sudah berhenti; cocokkan PID di lease/gate lewat pengelola proses OS. Jangan mencetak kredensial/database.
@@ -144,9 +149,11 @@ Set folder data yang benar, verifikasi pemilik akun di luar aplikasi, dan isi pa
 
 ## Akses perangkat lain dan HTTPS
 
-`localhost` pada HP berarti HP itu sendiri, bukan PC server. PC harus tetap menyala, tidak sleep, dan dapat dijangkau firewall/jaringan. Backend Node default hanya bind loopback. Akun dari HTTP IP LAN **ditolak**, walaupun gameplay tamu pada origin HTTP dapat bekerja.
+`localhost` pada HP berarti HP itu sendiri, bukan PC server. PC harus tetap menyala, tidak sleep, dan dapat dijangkau firewall/jaringan. Backend Node default hanya bind loopback. Akun dari HTTP IP LAN **ditolak secara default**, walaupun gameplay tamu pada origin HTTP dapat bekerja.
 
 Untuk akun jaringan, gunakan reverse proxy HTTPS **same-origin** ke Node loopback; set `MAIN_DULU_PUBLIC_ORIGIN` ke origin HTTPS yang tepat (tanpa path). Proxy harus mempertahankan header `Host` publik dan meneruskan semua path/API/body biner, bukan menulis ulang kegagalan API menjadi HTML. Cookie menjadi Secure. Jangan hanya mengganti bind ke `0.0.0.0` lalu mengirim password lewat HTTP.
+
+Pengecualian LAN tanpa TLS sejak 0.3.1 memerlukan persetujuan risiko eksplisit: `MAIN_DULU_ALLOW_INSECURE_HTTP=true` dan misalnya `MAIN_DULU_PUBLIC_ORIGIN=http://192.168.2.251:7777`. Flag saja tidak mengizinkan Host sembarang. Password, kode pemulihan, cookie dan save tidak terenkripsi; gunakan password khusus, batasi firewall ke LAN tepercaya dan jangan membuka port ke internet. Tidak ada pembatasan subnet otomatis. HTTPS tetap rekomendasi; untuk Compose dan perpindahan ke HTTPS lihat [panduan backend](../deploy/README.backend.md).
 
 Contoh konseptual Caddy lokal (bukan hasil uji deployment M8):
 
@@ -197,7 +204,7 @@ Checklist berikut untuk pencatatan/pengujian tambahan. Item belum dicentang buka
 
 ### HTTPS ditunda, bukan dinyatakan lulus
 
-Pengguna belum mengimplementasikan HTTPS sehingga belum mengujinya. Ini tidak menghalangi penutupan M8 untuk penggunaan lokal melalui localhost. Sebelum memakai akun dari perangkat lain, HTTPS tetap harus diterapkan dan diuji: sertifikat dipercaya pada perangkat lain, login/Secure cookie, upload/download state/progres, pemulihan sesi, dan batas proxy. Pengujian Origin/cookie otomatis bukan bukti pemasangan reverse proxy nyata; contoh Caddy di atas bukan implementasi aktif atau penerimaan jaringan.
+Pengguna belum mengimplementasikan HTTPS sehingga belum mengujinya. Ini tidak menghalangi penutupan M8 untuk penggunaan lokal melalui localhost. Untuk akses jaringan aman/default, HTTPS tetap harus diterapkan dan diuji: sertifikat dipercaya pada perangkat lain, login/Secure cookie, upload/download state/progres, pemulihan sesi, dan batas proxy. Pengecualian HTTP LAN 0.3.1 tidak membuktikan HTTPS atau menghilangkan risiko penyadapan. Pengujian Origin/cookie otomatis bukan bukti pemasangan reverse proxy nyata; contoh Caddy di atas bukan implementasi aktif atau penerimaan jaringan.
 
 ## Verifikasi otomatis
 
