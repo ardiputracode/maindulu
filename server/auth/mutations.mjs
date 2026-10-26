@@ -32,3 +32,16 @@ export async function resetAccountByAdmin(db, username, password, confirmation) 
   replaceCredentials(db, user, passwordHash, code, undefined, 'Akun berubah selama reset. Ulangi perintah dan verifikasi kembali.')
   return { username: user.username, recoveryCode: code }
 }
+
+// Terminal-only operation. Keep identity, credentials, sessions and save owners.
+export function setAccountRoleByAdmin(db, username, role) {
+  const name = normalizeUsername(username)
+  if (!name) throw new Error('Username tidak valid.')
+  if (role !== 'user' && role !== 'admin') throw new Error('Role harus user atau admin.')
+  return transaction(db, () => {
+    const user = db.prepare('SELECT id, username, role FROM users WHERE username = ?').get(name)
+    if (!user) throw new Error('Akun tidak ditemukan. Pastikan folder data dan username benar.')
+    db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, user.id)
+    return { username: user.username, previousRole: user.role, role }
+  })
+}

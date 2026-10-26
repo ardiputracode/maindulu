@@ -16,3 +16,23 @@ export function protectRequest(request, config, current, contentTypes = ['applic
     if (!equalToken(request.headers['x-csrf-token'], csrfToken(request.cookies.maindulu_session))) throw new AuthError(403, 'Token keamanan tidak valid. Muat ulang halaman dan coba lagi.')
   }
 }
+
+export function createAdminSecurity(config, current) {
+  // current queries sessions JOIN users on every call: never trust a role from
+  // cookies, request bodies, or a previous request. Recheck at mutation commit
+  // too if an operation awaits asynchronous work after its onRequest guard.
+  function requireAdmin(request) {
+    const session = current(request)
+    if (!session.user_id) throw new AuthError(401, 'Silakan masuk terlebih dahulu.')
+    if (session.role !== 'admin') throw new AuthError(403, 'Akses ini hanya untuk admin.')
+    return session
+  }
+  function protectAdmin(request, { multipart = false } = {}) {
+    const session = requireAdmin(request)
+    // Opt in only on upload routes; account/save APIs retain their own types
+    // and limits. This runs before body parsing or multipart file processing.
+    protectRequest(request, config, current, multipart ? ['application/json', 'multipart/form-data'] : ['application/json'])
+    return session
+  }
+  return { requireAdmin, protectAdmin }
+}

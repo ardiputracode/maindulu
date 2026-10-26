@@ -60,7 +60,7 @@ test('actual admin CLI resets an existing database with simulated interactive te
   const dataDir = join(root, 'data')
   db = await openDatabase(dataDir)
   const oldHash = await hashPassword('Old123')
-  db.prepare('INSERT INTO users VALUES (?, ?, ?, ?, ?)').run('stable-owner', 'player_one', oldHash, hashRecoveryCode('AB'.repeat(32)), 123)
+  db.prepare('INSERT INTO users (id, username, password_hash, recovery_code_hash, created_at) VALUES (?, ?, ?, ?, ?)').run('stable-owner', 'player_one', oldHash, hashRecoveryCode('AB'.repeat(32)), 123)
   db.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?)').run('existing-session', 'stable-owner', 123, Date.now() + 60000)
   db.exec("CREATE TABLE owned_fixture (user_id TEXT REFERENCES users(id), content TEXT); INSERT INTO owned_fixture VALUES ('stable-owner', 'keep-me')")
   const secret = 'NewAdmin🔑234'

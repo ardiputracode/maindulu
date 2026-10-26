@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node server/index.mjs",
     "account:reset": "node scripts/reset-account.mjs",
+    "account:role": "node scripts/set-account-role.mjs",
     "data:backup": "node scripts/data-backup.mjs backup",
     "data:verify": "node scripts/data-backup.mjs verify",
     "data:restore": "node scripts/data-backup.mjs restore",

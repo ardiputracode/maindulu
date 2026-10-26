@@ -9,6 +9,22 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ## [Belum dirilis]
 
+### Ditambahkan
+
+- Fondasi Milestone 1 Admin/Library/BIOS: migrasi SQLite 7 untuk role `user`/`admin` (semua akun lama/baru default `user`), role publik pada respons akun dan parser frontend, guard admin berbasis role database terkini, serta `GET /api/admin/status` (401 tamu, 403 akun biasa).
+- CLI terminal `npm run account:role -- username admin|user` untuk akun yang sudah ada, memakai data lock bersama server dan menolak maintenance eksklusif. Perubahan langsung berlaku pada sesi aktif tanpa mengubah identitas, kredensial, atau progres. Script ikut allowlist dan image backend; tidak tersedia pengelolaan role lewat frontend/API.
+- Guard multipart opt-in per route dengan origin/cookie/CSRF tetap wajib sebelum parsing, tanpa mengubah tipe/batas API akun/save. Health capability `admin: true`, `gameCatalog: false`, `biosCatalog: false`; halaman admin, upload, dan katalog dinamis belum diimplementasikan.
+- Tes role, bypass payload, pencabutan akses, migrasi akun/save/sesi lama, CLI/data lock, serta pelestarian role pada backup/restore. Panduan operasional: `doc/admin-role-akun.md`.
+- Penutupan Milestone 1 dalam cakupan terverifikasi: **125 tes unit/integrasi**, **30 tes browser akun/state/progres NES** tanpa retry/skip, dan build lulus; discovery/tamu statis dev/produksi masing-masing 5 tes lulus. Bukan bukti Docker/HTTPS nyata atau gameplay semua core.
+
+### Diubah
+
+- Backup format 1 kini mensyaratkan skema 7 sesuai aplikasi. Untuk backup skema 6, gunakan aplikasi lama untuk verifikasi/restore sebelum hasil restore dimigrasikan oleh server baru; sumber backup tidak diubah otomatis. Backup ROM/BIOS/cover tetap belum tersedia.
+
+### Diperbaiki
+
+- Sinkronisasi tes regresi browser save: verifikasi checksum tersimpan menggantikan teks status sementara, snapshot konflik dua tab dibuat benar-benar berbeda tanpa bergantung revisi awal tetap, konflik otomatis tidak menunggu klik tombol yang sudah dinonaktifkan, event toolbar menghindari race auto-hide/canvas, dan pembacaan state tamu menunggu write IndexedDB. Tidak mengubah runtime player/save atau batas keamanan untuk membuat tes lulus.
+
 ## 0.3.1 — 2026-10-25
 
 ### Ditambahkan

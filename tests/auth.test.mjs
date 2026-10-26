@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { createApp } from '../server/app.mjs'
-import { openDatabase } from '../server/database.mjs'
+import { openDatabase, schemaVersion } from '../server/database.mjs'
 import { readConfig } from '../server/config.mjs'
 import { hashPassword, verifyPassword, normalizeUsername, normalizeRecoveryCode, validPassword, hashRecoveryCode, hashToken, randomToken } from '../server/auth/crypto.mjs'
 import { createLimiter } from '../server/auth/limits.mjs'
@@ -307,7 +307,7 @@ test('M2 databases migrate to accounts without losing installation metadata', as
   old.close()
   const db = await openDatabase(dir)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 6)
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
     assert.equal(db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get().value, 'existing-m2-installation')
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM users').get().count, 0)
   } finally { db.close() }

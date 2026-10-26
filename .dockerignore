@@ -21,6 +21,7 @@ server/auth/**
 !scripts/
 scripts/**
 !scripts/reset-account.mjs
+!scripts/set-account-role.mjs
 !scripts/data-backup.mjs
 !deploy/
 deploy/**

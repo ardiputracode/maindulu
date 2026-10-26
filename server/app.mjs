@@ -10,6 +10,7 @@ import { AuthError } from './auth/limits.mjs'
 import { registerSaves } from './saves.mjs'
 import { registerGameSaves } from './game-saves.mjs'
 import { registerSaveBackups } from './save-backups.mjs'
+import { registerAdmin } from './admin.mjs'
 
 const pages = ['/', '/index.html', '/console', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main']
 const assetDirectories = new Set(['assets', 'vendor', 'player', 'catalog', 'games', 'bios', 'covers'])
@@ -52,10 +53,11 @@ export async function createApp({ env = process.env, root, logger = false } = {}
   app.get('/api/health', async (_request, reply) => {
     try { db.prepare('SELECT 1').get() }
     catch { return reply.code(503).send({ error: 'Penyimpanan server belum tersedia.' }) }
-    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true } }
+    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: false, biosCatalog: false } }
   })
   try {
     const security = registerAuth(app, config)
+    registerAdmin(app, security)
     registerSaves(app, config, security)
     registerGameSaves(app, config, security)
     registerSaveBackups(app, config, security)

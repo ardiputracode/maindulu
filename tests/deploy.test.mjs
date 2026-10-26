@@ -24,7 +24,7 @@ test('Docker backend has production dependencies, non-root runtime and a volume 
   assert.match(dockerfile, /RUN npm ci --omit=dev/)
   const runtime = dockerfile.split('FROM node:24-alpine AS runtime')[1]
   assert.ok(runtime)
-  for (const source of ['COPY server ./server', 'COPY src/lib/game-save-format.ts ./src/lib/game-save-format.ts', 'COPY scripts/reset-account.mjs scripts/data-backup.mjs ./scripts/', 'COPY deploy/healthcheck.mjs ./deploy/healthcheck.mjs', 'USER node', 'VOLUME ["/var/lib/maindulu"]', 'CMD ["node", "server/index.mjs"]']) assert.ok(runtime.includes(source), source)
+  for (const source of ['COPY server ./server', 'COPY src/lib/game-save-format.ts ./src/lib/game-save-format.ts', 'COPY scripts/reset-account.mjs scripts/set-account-role.mjs scripts/data-backup.mjs ./scripts/', 'COPY deploy/healthcheck.mjs ./deploy/healthcheck.mjs', 'USER node', 'VOLUME ["/var/lib/maindulu"]', 'CMD ["node", "server/index.mjs"]']) assert.ok(runtime.includes(source), source)
   assert.match(runtime, /MAIN_DULU_HOST=0\.0\.0\.0/)
   assert.match(runtime, /MAIN_DULU_DATA_DIR=\/var\/lib\/maindulu\/data/)
   assert.doesNotMatch(runtime, /COPY \. |COPY public|vendor:engine|npm install|USER root/)
@@ -66,7 +66,7 @@ test('Docker context is deny-by-default with narrow source exceptions, not a bla
   const exceptions = rules.filter(s => s.startsWith('!'))
   assert.deepEqual(exceptions, [
     '!package.json', '!package-lock.json', '!index.html', '!vite.config.ts', '!tsconfig.json', '!tsconfig.app.json', '!tsconfig.node.json',
-    '!src/', '!src/**', '!public/', '!public/**', '!server/', '!server/*.mjs', '!server/auth/', '!server/auth/*.mjs', '!scripts/', '!scripts/reset-account.mjs', '!scripts/data-backup.mjs',
+    '!src/', '!src/**', '!public/', '!public/**', '!server/', '!server/*.mjs', '!server/auth/', '!server/auth/*.mjs', '!scripts/', '!scripts/reset-account.mjs', '!scripts/set-account-role.mjs', '!scripts/data-backup.mjs',
     '!deploy/', '!deploy/Dockerfile', '!deploy/Dockerfile.backend', '!deploy/nginx.docker.conf', '!deploy/healthcheck.mjs',
   ])
   // Re-exclude children after admitting a parent directory; otherwise a negated

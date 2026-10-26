@@ -1,6 +1,6 @@
 import { test as base, expect } from '@playwright/test'
 import type { Page, FrameLocator } from '@playwright/test'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -9,6 +9,7 @@ import type { readConfig } from '../../server/config.mjs'
 import { createApp } from '../../server/app.mjs'
 import { createDataBackup, restoreDataBackup } from '../../server/data-backup.mjs'
 import { buildNesBatteryFixture } from '../fixtures/nes-battery.mjs'
+import { encodeGameSave } from '../../src/lib/game-save-format'
 import { startPlayer } from './helpers/player'
 
 type TestApp = Awaited<ReturnType<typeof createApp>> & { database: DatabaseSync; appConfig: Awaited<ReturnType<typeof readConfig>> }
@@ -77,6 +78,13 @@ async function launchBattery(page: Page, filename?: string) {
 }
 const progress = (page: Page) => page.getByRole('region', { name: 'Sinkronisasi progres game' })
 const bytes = (frame: FrameLocator) => frame.locator('body').evaluate(() => Array.from((window as unknown as Engine).EJS_emulator.gameManager.getSaveFile() ?? []))
+async function expectServerSnapshot(backend: Backend, frame: FrameLocator) {
+  const snapshot = encodeGameSave({ layout: 'nes-sram-v1', files: [{ key: 'sram', bytes: new Uint8Array(await bytes(frame)) }] })
+  const checksum = createHash('sha256').update(snapshot).digest('hex')
+  // Autosync can commit before the explicit click, which then legitimately
+  // reports "Progres tersinkron". Assert persisted bytes, not a transient label.
+  await expect.poll(() => backend.app.database.prepare('SELECT checksum FROM game_saves').get()?.checksum).toBe(checksum)
+}
 async function increment(frame: FrameLocator, value: number) {
   await frame.locator('body').evaluate(() => (window as unknown as Engine).EJS_emulator.gameManager.simulateInput(0, 8, 1))
   try { await expect.poll(async () => (await bytes(frame))[2]).toBe(value) }
@@ -152,20 +160,24 @@ test('M7: explicit two-tab SRAM choices retain both losing versions and restart 
   const other = await context.newPage()
   await other.goto('/')
   const second = await launchBattery(other)
-  await increment(first, 1)
+  // Keep the first snapshot distinct from every intermediate value in tab 2.
+  // Otherwise its autosync of value 1 can legitimately acknowledge the exact
+  // same write and refresh its revision, leaving no stale revision to test.
+  await increment(first, 1); await increment(first, 2); await increment(first, 3)
   await progress(page).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
-  await expect(progress(page)).toContainText('dikonfirmasi server')
+  await expectServerSnapshot(backend!, first)
+  const baselineRevision = Number(backend!.app.database.prepare('SELECT revision FROM game_saves').get()!.revision)
   await increment(second, 1); await increment(second, 2)
-  await progress(other).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
-  await expect(progress(other)).toContainText('Progres server berubah')
+  // Autosync may already have detected the conflict and disabled manual sync.
+  // Exercise the real periodic upload instead of clicking a disabled control.
+  await expect(progress(other)).toContainText('Progres server berubah', { timeout: 20000 })
   await progress(other).getByRole('button', { name: 'Tinjau konflik progres' }).click()
   const review = await reviewTransfer(other)
   await review.getByRole('button', { name: 'Gunakan snapshot sesi ini', exact: true }).click()
   await expect(review).toHaveCount(0)
   expect(backend!.app.database.prepare('SELECT COUNT(*) AS n FROM save_backups').get()!.n).toBe(1)
-  await increment(first, 2); await increment(first, 3)
-  await progress(page).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
-  await expect(progress(page)).toContainText('Progres server berubah')
+  await increment(first, 4); await increment(first, 5)
+  await expect(progress(page)).toContainText('Progres server berubah', { timeout: 20000 })
   await progress(page).getByRole('button', { name: 'Tinjau konflik progres' }).click()
   const serverReview = await reviewTransfer(page)
   await serverReview.getByRole('button', { name: 'Gunakan versi server', exact: true }).click()
@@ -173,7 +185,7 @@ test('M7: explicit two-tab SRAM choices retain both losing versions and restart 
   await expect.poll(async () => (await bytes(restored))[2]).toBe(2)
   await increment(restored, 3) // RAM really restored, not only filesystem contents
   expect(backend!.app.database.prepare('SELECT COUNT(*) AS n FROM save_backups').get()!.n).toBe(2)
-  expect(backend!.app.database.prepare('SELECT revision FROM game_saves').get()!.revision).toBe(2)
+  expect(backend!.app.database.prepare('SELECT revision FROM game_saves').get()!.revision).toBe(baselineRevision + 1)
 })
 
 test('M7: browser SRAM and native file import preserve guest source and restore through a fresh boot', async ({ page, backend }) => {
@@ -321,14 +333,14 @@ test('M6: two tabs cannot overwrite stale revisions and progress can be managed 
   const secondPage = await context.newPage()
   await secondPage.goto('/')
   const second = await launchBattery(secondPage)
-  await increment(first, 1)
+  await increment(first, 1); await increment(first, 2); await increment(first, 3)
   await progress(page).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
-  await expect(progress(page)).toContainText('dikonfirmasi server')
+  await expectServerSnapshot(backend!, first)
+  const baselineRevision = backend!.app.database.prepare('SELECT revision FROM game_saves').get()!.revision
   await increment(second, 1)
   await increment(second, 2)
-  await progress(secondPage).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
-  await expect(progress(secondPage)).toContainText('Progres server berubah')
-  expect(backend!.app.database.prepare('SELECT revision FROM game_saves').get()!.revision).toBe(1)
+  await expect(progress(secondPage)).toContainText('Progres server berubah', { timeout: 20000 })
+  expect(backend!.app.database.prepare('SELECT revision FROM game_saves').get()!.revision).toBe(baselineRevision)
   await page.close(); await secondPage.close()
   const manager = await context.newPage()
   await manager.goto('/')

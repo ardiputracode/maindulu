@@ -56,6 +56,7 @@ test('M8 restores accounts, all save types, tombstones, archives, receipts and q
   const progress = await c.put('progress', 5)
   await c.put('progress', 6, 1, { id: randomUUID(), action: 'replace', reason: 'conflict' })
   const stranger = await authenticate(c.app, 'backup_stranger')
+  c.app.database.prepare("UPDATE users SET role = 'admin' WHERE username = ?").run('backup_owner')
   await c.put('state', 7, 0, undefined, 1, stranger)
   const tables = ['users', 'app_metadata', 'schema_migrations', 'saves', 'game_saves', 'save_backups', 'save_decisions']
   const before = Object.fromEntries(tables.map(table => [table, c.app.database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]))
@@ -78,6 +79,7 @@ test('M8 restores accounts, all save types, tombstones, archives, receipts and q
   assert.equal(c.app.database.prepare('SELECT COUNT(*) AS n FROM sessions').get().n, 0)
   assert.equal((await c.app.inject({ url: '/api/saves/', headers: c.headers })).statusCode, 401)
   const fresh = await authenticate(c.app, 'backup_owner', 'login')
+  assert.equal((await c.app.inject({ url: '/api/auth/session', headers: fresh })).json().user.role, 'admin')
   assert.equal(fresh['x-save-user'], c.headers['x-save-user'])
   assert.deepEqual((await c.app.inject({ url: '/api/save-backups/', headers: fresh })).json().usage, usage)
   assert.deepEqual((await c.app.inject({ url: '/api/saves/' + state.result.save.id, headers: fresh })).rawPayload, replaced.bytes)
@@ -159,7 +161,7 @@ test('M8 missing/corrupt source blobs and unsupported schema fail without publis
   assert.equal((await readdir(c.root)).some(n => n.includes('.partial-')), false)
   await rm(blob)
   await assert.rejects(createDataBackup(c.config, c.backup), { code: 'ENOENT' })
-  for (const version of [5, 999]) {
+  for (const version of [5, 6, 999]) {
     const db = new DatabaseSync(join(c.config.dataDir, 'maindulu.sqlite'))
     db.exec(`PRAGMA user_version=${version}`); db.close()
     await assert.rejects(createDataBackup(c.config, c.backup), /Versi skema/)

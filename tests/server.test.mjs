@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { createApp } from '../server/app.mjs'
-import { openDatabase } from '../server/database.mjs'
+import { openDatabase, schemaVersion } from '../server/database.mjs'
 import { readConfig } from '../server/config.mjs'
 import { backendFixture } from './helpers/backend-fixture.mjs'
 
@@ -39,7 +39,7 @@ test('SQLite migrations are atomic, idempotent and preserve metadata across reop
   const dataDir = join(root, 'data')
   let db = await openDatabase(dataDir)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 6)
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
     assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1)
     assert.equal(db.prepare('PRAGMA journal_mode').get().journal_mode, 'wal')
     const id = db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get().value
@@ -48,7 +48,7 @@ test('SQLite migrations are atomic, idempotent and preserve metadata across reop
     db = await openDatabase(dataDir)
     assert.equal(db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get().value, id)
     assert.equal(db.prepare("SELECT value FROM app_metadata WHERE key = 'persist-test'").get().value, 'retained')
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 6)
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, schemaVersion)
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE name IN ('users', 'sessions')").get().count, 2)
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE name = 'saves'").get().count, 1)
   } finally { db.close() }
@@ -90,7 +90,7 @@ test('one server serves SPA pages with runtime discovery and a JSON health endpo
     assert.doesNotMatch(await readFile(join(root, 'dist/index.html'), 'utf8'), /maindulu-backend/)
     const health = await app.inject('/api/health')
     assert.equal(health.statusCode, 200)
-    assert.deepEqual(health.json(), { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true } })
+    assert.deepEqual(health.json(), { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: false, biosCatalog: false } })
     assert.doesNotMatch(health.body, /sqlite|installation_id|dataDir|distDir/)
   } finally { await app.close() }
 })

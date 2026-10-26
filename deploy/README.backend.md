@@ -203,6 +203,8 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml logs
 
 4. Periksa versi **0.3.1** di Pengaturan, login, save/progres dan pemulihannya. Rilis 0.3.1 tidak mengubah skema SQLite (**6**), engine (**4.2.3**), atau format save. Jangan paksa downgrade database aktif; rollback memakai backup ke folder baru.
 
+**Pengembangan setelah 0.3.1:** fondasi role admin menaikkan skema menjadi **7**, tanpa mengubah format save/engine. Buat backup pra-update memakai aplikasi lama. CLI baru hanya menerima backup skema 7; verifikasi/restore backup skema 6 dengan aplikasi lama, lalu migrasikan hasil restore memakai server baru. Jangan paksa downgrade atau ubah nomor skema manual.
+
 ## 7. Reset akun admin
 
 Saat backend berjalan, gunakan terminal interaktif (tanpa password dalam argumen):
@@ -212,6 +214,17 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml exec
 ```
 
 Jika server sedang berhenti dan tidak ada maintenance lain, gunakan `run --rm --no-deps backend npm run account:reset -- username`. Password diminta tersembunyi. Reset mempertahankan akun/save, mencabut sesi serta kode lama, dan menampilkan kode baru untuk diserahkan secara privat. Jangan berjalan bersamaan dengan backup/restore.
+
+### Role admin (fondasi belum dirilis)
+
+Reset password di atas berbeda dari penetapan role. Akun lama/baru selalu `user`; pendaftar pertama tidak otomatis admin. Promosi/demosi akun yang sudah ada:
+
+```sh
+docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml exec backend npm run account:role -- username admin
+docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml exec backend npm run account:role -- username user
+```
+
+Gunakan container/data dir yang sama dengan server; jangan pakai container `run` terpisah saat server aktif karena namespace lock berbeda. Role berlaku pada request sesi aktif berikutnya, tanpa menghapus progres/kredensial. CLI ditolak selama maintenance eksklusif. `GET /api/admin/status` hanya menerima admin (tamu 401, akun biasa 403). Health mengiklankan `admin: true`, sedangkan `gameCatalog`/`biosCatalog` masih `false`; halaman admin/upload belum tersedia. Panduan lengkap: [role akun](../doc/admin-role-akun.md).
 
 ## 8. Verifikasi dan troubleshooting
 

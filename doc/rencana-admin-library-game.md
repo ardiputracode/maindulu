@@ -1,22 +1,24 @@
 # Rencana Implementasi Admin, Library Game, dan Pengelolaan BIOS
 
-Status: **Rencana; belum diimplementasikan.** Jalankan berurutan per milestone. Setiap milestone ditutup setelah checklist dan kriteria selesainya terverifikasi.
+Status: **Milestone 1 selesai dan terverifikasi pada 2026-10-26 dalam cakupan di bawah. Milestone 2–7 belum diimplementasikan.** Jalankan berurutan per milestone. Setiap milestone ditutup setelah checklist dan kriteria selesainya terverifikasi.
 
 ## Milestone 1 — Role Akun dan Otorisasi Admin
 
 **Target:** akun admin dapat dikenali dengan aman tanpa mengubah pengalaman akun biasa.
 
-- [ ] Tambahkan migrasi kolom role pada `users`: `user` atau `admin`; akun lama dan registrasi baru selalu menjadi `user`.
-- [ ] Sertakan role pada respons sesi dan kontrak akun frontend di `src/lib/account.ts`.
-- [ ] Buat pemeriksaan admin bersama di backend; periksa role terbaru dari database pada setiap operasi pengelolaan.
-- [ ] Sediakan perintah terminal untuk promosi/demosi akun yang sudah ada, mengikuti mekanisme penguncian direktori data. Nama perintah ditetapkan saat implementasi.
-- [ ] Jangan izinkan pemilihan role lewat registrasi, perubahan profil, atau payload frontend. Jangan otomatis menjadikan pendaftar pertama admin.
-- [ ] Pertahankan proteksi origin, cookie sesi, dan CSRF; perluas secara terbatas untuk upload multipart.
-- [ ] Tambahkan capability admin/katalog pada health API sesuai kebutuhan discovery frontend.
+- [x] Tambahkan migrasi kolom role pada `users`: `user` atau `admin`; akun lama dan registrasi baru selalu menjadi `user`.
+- [x] Sertakan role pada respons sesi dan kontrak akun frontend di `src/lib/account.ts`.
+- [x] Buat pemeriksaan admin bersama di backend; periksa role terbaru dari database pada setiap operasi pengelolaan.
+- [x] Sediakan perintah terminal untuk promosi/demosi akun yang sudah ada, mengikuti mekanisme penguncian direktori data: `npm run account:role -- username admin` atau `user`.
+- [x] Jangan izinkan pemilihan role lewat registrasi, perubahan profil, atau payload frontend. Jangan otomatis menjadikan pendaftar pertama admin.
+- [x] Pertahankan proteksi origin, cookie sesi, dan CSRF; perluas secara terbatas untuk upload multipart melalui opt-in guard per route (parser/upload produksi tetap Milestone 3).
+- [x] Tambahkan capability admin/katalog pada health API sesuai kebutuhan discovery frontend: `admin: true`, `gameCatalog: false`, `biosCatalog: false`.
 
 **Kriteria selesai:** tamu ditolak dengan 401, pengguna biasa ditolak dengan 403, dan hanya admin dapat memanggil operasi pengelolaan. Perubahan role berlaku juga pada sesi yang sudah aktif. Login, pemulihan akun, dan save pengguna lama tetap berfungsi.
 
 **Area utama:** `server/database.mjs`, `server/auth/`, `scripts/`, `src/lib/account.ts`, `src/lib/useAccount.ts`.
+
+**Implementasi dan verifikasi Milestone 1:** [panduan role akun](admin-role-akun.md). Endpoint pemeriksaan akses `GET /api/admin/status` memakai guard bersama; tidak ada API/UI pengelolaan katalog pada tahap ini. `npm test`: **125 lulus**; `npm run build`: **lulus**. Pengujian role mencakup sesi aktif lintas koneksi/proses, 401/403/200, bypass payload, CSRF multipart sebelum parsing, migrasi skema 6 yang mempertahankan akun/sesi/state/progres, CLI/data lock, dan role setelah backup/restore. Tes discovery/tamu mode statis: **5 lulus dev + 5 lulus produksi**. Verifikasi akhir browser `account.spec.ts`, `server-saves.spec.ts`, dan `server-game-saves.spec.ts`: **30 lulus, tanpa retry/skip** (11,9 menit), termasuk login/pemulihan, konflik dua tab, isolasi tamu/akun, restart, dan backup/restore save NES. Race pada tes status/autosync, klik toolbar, dan penulisan IndexedDB diperbaiki pada tes saja; runtime player/save tidak diubah. **Milestone 1 ditutup dalam cakupan ini.** Docker/HTTPS nyata dan gameplay semua core tidak diklaim terverifikasi.
 
 ## Milestone 2 — Metadata Game/BIOS dan Storage Persisten
 

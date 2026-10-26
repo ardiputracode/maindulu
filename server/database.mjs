@@ -107,6 +107,11 @@ const migrations = [
       PRIMARY KEY(user_id, operation_id)
     ) STRICT;`,
   },
+  {
+    version: 7,
+    name: 'account-roles',
+    sql: `ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user', 'admin'));`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

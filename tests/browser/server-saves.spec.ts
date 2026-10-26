@@ -94,7 +94,9 @@ async function openOverlay(page: Page, frame: FrameLocator) {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.move(box.x + box.width / 2, box.y + box.height - 5, { steps: 5 })
   }
-  await frame.getByRole('button', { name: 'Save state server', exact: true }).click()
+  // Use the actual toolbar DOM handler without racing its auto-hide transform
+  // and canvas hit testing. This matches the real-engine progress test helper.
+  await frame.getByRole('button', { name: 'Save state server', exact: true }).dispatchEvent('click')
   await expect(overlay(page)).toBeVisible()
   // The game pauses while the overlay is open, and state RPCs must not resume it.
   await expect.poll(() => paused(frame)).toBe(true)
@@ -106,6 +108,18 @@ async function closeOverlay(page: Page, frame: FrameLocator) {
   await expect.poll(() => paused(frame)).toBe(false)
 }
 
+async function readGuestState(frame: FrameLocator) {
+  // The native Save State click starts an asynchronous IndexedDB write.
+  // Wait for the real stored value before copying or navigating away.
+  const read = () => frame.locator('body').evaluate(async () => {
+    const e = (window as unknown as Engine).EJS_emulator
+    const value = await e.storage.states.get(e.getBaseFileName() + '.state')
+    return value instanceof Uint8Array ? Array.from(value) : null
+  })
+  await expect.poll(async () => (await read())?.length ?? 0).toBeGreaterThan(1000)
+  return (await read())!
+}
+
 test.beforeEach(({}, info) => { test.skip(info.project.name !== 'node-backend', 'Save server membutuhkan backend; mode tamu/statis tetap diuji terpisah.') })
 
 test('M7: browser and file states import explicitly, preserve guest data and provide restorable server backups', async ({ page }) => {
@@ -115,10 +129,7 @@ test('M7: browser and file states import explicitly, preserve guest data and pro
   const guest = await startPlayer(page)
   const position = await move(page, guest)
   await guest.getByRole('button', { name: 'Save State', exact: true }).click()
-  const native = await guest.locator('body').evaluate(async () => {
-    const e = (window as unknown as Engine).EJS_emulator
-    return Array.from(await e.storage.states.get(e.getBaseFileName() + '.state') as Uint8Array)
-  })
+  const native = await readGuestState(guest)
   expect(native.length).toBeGreaterThan(1000)
   page.once('dialog', d => d.accept())
   await page.getByRole('button', { name: 'Kembali', exact: true }).click()
@@ -435,11 +446,7 @@ test('M5: account players never read/write guest state store or IDBFS, and guest
   await expect(guest.getByRole('button', { name: 'Save state server', exact: true })).toHaveCount(0)
   const progress = await move(page, guest)
   await guest.getByRole('button', { name: 'Save State', exact: true }).click()
-  const original = await guest.locator('body').evaluate(async () => {
-    const e = (window as unknown as Engine).EJS_emulator
-    const value = await e.storage.states.get(e.getBaseFileName() + '.state')
-    return Array.from(value as Uint8Array)
-  })
+  const original = await readGuestState(guest)
   expect(original.length).toBeGreaterThan(1000)
   page.on('dialog', dialog => dialog.accept())
   await page.getByRole('button', { name: 'Kembali', exact: true }).click()

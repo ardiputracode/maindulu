@@ -17,5 +17,9 @@ test('backend health validates identity, API version, status and real capability
   assert.deepEqual(readBackendHealth({ ...health, ignored: 'extra' }), health)
   assert.equal(readBackendHealth({ ...health, capabilities: { ...health.capabilities, gameSaves: true } }).capabilities.gameSaves, true)
   assert.equal(readBackendHealth({ ...health, capabilities: { ...health.capabilities, gameSaves: 'true' } }), null)
+  for (const key of ['admin', 'gameCatalog', 'biosCatalog']) {
+    for (const value of [true, false]) assert.equal(readBackendHealth({ ...health, capabilities: { ...health.capabilities, [key]: value } }).capabilities[key], value)
+    for (const value of ['true', null, 1]) assert.equal(readBackendHealth({ ...health, capabilities: { ...health.capabilities, [key]: value } }), null)
+  }
   for (const value of [null, [], '<html>SPA fallback</html>', {}, { ...health, service: 'other' }, { ...health, apiVersion: 2 }, { ...health, status: 'down' }, { ...health, capabilities: null }, { ...health, capabilities: { accounts: 'false', serverSaves: false } }]) assert.equal(readBackendHealth(value), null)
 })

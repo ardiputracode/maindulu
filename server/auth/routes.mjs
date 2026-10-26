@@ -3,12 +3,12 @@ import { randomUUID } from 'node:crypto'
 import { csrfToken, dummyHash, equalToken, hashPassword, hashRecoveryCode, hashToken, normalizeRecoveryCode, normalizeUsername, randomToken, recoveryCode, validPassword, verifyPassword } from './crypto.mjs'
 import { AuthError, createLimiter } from './limits.mjs'
 import { replaceCredentials, transaction as dbTransaction } from './mutations.mjs'
-import { protectRequest } from './security.mjs'
+import { createAdminSecurity, protectRequest } from './security.mjs'
 
 const cookieName = 'maindulu_session'
 const sessionAge = 7 * 24 * 60 * 60
 const anonymousAge = 60 * 60
-const publicUser = user => ({ id: user.user_id ?? user.id, username: user.username })
+const publicUser = user => ({ id: user.user_id ?? user.id, username: user.username, role: user.role })
 
 export function registerAuth(app, config) {
   const db = app.database
@@ -25,7 +25,7 @@ export function registerAuth(app, config) {
   function findSession(request) {
     const token = request.cookies[cookieName]
     if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return null
-    return db.prepare(`SELECT s.token_hash, s.user_id, s.expires_at, u.username, u.password_hash
+    return db.prepare(`SELECT s.token_hash, s.user_id, s.expires_at, u.username, u.password_hash, u.role
       FROM sessions s LEFT JOIN users u ON s.user_id = u.id
       WHERE s.token_hash = ? AND s.expires_at > ?`).get(hashToken(token), Date.now()) ?? null
   }
@@ -74,7 +74,7 @@ export function registerAuth(app, config) {
       if (password !== passwordConfirmation) throw new AuthError(400, 'Konfirmasi password tidak sama.')
       const passwordHash = await passwordWork(() => hashPassword(password))
       const code = recoveryCode()
-      const user = { id: randomUUID(), username: name }
+      const user = { id: randomUUID(), username: name, role: 'user' }
       const csrf = transaction(() => {
         current(request)
         if (db.prepare('SELECT id FROM users WHERE username = ?').get(name)) throw new AuthError(409, 'Username sudah digunakan. Pilih username lain.')
@@ -92,12 +92,13 @@ export function registerAuth(app, config) {
       const user = db.prepare('SELECT * FROM users WHERE username = ?').get(name)
       const matches = await passwordWork(() => verifyPassword(password, user?.password_hash ?? dummyHash))
       if (!user || !matches) throw new AuthError(401, 'Username atau password tidak sesuai.')
-      const csrf = transaction(() => {
+      const result = transaction(() => {
         const session = current(request)
-        if (db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id)?.password_hash !== user.password_hash) throw new AuthError(401, 'Username atau password tidak sesuai.')
-        return newSession(reply, user.id, session.token_hash)
+        const latest = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id)
+        if (latest?.password_hash !== user.password_hash) throw new AuthError(401, 'Username atau password tidak sesuai.')
+        return { user: publicUser(latest), csrfToken: newSession(reply, user.id, session.token_hash) }
       })
-      return { user: publicUser(user), csrfToken: csrf, registrationOpen: config.registrationOpen }
+      return { ...result, registrationOpen: config.registrationOpen }
     })
     auth.post('/logout', async (request, reply) => {
       db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(current(request).token_hash)
@@ -166,5 +167,5 @@ export function registerAuth(app, config) {
       return { username: user.username, recoveryCode: code }
     })
   }, { prefix: '/api/auth' })
-  return { current }
+  return { current, ...createAdminSecurity(config, current) }
 }

@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { writeFile, readdir } from 'node:fs/promises'
 import { createApp } from '../server/app.mjs'
+import { schemaVersion } from '../server/database.mjs'
 import { backendFixture } from './helpers/backend-fixture.mjs'
 import { encodeGameSave } from '../src/lib/game-save-format.ts'
 import { browserSaveBytes, validateImport } from '../src/lib/save-transfer.ts'
@@ -145,9 +146,9 @@ test('M7 migrates a populated M6 database without changing accounts, game bytes 
   const c = await setup(t, 'progress')
   const save = (await c.put(1)).json().save
   const installation = c.app.database.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get().value
-  c.app.database.exec('DROP TABLE save_backups; DROP TABLE save_decisions; DELETE FROM schema_migrations WHERE version = 6; PRAGMA user_version = 5;')
+  c.app.database.exec('ALTER TABLE users DROP COLUMN role; DROP TABLE save_backups; DROP TABLE save_decisions; DELETE FROM schema_migrations WHERE version >= 6; PRAGMA user_version = 5;')
   await c.app.close(); c.app = await createApp({ root: c.root, env: c.env })
-  assert.equal(c.app.database.prepare('PRAGMA user_version').get().user_version, 6)
+  assert.equal(c.app.database.prepare('PRAGMA user_version').get().user_version, schemaVersion)
   assert.equal(c.app.database.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get().value, installation)
   assert.deepEqual((await c.app.inject({ url: c.path + save.id, headers: c.headers })).rawPayload, c.bytes(1))
   assert.equal((await c.backups()).json().backups.length, 0)

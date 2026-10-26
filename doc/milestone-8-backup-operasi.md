@@ -80,7 +80,7 @@ backup/
 
 Database mencakup seluruh akun/hash kredensial, sesi pada waktu backup, metadata save, slot Autosave 99, tombstone penghapusan, cadangan M7, receipt keputusan, dan identitas instalasi. Blob yang dipakai bersama aktif/cadangan disalin satu kali; file orphan/temp tidak ikut dan tidak dihapus dari sumber.
 
-Manifest mencatat versi format, skema, versi aplikasi/Node, checksum `dist/player/builds.json` bila tersedia, jumlah record, checksum/ukuran setiap berkas, waktu, dan konfigurasi allowlist (host/port/origin/opsi HTTP/pendaftaran/batas/kuota). Tidak menyalin seluruh environment atau path data lokal. Metadata save tetap membawa fingerprint core/runtime aktual masing-masing. Opsi HTTP dicatat sejak 0.3.1; backup lama tetap didukung dan konfigurasi tidak diterapkan otomatis.
+Manifest mencatat versi format, skema, versi aplikasi/Node, checksum `dist/player/builds.json` bila tersedia, jumlah record, checksum/ukuran setiap berkas, waktu, dan konfigurasi allowlist (host/port/origin/opsi HTTP/pendaftaran/batas/kuota). Tidak menyalin seluruh environment atau path data lokal. Metadata save tetap membawa fingerprint core/runtime aktual masing-masing. Opsi HTTP dicatat sejak 0.3.1; ketiadaan field konfigurasi ini pada backup dengan skema yang sesuai tetap didukung dan konfigurasi tidak diterapkan otomatis. Snapshot skema 7 juga mempertahankan role akun.
 
 **Tidak termasuk:** ROM, BIOS, katalog/cover, kode aplikasi/build/engine, sertifikat HTTPS, konfigurasi process manager, rahasia environment lain, serta pengaturan/favorit/riwayat/progres browser tamu. Simpan distribusi aplikasi yang tepat dan konfigurasi deployment secara terpisah. `appVersion` saja bukan identitas semua perubahan pengembangan yang belum dirilis. Jangan mengganti ROM katalog atau ID game setelah restore lalu menganggap save pasti kompatibel.
 
@@ -98,7 +98,7 @@ Manifest mencatat versi format, skema, versi aplikasi/Node, checksum `dist/playe
 ## Restore ke data bersih
 
 1. Tutup semua player/browser yang memakai instalasi lama dan hentikan server/admin. Jika data lama masih dapat dibaca, buat backup terpisah dahulu. Jangan hapus data lama.
-2. Siapkan versi aplikasi/engine yang sesuai dengan backup. CLI M8 menerima format backup 1 dan skema **6** saja; tidak memigrasikan sumber atau memaksa downgrade. Untuk format/skema lain, gunakan versi aplikasi yang sesuai lebih dahulu.
+2. Siapkan versi aplikasi/engine yang sesuai dengan backup. CLI pengembangan terbaru menerima format backup 1 dan skema **7** saja (role akun); rilis 0.3.1 menerima skema **6**. CLI tidak memigrasikan sumber atau memaksa downgrade. Untuk backup skema 6, verifikasi/restore dengan aplikasi lama terlebih dahulu, kemudian buka hasil restore memakai server baru untuk migrasi. Simpan distribusi yang sesuai; jangan ubah nomor skema/manifest manual.
 3. Verifikasi lalu restore ke **folder yang belum ada**:
 
 ```powershell

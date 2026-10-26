@@ -1,6 +1,6 @@
 export type BackendHealth = {
   service: 'maindulu'; apiVersion: 1; status: 'ok';
-  capabilities: { accounts: boolean; serverSaves: boolean; gameSaves?: boolean };
+  capabilities: { accounts: boolean; serverSaves: boolean; gameSaves?: boolean; admin?: boolean; gameCatalog?: boolean; biosCatalog?: boolean };
 }
 
 export type BackendState =
@@ -12,8 +12,14 @@ export function readBackendHealth(value: unknown): BackendHealth | null {
   const v = value as Record<string, unknown>
   const capabilities = v.capabilities as Record<string, unknown> | null
   if (v.service !== 'maindulu' || v.apiVersion !== 1 || v.status !== 'ok' || !capabilities || typeof capabilities.accounts !== 'boolean' || typeof capabilities.serverSaves !== 'boolean') return null
-  if (capabilities.gameSaves !== undefined && typeof capabilities.gameSaves !== 'boolean') return null
-  return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: capabilities.accounts, serverSaves: capabilities.serverSaves, ...(capabilities.gameSaves !== undefined ? { gameSaves: capabilities.gameSaves } : {}) } }
+  const optional: Pick<BackendHealth['capabilities'], 'gameSaves' | 'admin' | 'gameCatalog' | 'biosCatalog'> = {}
+  for (const key of ['gameSaves', 'admin', 'gameCatalog', 'biosCatalog'] as const) {
+    if (capabilities[key] !== undefined) {
+      if (typeof capabilities[key] !== 'boolean') return null
+      optional[key] = capabilities[key]
+    }
+  }
+  return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: capabilities.accounts, serverSaves: capabilities.serverSaves, ...optional } }
 }
 
 export function backendConfigured(marker: string | null, buildEnabled: string | undefined) {
