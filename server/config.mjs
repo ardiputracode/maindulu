@@ -24,6 +24,11 @@ export async function readConfig(env = process.env, root = projectRoot) {
     if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) < 1024 || Number(value) > maximum) throw new Error(`${name} harus bilangan byte 1024–${maximum}.`)
     return Number(value)
   }
+  function integer(name, fallback, min, max) {
+    const value = env[name] ?? String(fallback)
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) < min || Number(value) > max) throw new Error(`${name} harus bilangan ${min}–${max}.`)
+    return Number(value)
+  }
   const registration = env.MAIN_DULU_REGISTRATION_OPEN ?? 'true'
   if (!['true', 'false'].includes(registration)) throw new Error('MAIN_DULU_REGISTRATION_OPEN harus true atau false.')
   const insecureHttp = env.MAIN_DULU_ALLOW_INSECURE_HTTP ?? 'false'
@@ -54,5 +59,9 @@ export async function readConfig(env = process.env, root = projectRoot) {
   return { host, port: Number(rawPort), distDir, publicDir, dataDir, registrationOpen: registration === 'true', publicOrigin, allowInsecureHttp,
     stateMaxBytes: bytes('MAIN_DULU_STATE_MAX_BYTES', 32 * 1024 * 1024, 64 * 1024 * 1024),
     gameSaveMaxBytes: bytes('MAIN_DULU_GAME_SAVE_MAX_BYTES', 8 * 1024 * 1024, 8 * 1024 * 1024),
-    saveQuotaBytes: bytes('MAIN_DULU_SAVE_QUOTA_BYTES', 256 * 1024 * 1024, 16 * 1024 * 1024 * 1024) }
+    saveQuotaBytes: bytes('MAIN_DULU_SAVE_QUOTA_BYTES', 256 * 1024 * 1024, 16 * 1024 * 1024 * 1024),
+    catalogQuotaBytes: bytes('MAIN_DULU_CATALOG_QUOTA_BYTES', 20 * 1024 ** 3, 1024 * 1024 ** 3),
+    catalogMinFreeBytes: integer('MAIN_DULU_CATALOG_MIN_FREE_BYTES', 256 * 1024 * 1024, 0, 1024 * 1024 ** 3),
+    catalogUploadLimit: integer('MAIN_DULU_CATALOG_UPLOAD_LIMIT', 2, 1, 16),
+    catalogUploadTimeoutMs: integer('MAIN_DULU_CATALOG_UPLOAD_TIMEOUT_MS', 30 * 60 * 1000, 1000, 60 * 60 * 1000) }
 }

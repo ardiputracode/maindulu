@@ -146,7 +146,7 @@ test('M7 migrates a populated M6 database without changing accounts, game bytes 
   const c = await setup(t, 'progress')
   const save = (await c.put(1)).json().save
   const installation = c.app.database.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get().value
-  c.app.database.exec('DROP TABLE games; DROP TABLE bios; ALTER TABLE users DROP COLUMN role; DROP TABLE save_backups; DROP TABLE save_decisions; DELETE FROM schema_migrations WHERE version >= 6; PRAGMA user_version = 5;')
+  c.app.database.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE games; DROP TABLE bios; ALTER TABLE users DROP COLUMN role; DROP TABLE save_backups; DROP TABLE save_decisions; DELETE FROM schema_migrations WHERE version >= 6; PRAGMA user_version = 5;')
   await c.app.close(); c.app = await createApp({ root: c.root, env: c.env })
   assert.equal(c.app.database.prepare('PRAGMA user_version').get().user_version, schemaVersion)
   assert.equal(c.app.database.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get().value, installation)

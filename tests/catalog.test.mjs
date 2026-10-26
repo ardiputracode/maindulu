@@ -42,11 +42,11 @@ test('catalog migration from schema 7 preserves accounts, roles, sessions and ev
   c.db.prepare('INSERT INTO save_decisions VALUES (?, ?, ?, ?)').run(c.actor, 'decision', 'fingerprint', '{}')
   const tables = ['users', 'sessions', 'saves', 'game_saves', 'save_backups', 'save_decisions', 'app_metadata']
   const before = Object.fromEntries(tables.map(name => [name, c.db.prepare(`SELECT * FROM ${name}`).all()]))
-  c.db.exec('DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version = 8; PRAGMA user_version = 7;')
+  c.db.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   c.close()
   c.db = await openDatabase(c.config.dataDir)
-  assert.equal(schemaVersion, 8)
-  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, 8)
+  assert.equal(schemaVersion, 9)
+  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
   for (const name of tables) assert.deepEqual(c.db.prepare(`SELECT * FROM ${name}`).all(), before[name], name)
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM games').get().n, 0)
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM bios').get().n, 0)
@@ -55,7 +55,7 @@ test('catalog migration from schema 7 preserves accounts, roles, sessions and ev
 test('failed catalog migration rolls back new tables and schema version without changing old accounts', async t => {
   const c = await setup(t)
   const before = c.db.prepare('SELECT * FROM users').get()
-  c.db.exec("DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version = 8; PRAGMA user_version = 7; CREATE TABLE bios (marker TEXT); INSERT INTO bios VALUES ('operator-owned');")
+  c.db.exec("DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7; CREATE TABLE bios (marker TEXT); INSERT INTO bios VALUES ('operator-owned');")
   c.close()
   await assert.rejects(openDatabase(c.config.dataDir), /already exists/)
   const check = new DatabaseSync(join(c.config.dataDir, 'maindulu.sqlite'))
@@ -67,7 +67,7 @@ test('failed catalog migration rolls back new tables and schema version without 
     check.exec('DROP TABLE bios') // Only the deliberate collision in this disposable fixture.
   } finally { check.close() }
   c.db = await openDatabase(c.config.dataDir)
-  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, 8)
+  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
 })
 
 test('game IDs and immutable bytes survive metadata/cover edits, deletion, restart and build removal', async t => {
@@ -367,13 +367,14 @@ test('real process termination leaves staging/final orphans recoverable and comm
   }
 })
 
-test('backend initializes private catalog folders but exposes no catalog capability or private assets', async t => {
+test('backend exposes catalog capabilities without exposing private storage folders', async t => {
   let app
   const root = await backendFixture(t, { beforeCleanup: () => app?.close() })
   app = await createApp({ root, env: {} })
   const capabilities = (await app.inject('/api/health')).json().capabilities
-  assert.equal(capabilities.gameCatalog, false)
-  assert.equal(capabilities.biosCatalog, false)
+  assert.equal(capabilities.gameCatalog, true)
+  assert.equal(capabilities.biosCatalog, true)
   for (const folder of ['games', 'bios', 'covers', 'uploads']) assert.deepEqual(await readdir(join(root, 'data', folder)), [])
-  for (const url of ['/api/games', '/api/bios', '/data/maindulu.sqlite', '/uploads/test.tmp', '/games/maindulu.sqlite', '/bios/maindulu.sqlite']) assert.equal((await app.inject(url)).statusCode, 404, url)
+  for (const url of ['/api/games', '/api/bios']) assert.equal((await app.inject(url)).json().total, 0)
+  for (const url of ['/data/maindulu.sqlite', '/uploads/test.tmp', '/games/maindulu.sqlite', '/bios/maindulu.sqlite']) assert.equal((await app.inject(url)).statusCode, 404, url)
 })

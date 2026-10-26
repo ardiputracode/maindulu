@@ -33,7 +33,7 @@ CLI mengambil lease shared melalui `openDatabase`, sama seperti reset akun. Back
 - Operasi pengelolaan berikutnya harus memakai `security.protectAdmin` pada hook `onRequest`, sebelum parsing body/upload. Setelah pekerjaan asinkron, periksa kembali `requireAdmin` di dalam transaksi penerbitan/perubahan agar role yang sudah dicabut tidak dapat commit.
 - Multipart hanya diizinkan jika route server memilih `protectAdmin(request, { multipart: true })`; ini tetap mewajibkan origin tepat, cookie sesi, dan header `X-CSRF-Token`. Tidak ada parser/upload multipart produksi pada milestone ini. API akun tetap JSON 64 KiB, API save tetap pada batas/tipe masing-masing; tidak ada pelonggaran global.
 - Payload register/login/password/recovery tidak dapat menetapkan role. Tidak tersedia endpoint atau UI pengelolaan role. Reset/pemulihan kredensial mempertahankan role; operator perlu mendemosikan secara eksplisit bila ingin mencabut akses admin.
-- Health API mengiklankan `admin: true`, `gameCatalog: false`, `biosCatalog: false`. Capability admin berarti guard dan pemeriksaan akses tersedia, **bukan** upload/UI siap.
+- Pada penutupan Milestone 1, health mengiklankan `admin: true`, `gameCatalog: false`, `biosCatalog: false`. Capability admin berarti guard dan pemeriksaan akses tersedia, **bukan** upload/UI siap. Pengembangan [Milestone 3](milestone-3-api-katalog.md) kemudian mengaktifkan kedua capability katalog untuk API; UI admin/Library tetap milestone berikutnya.
 
 ## Update dan backup
 

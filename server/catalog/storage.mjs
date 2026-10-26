@@ -93,7 +93,7 @@ export async function createCatalogStorage(config) {
           hash.update(chunk)
           await file.writeFile(chunk)
         }
-        if (!size) throw new Error('Berkas katalog kosong.')
+        if (!size) throw Object.assign(new Error('Berkas katalog kosong.'), { code: 'CATALOG_EMPTY' })
         await file.sync()
       } catch (error) {
         await file.close()
@@ -133,6 +133,13 @@ export async function createCatalogStorage(config) {
       return result
     },
     ownsFile(value, kind) { return promoted.has(value) && value.kind === kind },
+    async open(kind, key) { return openRegular(await pathFor(kind, key)) },
+    // Online callers must prove that the immutable key is unreferenced. This
+    // primitive intentionally cannot delete arbitrary staging from other uploads.
+    async removeUnreferenced(kind, key) {
+      if (!['games', 'bios', 'covers'].includes(kind)) throw unsafe()
+      await remove(kind, key)
+    },
     async verify(kind, reference) {
       const path = await pathFor(kind, reference.key)
       const file = await openRegular(path)

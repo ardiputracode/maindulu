@@ -12,6 +12,7 @@ import { registerGameSaves } from './game-saves.mjs'
 import { registerSaveBackups } from './save-backups.mjs'
 import { registerAdmin } from './admin.mjs'
 import { createCatalogStorage } from './catalog/storage.mjs'
+import { registerCatalog } from './catalog/routes.mjs'
 
 const pages = ['/', '/index.html', '/console', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main']
 const assetDirectories = new Set(['assets', 'vendor', 'player', 'catalog', 'games', 'bios', 'covers'])
@@ -32,7 +33,18 @@ export async function createApp({ env = process.env, root, logger = false } = {}
   // no API requests, and a failed configured backend never becomes "disabled".
   html = html.replace('</head>', backendMarker + '</head>')
   const db = await openDatabase(config.dataDir)
-  const app = Fastify({ logger, bodyLimit: 64 * 1024, requestTimeout: 30000 })
+  // Node's transport timeout is server-wide; route lifecycle timeouts retain the
+  // 30s account/save limit while only catalog upload routes get a longer window.
+  const app = Fastify({ logger, bodyLimit: 64 * 1024, requestTimeout: Math.max(30000, config.catalogUploadTimeoutMs),
+    // A 240-character basename can exceed the router's default 100-byte param
+    // cap, especially after UTF-8 URL encoding. ID validators stay unchanged.
+    routerOptions: { maxParamLength: 3072 } })
+  app.server.headersTimeout = 30000
+  app.addHook('onRoute', options => {
+    // File downloads are not inbound API processing: do not terminate a large
+    // stream merely because the client needs longer than 30s to receive it.
+    if (options.url.startsWith('/api/')) options.handlerTimeout ??= 30000
+  })
   app.decorate('appConfig', config)
   app.decorate('database', db)
   app.addHook('onClose', async () => db.close())
@@ -54,12 +66,13 @@ export async function createApp({ env = process.env, root, logger = false } = {}
   app.get('/api/health', async (_request, reply) => {
     try { db.prepare('SELECT 1').get() }
     catch { return reply.code(503).send({ error: 'Penyimpanan server belum tersedia.' }) }
-    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: false, biosCatalog: false } }
+    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: true, biosCatalog: true } }
   })
   try {
-    await createCatalogStorage(config)
+    const storage = await createCatalogStorage(config)
     const security = registerAuth(app, config)
     registerAdmin(app, security)
+    registerCatalog(app, config, security, storage)
     registerSaves(app, config, security)
     registerGameSaves(app, config, security)
     registerSaveBackups(app, config, security)

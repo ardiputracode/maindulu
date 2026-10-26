@@ -67,13 +67,15 @@ async function copy(source, target) {
 function inspectDatabase(db, { legacy = false } = {}) {
   db.exec('PRAGMA trusted_schema = OFF; PRAGMA query_only = ON;')
   const version = db.prepare('PRAGMA user_version').get().user_version
-  if (version !== schemaVersion && !(legacy && version === 7)) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
+  if (version !== schemaVersion && !(legacy && [7, 8].includes(version))) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
   if (db.prepare('PRAGMA integrity_check').all().some(row => row.integrity_check !== 'ok') || db.prepare('PRAGMA foreign_key_check').all().length) fail('Integritas SQLite backup gagal.')
   if (version === 7) {
-    if (db.prepare("SELECT name FROM sqlite_master WHERE name IN ('games', 'bios')").all().length) fail('Katalog backup tidak didukung sebelum Milestone 7; jangan gunakan backup yang mengabaikan aset katalog.')
+    if (db.prepare("SELECT name FROM sqlite_master WHERE name IN ('games', 'bios', 'catalog_cleanup', 'catalog_uploads', 'catalog_capacity')").all().length) fail('Katalog backup tidak didukung sebelum Milestone 7; jangan gunakan backup yang mengabaikan aset katalog.')
   } else if (db.prepare('SELECT 1 FROM games UNION ALL SELECT 1 FROM bios LIMIT 1').get()) {
     fail('Katalog backup belum didukung sebelum Milestone 7. Backup dibatalkan karena ROM/BIOS/cover belum dapat dicadangkan lengkap, termasuk entri terhapus.')
   }
+  if (version === 8 && db.prepare("SELECT name FROM sqlite_master WHERE name IN ('catalog_cleanup', 'catalog_uploads', 'catalog_capacity')").all().length) fail('Katalog backup memiliki tabel yang tidak sesuai versi skema; jangan abaikan antrean/reservasi katalog.')
+  if (version === schemaVersion && db.prepare('SELECT 1 FROM catalog_cleanup UNION ALL SELECT 1 FROM catalog_uploads LIMIT 1').get()) fail('Katalog backup belum didukung sebelum Milestone 7. Reservasi/cleanup katalog belum kosong; jalankan recovery offline terlebih dahulu.')
   const installationId = db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get()?.value
   if (typeof installationId !== 'string') fail('Identitas instalasi backup tidak valid.')
   const files = new Map()
@@ -89,7 +91,8 @@ function inspectDatabase(db, { legacy = false } = {}) {
   }
   const counts = {}
   for (const table of ['users', 'saves', 'game_saves', 'save_backups', 'save_decisions']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
-  if (version === schemaVersion) for (const table of ['games', 'bios']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
+  if (version >= 8) for (const table of ['games', 'bios']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
+  if (version === schemaVersion) for (const table of ['catalog_cleanup', 'catalog_uploads']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
   return { installationId, files, counts, version }
 }
 
@@ -127,7 +130,7 @@ async function verify(folder) {
   const actual = await tree(folder)
   if ((await safeEntry(join(folder, 'manifest.json'))).size > 64 * 1024 * 1024) fail('Manifest backup terlalu besar.')
   const manifest = JSON.parse(await readFile(join(folder, 'manifest.json'), 'utf8'))
-  if (manifest?.format !== 'maindulu-data-backup' || manifest.formatVersion !== 1 || ![7, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
+  if (manifest?.format !== 'maindulu-data-backup' || manifest.formatVersion !== 1 || ![7, 8, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
   const files = new Map()
   for (const file of manifest.files) {
     if (!file || typeof file.path !== 'string' || !allowedFile(file.path) || files.has(file.path) || !Number.isSafeInteger(file.size) || file.size < 1 || !checksum.test(file.checksum)) fail('Daftar berkas manifest backup tidak valid.')

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { transaction } from '../auth/mutations.mjs'
+import { enqueueCleanup } from './maintenance.mjs'
 
 const consoles = new Set(['nes', 'snes', 'gb', 'gba', 'megadrive', 'psx'])
 const types = new Set(['image/png', 'image/jpeg', 'image/webp'])
@@ -42,8 +43,9 @@ function metadata(kind, value, patch = false) {
   return result
 }
 
-export function createCatalogRepository(db, storage) {
+export function createCatalogRepository(db, storage, { check = () => {}, onPromoted = () => {} } = {}) {
   function authorize(actor) {
+    check(actor)
     if (typeof actor !== 'string' || db.prepare('SELECT role FROM users WHERE id = ?').get(actor)?.role !== 'admin') throw new CatalogError('ADMIN_REQUIRED', 'Hanya admin aktif yang dapat mengelola katalog.')
   }
   function get(kind, id, { includeDeleted = false } = {}) {
@@ -56,7 +58,9 @@ export function createCatalogRepository(db, storage) {
   }
   async function promote(kind, stage) {
     if (!storage.ownsStage(stage, kind)) throw invalid()
-    return storage.promote(stage)
+    const file = await storage.promote(stage)
+    onPromoted(file)
+    return file
   }
   function coverFields(cover) {
     if (cover === null) return [null, null, null, null]
@@ -84,6 +88,8 @@ export function createCatalogRepository(db, storage) {
         const id = previous?.id ?? randomUUID()
         const now = Date.now()
         if (previous) {
+          enqueueCleanup(db, kind, previous.storage_key)
+          if (kind === 'games' && previous.cover_storage_key) enqueueCleanup(db, 'covers', previous.cover_storage_key)
           db.prepare(`UPDATE ${kind} SET storage_key = ?, original_name = ?, updated_at = ?, deleted_at = NULL WHERE id = ?`).run(file.key, v.fileName, now, id)
         } else {
           const title = kind === 'games' ? 'title' : 'name'
@@ -108,6 +114,7 @@ export function createCatalogRepository(db, storage) {
         authorize(actor)
         const row = get(kind, id)
         if (!row) throw new CatalogError('CATALOG_NOT_FOUND', 'Entri katalog tidak ditemukan.')
+        if (fields && row.cover_storage_key) enqueueCleanup(db, 'covers', row.cover_storage_key)
         const title = kind === 'games' ? 'title' : 'name'
         const rights = kind === 'games' ? 'license' : 'distribution_rights'
         db.prepare(`UPDATE ${kind} SET ${title} = ?, description = ?, ${rights} = ?, updated_at = ? WHERE id = ?`)
@@ -122,6 +129,8 @@ export function createCatalogRepository(db, storage) {
         const row = get(kind, id, { includeDeleted: true })
         if (!row) throw new CatalogError('CATALOG_NOT_FOUND', 'Entri katalog tidak ditemukan.')
         if (row.deleted_at === null) db.prepare(`UPDATE ${kind} SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(Date.now(), Date.now(), id)
+        enqueueCleanup(db, kind, row.storage_key)
+        if (kind === 'games' && row.cover_storage_key) enqueueCleanup(db, 'covers', row.cover_storage_key)
         return get(kind, id, { includeDeleted: true })
       })
     },

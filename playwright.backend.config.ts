@@ -4,7 +4,7 @@ import config from './playwright.config'
 
 export default defineConfig({
   ...config,
-  testMatch: ['backend.spec.ts', 'app.spec.ts', 'account.spec.ts', 'server-saves.spec.ts', 'server-game-saves.spec.ts'],
+  testMatch: ['backend.spec.ts', 'app.spec.ts', 'account.spec.ts', 'server-saves.spec.ts', 'server-game-saves.spec.ts', 'catalog-api.spec.ts'],
   projects: [{ name: 'node-backend' }],
   use: { ...config.use, baseURL: 'http://localhost:4174' },
   webServer: {

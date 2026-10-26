@@ -13,8 +13,8 @@ export async function recoverCatalogStorage(config, { remove = false } = {}) {
     const storage = await createCatalogStorage(config)
     const database = await openRegular(join(config.dataDir, 'maindulu.sqlite'))
     await database.close()
-    db = new DatabaseSync(join(config.dataDir, 'maindulu.sqlite'), { readOnly: true })
-    db.exec('PRAGMA trusted_schema = OFF; PRAGMA query_only = ON;')
+    db = new DatabaseSync(join(config.dataDir, 'maindulu.sqlite'), { readOnly: !remove })
+    db.exec(`PRAGMA trusted_schema = OFF; PRAGMA foreign_keys = ON; ${remove ? '' : 'PRAGMA query_only = ON;'}`)
     if (db.prepare('PRAGMA user_version').get().user_version !== schemaVersion) throw new Error('Versi skema recovery tidak cocok; buka dengan aplikasi yang sesuai terlebih dahulu.')
     if (db.prepare('PRAGMA integrity_check').all().some(row => row.integrity_check !== 'ok') || db.prepare('PRAGMA foreign_key_check').all().length) throw new Error('Integritas SQLite recovery gagal; jangan hapus berkas.')
     const references = new Map()
@@ -49,6 +49,22 @@ export async function recoverCatalogStorage(config, { remove = false } = {}) {
     if (remove) for (const entry of result.candidates) {
       try { await storage.remove(entry.folder, entry.key); result.removed.push(entry) }
       catch (error) { result.failed.push({ ...entry, message: error.message }) }
+    }
+    if (remove) {
+      // Exclusive maintenance proves no live uploads exist. Reservations may be
+      // discarded; keep cleanup jobs for files whose removal still failed.
+      const remaining = new Map()
+      for (const folder of ['games', 'bios', 'covers']) remaining.set(folder, new Set(await storage.entries(folder)))
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        db.exec('DELETE FROM catalog_uploads; UPDATE catalog_capacity SET generation = generation + 1 WHERE id = 1;')
+        for (const folder of ['games', 'bios', 'covers']) {
+          for (const job of db.prepare('SELECT storage_key FROM catalog_cleanup WHERE folder = ?').all(folder)) {
+            if (!remaining.get(folder).has(job.storage_key) || references.has(folder + '/' + job.storage_key)) db.prepare('DELETE FROM catalog_cleanup WHERE folder = ? AND storage_key = ?').run(folder, job.storage_key)
+          }
+        }
+        db.exec('COMMIT')
+      } catch (error) { db.exec('ROLLBACK'); throw error }
     }
     return result
   } finally {

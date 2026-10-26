@@ -158,6 +158,26 @@ const migrations = [
     ) STRICT;
     CREATE INDEX bios_active_console ON bios(console_id, created_at DESC, id) WHERE deleted_at IS NULL;`,
   },
+  {
+    version: 9,
+    name: 'catalog-upload-reservations-and-cleanup',
+    sql: `CREATE TABLE catalog_cleanup (
+      folder TEXT NOT NULL CHECK(folder IN ('games', 'bios', 'covers')),
+      storage_key TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_at INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(folder, storage_key)
+    ) STRICT;
+    CREATE TABLE catalog_uploads (
+      id TEXT PRIMARY KEY NOT NULL,
+      reserved_bytes INTEGER NOT NULL CHECK(reserved_bytes > 0),
+      expires_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE TABLE catalog_capacity (
+      id INTEGER PRIMARY KEY CHECK(id = 1), generation INTEGER NOT NULL
+    ) STRICT;
+    INSERT INTO catalog_capacity VALUES (1, 0);`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

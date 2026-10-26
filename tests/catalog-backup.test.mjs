@@ -8,10 +8,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { spawnSync } from 'node:child_process'
 import { backendFixture } from './helpers/backend-fixture.mjs'
 import { readConfig } from '../server/config.mjs'
-import { openDatabase } from '../server/database.mjs'
+import { openDatabase, schemaVersion } from '../server/database.mjs'
 import { createCatalogStorage } from '../server/catalog/storage.mjs'
 import { createCatalogRepository } from '../server/catalog/repository.mjs'
 import { createDataBackup, restoreDataBackup, verifyDataBackup } from '../server/data-backup.mjs'
+import { recoverCatalogStorage } from '../server/catalog/recovery.mjs'
 
 async function setup(t) {
   const c = { db: null }
@@ -27,12 +28,12 @@ async function setup(t) {
   return c
 }
 
-test('empty schema-8 catalogs preserve account/save backup behavior and include explicit zero counts', async t => {
+test('empty current catalogs preserve account/save backup behavior and include explicit zero counts', async t => {
   const c = await setup(t)
   c.close()
   const target = join(c.root, 'empty-backup')
   const manifest = await createDataBackup(c.config, target)
-  assert.equal(manifest.schemaVersion, 8)
+  assert.equal(manifest.schemaVersion, schemaVersion)
   assert.equal(manifest.counts.games, 0)
   assert.equal(manifest.counts.bios, 0)
   assert.deepEqual(await verifyDataBackup(c.config, target), manifest)
@@ -40,7 +41,7 @@ test('empty schema-8 catalogs preserve account/save backup behavior and include 
   await restoreDataBackup(c.config, target, restored)
   c.db = await openDatabase(restored)
   assert.equal(c.db.prepare('SELECT role FROM users').get().role, 'admin')
-  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, 8)
+  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
 })
 
 test('backup fails closed for game/BIOS metadata, tombstones and orphan assets without publishing partial backups', async t => {
@@ -80,12 +81,14 @@ test('schema-7 backups verify and restore without source migration; application 
   // Reconstruct the real milestone-1 shape: no catalog tables/migration/counts.
   const path = join(source, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
-  legacy.exec('DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version = 8; PRAGMA user_version = 7;')
+  legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   legacy.close()
   const original = await readFile(path)
   manifest.schemaVersion = 7
   delete manifest.counts.games
   delete manifest.counts.bios
+  delete manifest.counts.catalog_cleanup
+  delete manifest.counts.catalog_uploads
   manifest.files[0] = { path: 'maindulu.sqlite', size: original.length, checksum: createHash('sha256').update(original).digest('hex') }
   await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
   assert.deepEqual(await verifyDataBackup(c.config, source), manifest)
@@ -98,11 +101,11 @@ test('schema-7 backups verify and restore without source migration; application 
     assert.equal(check.prepare('SELECT role FROM users').get().role, 'admin')
   } finally { check.close() }
   c.db = await openDatabase(restored)
-  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, 8)
+  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM games').get().n, 0)
   assert.deepEqual(await readFile(path), original)
   const sourceDb = new DatabaseSync(join(c.config.dataDir, 'maindulu.sqlite'))
-  sourceDb.exec('DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version = 8; PRAGMA user_version = 7;')
+  sourceDb.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   sourceDb.close()
   await assert.rejects(createDataBackup(c.config, join(c.root, 'legacy-source-refused')), /Versi skema backup/)
 })
@@ -115,7 +118,7 @@ test('manifest schema cannot disguise a database version mismatch or unsupported
   manifest.schemaVersion = 7
   await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
   await assert.rejects(verifyDataBackup(c.config, source), /Metadata manifest/)
-  manifest.schemaVersion = 8
+  manifest.schemaVersion = schemaVersion
   const path = join(source, 'maindulu.sqlite')
   const db = new DatabaseSync(path)
   db.prepare(`INSERT INTO bios (id, name, console_id, original_name, storage_key, size, sha256, created_at, updated_at)
@@ -126,4 +129,44 @@ test('manifest schema cannot disguise a database version mismatch or unsupported
   await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
   await assert.rejects(verifyDataBackup(c.config, source), /Katalog backup/)
   await assert.rejects(restoreDataBackup(c.config, source, join(c.root, 'must-not-restore')), /Katalog backup/)
+})
+
+test('schema-8 empty backups verify/restore without migration or ignoring new coordination tables', async t => {
+  const c = await setup(t)
+  c.close()
+  const source = join(c.root, 'schema8-backup')
+  const manifest = await createDataBackup(c.config, source)
+  const path = join(source, 'maindulu.sqlite')
+  const legacy = new DatabaseSync(path)
+  legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DELETE FROM schema_migrations WHERE version = 9; PRAGMA user_version = 8;')
+  legacy.close()
+  const original = await readFile(path)
+  manifest.schemaVersion = 8
+  delete manifest.counts.catalog_cleanup
+  delete manifest.counts.catalog_uploads
+  manifest.files[0] = { path: 'maindulu.sqlite', size: original.length, checksum: createHash('sha256').update(original).digest('hex') }
+  await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
+  assert.deepEqual(await verifyDataBackup(c.config, source), manifest)
+  const restored = join(c.root, 'schema8-restored')
+  await restoreDataBackup(c.config, source, restored)
+  c.db = await openDatabase(restored)
+  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_cleanup').get().n, 0)
+  assert.deepEqual(await readFile(path), original)
+})
+
+test('backup refuses outstanding cleanup/reservations; exclusive recovery apply clears dead coordination only', async t => {
+  const c = await setup(t)
+  c.db.prepare('INSERT INTO catalog_uploads VALUES (?, ?, ?)').run(randomUUID(), 1024, Date.now() + 60000)
+  c.db.prepare('INSERT INTO catalog_cleanup (folder, storage_key) VALUES (?, ?)').run('games', randomUUID() + '.bin')
+  c.close()
+  await assert.rejects(createDataBackup(c.config, join(c.root, 'refused')), /Reservasi\/cleanup/)
+  await recoverCatalogStorage(c.config)
+  c.db = await openDatabase(c.config.dataDir)
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_uploads').get().n, 1)
+  c.close()
+  await recoverCatalogStorage(c.config, { remove: true })
+  const manifest = await createDataBackup(c.config, join(c.root, 'recovered-backup'))
+  assert.equal(manifest.counts.catalog_uploads, 0)
+  assert.equal(manifest.counts.catalog_cleanup, 0)
 })

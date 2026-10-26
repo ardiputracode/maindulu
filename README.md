@@ -33,9 +33,9 @@ Buka **http://localhost:7777**. Satu proses Node.js menyajikan frontend dan API,
 
 **Akun lokal opsional**: pilih **Masuk → Daftar**, lalu simpan kode pemulihan yang ditampilkan sekali. Login/logout, ganti password, pemulihan dengan kode sekali pakai, dan penerbitan ulang kode tersedia tanpa Google atau email. Pengelola dengan akses OS dapat menjalankan `npm run account:reset -- <username>` dengan input password tersembunyi. Lihat [panduan akun M3](doc/milestone-3-akun-lokal.md) dan [pemulihan akun M4](doc/milestone-4-pemulihan-akun.md).
 
-**Fondasi role admin (belum dirilis):** seluruh akun lama/baru default `user`. Promosi lewat `npm run account:role -- username admin`, demosi lewat `npm run account:role -- username user`; berlaku pada sesi aktif tanpa mengubah akun/save. Halaman admin dan upload game/BIOS belum tersedia. Lihat [panduan role, keamanan, dan migrasi](doc/admin-role-akun.md).
+**Role admin (belum dirilis):** seluruh akun lama/baru default `user`. Promosi lewat `npm run account:role -- username admin`, demosi lewat `npm run account:role -- username user`; berlaku pada sesi aktif tanpa mengubah akun/save. Pengelolaan lewat API tersedia pada tahap pengembangan; halaman admin belum tersedia. Lihat [panduan role, keamanan, dan migrasi](doc/admin-role-akun.md).
 
-**Fondasi katalog persisten (Milestone 2 Admin/Library/BIOS, belum dirilis):** metadata game/BIOS memakai SQLite, berkas internal memakai `games/`, `bios/`, `covers/`, dan staging `uploads/` di bawah `MAIN_DULU_DATA_DIR`. Belum terhubung ke API/UI/player. Inspeksi orphan offline: `npm run storage:recover`; pembersihan memerlukan `-- --apply` dan server berhenti. Backup ditolak jika katalog/aset sudah berisi data sampai backup koleksi Milestone 7 tersedia. Lihat [rincian implementasi dan batasnya](doc/milestone-2-katalog-storage.md).
+**Katalog persisten (Milestone 2–3 Admin/Library/BIOS, belum dirilis):** metadata game/BIOS memakai SQLite, berkas internal memakai `games/`, `bios/`, `covers/`, dan staging `uploads/` di bawah `MAIN_DULU_DATA_DIR`. API publik katalog/unduh serta API admin upload/edit/delete tersedia; UI admin dan integrasi Library/pilihan BIOS dinamis belum tersedia. Delete menolak akses baru lalu membersihkan berkas dengan retry, tanpa menghapus save. Inspeksi orphan offline: `npm run storage:recover`; pembersihan memerlukan `-- --apply` dan server berhenti. **Jangan gunakan koleksi upload sebagai produksi sebelum backup koleksi Milestone 7 tersedia.** Lihat [fondasi storage](doc/milestone-2-katalog-storage.md) dan [kontrak API, konfigurasi, serta verifikasi Milestone 3](doc/milestone-3-api-katalog.md).
 
 **Save state server manual (M5):** login sebelum membuka game, lalu gunakan tombol **Save state server** di toolbar emulator untuk membuka overlay. Game jeda otomatis saat overlay terbuka dan lanjut kembali saat ditutup. Overlay menyediakan simpan/muat pada tiga slot manual dan slot **Autosave** khusus (slot 99) dengan toggle + interval (Nonaktif default, 30 detik, 1–15 menit). Default 32 MiB per state dan 256 MiB per akun, dengan peringatan 80%, pengelola lintas game, serta unduhan cadangan/retry saat upload gagal. Verifikasi otomatis saat ini NES; core lain masih percobaan. Mode tamu/statis tetap menyimpan di browser. Lihat [panduan M5 dan konfigurasi kuota](doc/milestone-5-save-state-server.md).
 
@@ -45,7 +45,7 @@ Buka **http://localhost:7777**. Satu proses Node.js menyajikan frontend dan API,
 
 Verifikasi M7 memakai NES legacy otomatis; pengguna juga mengonfirmasi tes PS1 M7 berhasil manual. Rincian skenario PS1 belum dicatat, sehingga hasil tersebut bukan klaim semua game/card/slot/varian. Lihat [hasil manual dan batas verifikasi M7](doc/milestone-7-konflik-impor-save.md#hasil-manual-ps1-m7--pengguna).
 
-Saat memperbarui backend, hentikan server dan cadangkan seluruh folder data privat dengan versi aplikasi lama terlebih dahulu. Startup pengembangan terbaru memigrasikan SQLite ke versi **8** (role akun + fondasi katalog) tanpa menghapus save lama; jangan downgrade aplikasi/database secara paksa. Verify/restore format 1 menerima skema 7 dan skema 8 dengan katalog kosong; pembuatan backup baru mensyaratkan skema 8 dengan katalog/aset kosong. Backup skema 6 harus diverifikasi/di-restore dengan versi lama sebelum hasil restore dimigrasikan.
+Saat memperbarui backend, hentikan server dan cadangkan seluruh folder data privat dengan versi aplikasi lama terlebih dahulu. Startup pengembangan terbaru memigrasikan SQLite ke versi **9** (role, katalog, reservasi upload, antrean cleanup) tanpa menghapus save lama; jangan downgrade aplikasi/database secara paksa. Verify/restore format 1 menerima skema 7, 8, dan 9 dengan katalog kosong; pembuatan backup baru mensyaratkan skema 9 dengan tabel/aset katalog serta antrean/reservasi kosong. Backup skema 6 harus diverifikasi/di-restore dengan versi lama sebelum hasil restore dimigrasikan.
 
 **Backup instalasi (M8):** sinkronkan progres, tutup seluruh player, dan hentikan server/admin sebelum `npm run data:backup -- <folder-backup-baru>`. Periksa dengan `npm run data:verify -- <folder-backup>`, lalu simpan salinan di perangkat/lokasi lain. Pulihkan melalui `npm run data:restore -- <folder-backup> --to <folder-data-baru>`; tujuan harus belum ada, data lama tidak ditimpa, dan semua sesi hasil restore dicabut. Arahkan `MAIN_DULU_DATA_DIR` ke hasil restore, tinjau konfigurasi, lalu login ulang. Backup tidak terenkripsi, berisi data privat semua akun, dan tidak mencakup ROM/BIOS/aplikasi/progres tamu. Lihat [panduan operasi, backup/restore, dan batas verifikasi M8](doc/milestone-8-backup-operasi.md).
 
@@ -61,7 +61,7 @@ Untuk mencoba dari HP di Wi-Fi yang sama, buka `http://IP-KOMPUTER:5173`. Server
 
 - Beranda, Jelajahi console, Terakhir dimainkan, Favoritku, Cara bermain, Pengaturan.
 - Membuka ROM/BIOS lokal lewat file picker atau drop ROM. File tidak di-upload atau disimpan permanen.
-- Game/BIOS dari server melalui manifest, tanpa admin/backend upload.
+- Game/BIOS pada UI melalui manifest; backend menyediakan API upload/katalog/unduh terpisah, belum UI admin/Library.
 - Pilihan BIOS lokal/server independen dari sumber ROM.
 - Favorit, metadata riwayat, volume awal, dan toggle riwayat di LocalStorage.
 - Player iframe terisolasi, validasi pesan/sesi, konfirmasi keluar, dan pembersihan instance.
@@ -69,7 +69,9 @@ Untuk mencoba dari HP di Wi-Fi yang sama, buka `http://IP-KOMPUTER:5173`. Server
 - **Jalan Pulang**, homebrew NES orisinal berlisensi CC0, dapat dimainkan langsung. Gerakkan karakter kiri/kanan untuk menangkap bintang. Ini contoh teknis, bukan ROM komersial.
 - Backend Node.js opsional, dengan atau tanpa Docker: web + API satu proses, SQLite persisten, akun lokal dengan sesi cookie HttpOnly, pemulihan akun, save state server berkuota, dan sinkronisasi progres NES; ekspor/pemulihan memcard aktif PS1 lulus manual pada skenario pengguna, bukan semua game/card/varian.
 
-## Tambahkan game server
+## Tambahkan game server (manifest statis)
+
+Untuk upload backend tanpa build ulang, lihat [API katalog Milestone 3](doc/milestone-3-api-katalog.md). Langkah di bawah tetap untuk manifest statis; UI saat ini belum membaca katalog database.
 
 1. Simpan ROM yang berhak didistribusikan di `public/games/`.
 2. Simpan cover lokal di `public/covers/`.
@@ -110,13 +112,13 @@ Semua isi `public/` dapat diunduh pengunjung, **bukan penyimpanan privat**. BIOS
 - Ekstensi bukan bukti integritas atau kompatibilitas. Console ambigu (misalnya BIN) harus dipilih manual.
 - PS1 menggunakan HLE bila tanpa BIOS; BIOS asli disarankan dan tidak semua game kompatibel dengan HLE.
 - Tidak menjanjikan semua game pada enam console kompatibel. Uji per core dan perangkat.
-- Sinkronisasi save game saat ini mencakup SRAM NES dan jalur memcard aktif PS1 percobaan, bukan semua core/card/multi-disk. Impor browser/file dan UI konflik tersedia melalui M7; validasi metadata/format bukan jaminan kompatibilitas semua file. Netplay, panel admin web, backend upload ROM, dan PWA offline tidak tersedia. Akun dan save server memerlukan backend; reset admin memakai perintah lokal, bukan endpoint publik.
+- Sinkronisasi save game saat ini mencakup SRAM NES dan jalur memcard aktif PS1 percobaan, bukan semua core/card/multi-disk. Impor browser/file dan UI konflik tersedia melalui M7; validasi metadata/format bukan jaminan kompatibilitas semua file. Netplay, panel admin web, Library database pada UI, dan PWA offline tidak tersedia. Upload ROM/BIOS tersedia melalui API admin backend pengembangan. Akun dan save server memerlukan backend; reset admin memakai perintah lokal, bukan endpoint publik.
 
 ## Privasi dan progres
 
 ROM/BIOS lokal tidak dikirim ke server dan cache engine dinonaktifkan. LocalStorage hanya menyimpan pengaturan dan metadata. Progres tamu tersimpan terpisah di browser melalui engine; sesi akun memakai storage memori terisolasi, save state server, serta sinkronisasi progres pada core yang dicakup M6. Periksa konfirmasi server dan unduh cadangan bila gagal/core belum didukung; menutup tab bukan jaminan upload. File ROM/BIOS perlu dipilih ulang setelah sesi ditutup. Riwayat **bukan** save state. Mematikan riwayat tidak menghapus riwayat lama, favorit, atau save. Ekspor cadangan sebelum membersihkan data situs.
 
-Akun lokal menyimpan username, hash password, hash kode pemulihan, dan hash sesi di SQLite privat. Password dikirim hanya ke API akun same-origin; ROM/BIOS tetap tidak diunggah. Sesi login memakai cookie HttpOnly, bukan LocalStorage. Save state diunggah manual atau melalui Autosave opsional; progres dalam game disinkronkan otomatis pada sesi akun/core M6 yang dicakup. Login tidak mengimpor progres browser tamu; M7 membaca kandidat secara read-only hanya saat pengguna memilih impor. Byte state/progres/cadangan berada di folder data privat dan metadata di SQLite. Reset password/kode/admin mempertahankan ID serta kepemilikan save; reset password mencabut seluruh sesi. Simpan kode baru secara privat di luar browser; lihat [prosedur M4](doc/milestone-4-pemulihan-akun.md).
+Akun lokal menyimpan username, hash password, hash kode pemulihan, dan hash sesi di SQLite privat. Password dikirim hanya ke API akun same-origin; ROM/BIOS yang dipilih untuk bermain lokal tetap tidak diunggah. Upload katalog hanya lewat operasi admin eksplisit; aset aktif dapat diunduh tamu meskipun storage berada di luar folder publik. Sesi login memakai cookie HttpOnly, bukan LocalStorage. Save state diunggah manual atau melalui Autosave opsional; progres dalam game disinkronkan otomatis pada sesi akun/core M6 yang dicakup. Login tidak mengimpor progres browser tamu; M7 membaca kandidat secara read-only hanya saat pengguna memilih impor. Byte state/progres/cadangan berada di folder data privat dan metadata di SQLite. Reset password/kode/admin mempertahankan ID serta kepemilikan save; reset password mencabut seluruh sesi. Simpan kode baru secara privat di luar browser; lihat [prosedur M4](doc/milestone-4-pemulihan-akun.md).
 
 ## Engine, sumber, dan kemandirian
 

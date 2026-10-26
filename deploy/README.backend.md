@@ -82,6 +82,8 @@ MAIN_DULU_ALLOW_INSECURE_HTTP=false
 
 Proxy meneruskan seluruh path ke `http://127.0.0.1:7777`, mempertahankan **Host publik beserta port bila nonstandar** (Nginx: `proxy_set_header Host $http_host;`), dan menerima body biner sampai batas state yang dikonfigurasi. Jangan mengubah error API menjadi HTML. Jika proxy di container lain, gunakan jaringan Docker bersama, bukan `127.0.0.1` container proxy.
 
+Untuk API upload katalog pengembangan, lihat [batas multipart, buffering, timeout, dan contoh location proxy](../doc/milestone-3-api-katalog.md#reverse-proxy). API akun/save tetap memakai limit sendiri; jangan cache aset katalog dinamis atau mengekspos volume data melalui Nginx.
+
 ```sh
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -d --force-recreate
 ```
@@ -130,9 +132,15 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -
 | `MAIN_DULU_STATE_MAX_BYTES` | `33554432` | Batas state 32 MiB; konfigurasi maksimum 64 MiB |
 | `MAIN_DULU_GAME_SAVE_MAX_BYTES` | `8388608` | Batas paket progres 8 MiB |
 | `MAIN_DULU_SAVE_QUOTA_BYTES` | `268435456` | Kuota akun 256 MiB untuk state + progres + cadangan konflik |
+| `MAIN_DULU_CATALOG_QUOTA_BYTES` | `21474836480` | Kuota katalog pengembangan 20 GiB termasuk staging/orphan |
+| `MAIN_DULU_CATALOG_MIN_FREE_BYTES` | `268435456` | Reserve ruang disk minimum saat admission upload |
+| `MAIN_DULU_CATALOG_UPLOAD_LIMIT` | `2` | Reservasi upload bersamaan lintas proses |
+| `MAIN_DULU_CATALOG_UPLOAD_TIMEOUT_MS` | `1800000` | Deadline upload/publikasi katalog 30 menit |
 | `MAIN_DULU_CONTAINER_DATA_DIR` | `/var/lib/maindulu/data` | Folder data **di dalam volume**, dapat diarahkan ke hasil restore |
 
 Nilai boolean hanya `true`/`false`. `MAIN_DULU_HOST=0.0.0.0`, port internal 7777, dan dist `/app/dist` sudah ditetapkan Compose; bukan alamat yang perlu diketik di browser. Data dir harus tetap di bawah `/var/lib/maindulu` agar persisten, bukan di `public/`, `dist/`, atau filesystem image read-only.
+
+**Katalog Milestone 3 belum untuk produksi:** API upload/edit/delete dan unduh publik tersedia, tetapi UI admin/Library serta backup koleksi belum tersedia. ROM/BIOS aktif dapat diunduh tamu. Backup ditolak jika katalog/aset/antrean/reservasi berisi data; jangan menganggap backup akun/save mencakup koleksi. Panduan: [API katalog dan batas verifikasi](../doc/milestone-3-api-katalog.md).
 
 Image `maindulu-backend:0.3.1` memakai production dependencies, user `node`, root filesystem read-only, `/tmp` tmpfs, dan healthcheck API. Modul bersama `src/lib/game-save-format.ts` ikut disalin ke runtime karena diimpor langsung oleh server.
 
@@ -224,7 +232,7 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml exec
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml exec backend npm run account:role -- username user
 ```
 
-Gunakan container/data dir yang sama dengan server; jangan pakai container `run` terpisah saat server aktif karena namespace lock berbeda. Role berlaku pada request sesi aktif berikutnya, tanpa menghapus progres/kredensial. CLI ditolak selama maintenance eksklusif. `GET /api/admin/status` hanya menerima admin (tamu 401, akun biasa 403). Health mengiklankan `admin: true`, sedangkan `gameCatalog`/`biosCatalog` masih `false`; halaman admin/upload belum tersedia. Panduan lengkap: [role akun](../doc/admin-role-akun.md).
+Gunakan container/data dir yang sama dengan server; jangan pakai container `run` terpisah saat server aktif karena namespace lock berbeda. Role berlaku pada request sesi aktif berikutnya, tanpa menghapus progres/kredensial. CLI ditolak selama maintenance eksklusif. `GET /api/admin/status` hanya menerima admin (tamu 401, akun biasa 403). Pada pengembangan Milestone 3, health mengiklankan `admin`, `gameCatalog`, dan `biosCatalog` sebagai `true`: API katalog/upload tersedia, **bukan** halaman admin/Library atau backup koleksi. Panduan: [role akun](../doc/admin-role-akun.md) dan [API katalog](../doc/milestone-3-api-katalog.md).
 
 ## 8. Verifikasi dan troubleshooting
 

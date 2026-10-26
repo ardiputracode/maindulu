@@ -90,7 +90,7 @@ test('one server serves SPA pages with runtime discovery and a JSON health endpo
     assert.doesNotMatch(await readFile(join(root, 'dist/index.html'), 'utf8'), /maindulu-backend/)
     const health = await app.inject('/api/health')
     assert.equal(health.statusCode, 200)
-    assert.deepEqual(health.json(), { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: false, biosCatalog: false } })
+    assert.deepEqual(health.json(), { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: true, biosCatalog: true } })
     assert.doesNotMatch(health.body, /sqlite|installation_id|dataDir|distDir/)
   } finally { await app.close() }
 })

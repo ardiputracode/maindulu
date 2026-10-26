@@ -1,6 +1,6 @@
 # Rencana Implementasi Admin, Library Game, dan Pengelolaan BIOS
 
-Status: **Milestone 1–2 selesai dan terverifikasi pada 2026-10-26 dalam cakupan masing-masing di bawah. Milestone 3–7 belum diimplementasikan.** Jalankan berurutan per milestone. Setiap milestone ditutup setelah checklist dan kriteria selesainya terverifikasi.
+Status: **Milestone 1–3 selesai dan terverifikasi pada 2026-10-26 dalam cakupan masing-masing di bawah. Milestone 4–7 belum diimplementasikan.** Jalankan berurutan per milestone. Setiap milestone ditutup setelah checklist dan kriteria selesainya terverifikasi.
 
 ## Milestone 1 — Role Akun dan Otorisasi Admin
 
@@ -55,6 +55,8 @@ data/
 
 ## Milestone 3 — API Upload, Katalog, Unduh, dan Delete
 
+Rincian keputusan, kontrak HTTP, konfigurasi, dan hasil verifikasi: [API katalog dan upload](milestone-3-api-katalog.md).
+
 **Target:** siklus pengelolaan game dan BIOS berfungsi penuh di backend sebelum dibuatkan antarmuka.
 
 Usulan endpoint, disesuaikan dengan pola proyek saat implementasi:
@@ -63,7 +65,8 @@ Usulan endpoint, disesuaikan dengan pola proyek saat implementasi:
 | --- | --- | --- |
 | `GET /api/games` | Publik | Katalog aktif dengan pencarian, filter console, dan pagination |
 | `GET /api/games/:id` | Publik | Metadata satu game aktif |
-| `GET/HEAD /games/:id/rom` | Publik | Byte ROM untuk player dan pemeriksaan aset |
+| `GET/HEAD /games/:id/rom/:filename` | Publik | Byte ROM dengan ekstensi asli untuk player dan pemeriksaan aset |
+| `GET/HEAD /games/:id/rom` | Publik | Redirect tanpa cache ke URL ROM kanonis |
 | `GET/HEAD /games/:id/cover` | Publik | Cover game aktif |
 | `GET /api/admin/games` | Admin | Daftar pengelolaan beserta status berkas |
 | `POST /api/admin/games` | Admin + CSRF | Upload ROM dan metadata |
@@ -77,25 +80,27 @@ Usulan endpoint, disesuaikan dengan pola proyek saat implementasi:
 | `PATCH /api/admin/bios/:id` | Admin + CSRF | Edit metadata tanpa mengganti byte firmware |
 | `DELETE /api/admin/bios/:id` | Admin + CSRF | Hapus BIOS dari pilihan server dan jadwalkan pembersihan berkas |
 
-- [ ] Tambahkan dukungan multipart streaming. Hitung SHA-256 ROM/BIOS sambil menulis upload ke staging, bukan menampung seluruh berkas dalam RAM.
-- [ ] Lakukan autentikasi, otorisasi, dan pemeriksaan CSRF sebelum menerima pemrosesan berkas besar.
-- [ ] Terapkan batas ukuran ROM awal 768 MiB dan BIOS 32 MiB, panjang metadata, jumlah field/berkas multipart, upload bersamaan, dan penggunaan storage; selaraskan timeout serta batas reverse proxy jika digunakan. Jangan menaikkan body limit global API akun/save.
-- [ ] Validasi console yang didukung, ekstensi yang diizinkan, dan berkas tidak kosong. Pemeriksaan ini bukan jaminan ROM dapat dimainkan atau aman secara semantik.
-- [ ] Untuk BIOS, ikuti format awal `.bin`, `.rom`, `.bios`, `.img`, `.zip`, `.7z`, dan `.rar` yang sudah diizinkan aplikasi. Hash, ukuran, dan ekstensi bukan bukti firmware kompatibel atau legal untuk didistribusikan.
-- [ ] Pertahankan nama firmware pada URL BIOS raw karena EmulatorJS menurunkan nama firmware dari URL. Validasi `:filename` terhadap metadata dan nama basename yang aman, bukan menggunakannya sebagai path filesystem; Content-Disposition saja tidak cukup. Arsip mempertahankan nama file di dalamnya tanpa ekstraksi di server.
-- [ ] Batasi cover upload ke format raster yang divalidasi, misalnya PNG/JPEG/WebP, dengan batas ukuran dan dimensi. Tolak SVG/HTML upload pada MVP.
-- [ ] Publikasikan entri hanya setelah upload lengkap, hash final, dan berkas siap. Jika transaksi database gagal, lakukan kompensasi/pembersihan; filesystem dan SQLite bukan satu transaksi atomik.
-- [ ] Tangani upload dibatalkan, disk penuh, kegagalan rename, duplikat, dan proses terhenti tanpa meninggalkan entri aktif yang tidak lengkap.
-- [ ] Streaming unduhan harus mendukung HEAD, Content-Length, tipe konten yang tepat, dan byte range yang valid. Pertahankan origin yang sama serta kompatibilitas pemeriksaan aset player.
-- [ ] Jangan mengekspos seluruh folder `data/` melalui static server. Hanya berkas game/BIOS aktif yang dapat diambil lewat endpoint terkontrol.
-- [ ] Delete menandai entri terhapus terlebih dahulu sehingga katalog dan URL ROM/cover menolak akses baru, lalu membersihkan berkas dengan mekanisme retry. Save, backup save, dan akun tidak ikut dihapus.
-- [ ] Delete BIOS mengikuti aturan yang sama: hapus dari daftar pilihan, tolak akses baru, dan bersihkan berkas dengan retry. Jangan mengganti pilihan BIOS pengguna secara diam-diam atau menghapus game/save yang terkait dengan console tersebut.
-- [ ] Upload ulang berkas yang pernah dihapus pada console yang sama menawarkan pemulihan ID lama secara eksplisit, bukan membuat ID baru diam-diam. Pemulihan memerlukan berkas valid tersedia kembali.
-- [ ] Gunakan kebijakan cache yang tidak membuat ROM/BIOS terhapus terus tersedia dari cache browser/proxy. Byte yang sudah diunduh tidak dapat ditarik kembali; sesi yang sudah memuat aset dapat tetap berjalan.
+- [x] Tambahkan dukungan multipart streaming. Hitung SHA-256 ROM/BIOS sambil menulis upload ke staging, bukan menampung seluruh berkas dalam RAM.
+- [x] Lakukan autentikasi, otorisasi, dan pemeriksaan CSRF sebelum menerima pemrosesan berkas besar.
+- [x] Terapkan batas ukuran ROM awal 768 MiB dan BIOS 32 MiB, panjang metadata, jumlah field/berkas multipart, upload bersamaan, dan penggunaan storage; selaraskan timeout serta batas reverse proxy jika digunakan. Jangan menaikkan body limit global API akun/save.
+- [x] Validasi console yang didukung, ekstensi yang diizinkan, dan berkas tidak kosong. Pemeriksaan ini bukan jaminan ROM dapat dimainkan atau aman secara semantik.
+- [x] Untuk BIOS, ikuti format awal `.bin`, `.rom`, `.bios`, `.img`, `.zip`, `.7z`, dan `.rar` yang sudah diizinkan aplikasi. Hash, ukuran, dan ekstensi bukan bukti firmware kompatibel atau legal untuk didistribusikan.
+- [x] Pertahankan nama firmware pada URL BIOS raw karena EmulatorJS menurunkan nama firmware dari URL. Validasi `:filename` terhadap metadata dan nama basename yang aman, bukan menggunakannya sebagai path filesystem; Content-Disposition saja tidak cukup. Arsip mempertahankan nama file di dalamnya tanpa ekstraksi di server.
+- [x] Batasi cover upload ke format raster yang divalidasi, misalnya PNG/JPEG/WebP, dengan batas ukuran dan dimensi. Tolak SVG/HTML upload pada MVP.
+- [x] Publikasikan entri hanya setelah upload lengkap, hash final, dan berkas siap. Jika transaksi database gagal, lakukan kompensasi/pembersihan; filesystem dan SQLite bukan satu transaksi atomik.
+- [x] Tangani upload dibatalkan, disk penuh, kegagalan rename, duplikat, dan proses terhenti tanpa meninggalkan entri aktif yang tidak lengkap.
+- [x] Streaming unduhan harus mendukung HEAD, Content-Length, tipe konten yang tepat, dan byte range yang valid. Pertahankan origin yang sama serta kompatibilitas pemeriksaan aset player.
+- [x] Jangan mengekspos seluruh folder `data/` melalui static server. Hanya berkas game/BIOS aktif yang dapat diambil lewat endpoint terkontrol.
+- [x] Delete menandai entri terhapus terlebih dahulu sehingga katalog dan URL ROM/cover menolak akses baru, lalu membersihkan berkas dengan mekanisme retry. Save, backup save, dan akun tidak ikut dihapus.
+- [x] Delete BIOS mengikuti aturan yang sama: hapus dari daftar pilihan, tolak akses baru, dan bersihkan berkas dengan retry. Jangan mengganti pilihan BIOS pengguna secara diam-diam atau menghapus game/save yang terkait dengan console tersebut.
+- [x] Upload ulang berkas yang pernah dihapus pada console yang sama menawarkan pemulihan ID lama secara eksplisit, bukan membuat ID baru diam-diam. Pemulihan memerlukan berkas valid tersedia kembali.
+- [x] Gunakan kebijakan cache yang tidak membuat ROM/BIOS terhapus terus tersedia dari cache browser/proxy. Byte yang sudah diunduh tidak dapat ditarik kembali; sesi yang sudah memuat aset dapat tetap berjalan.
 
 **Kriteria selesai:** upload ROM/BIOS sekali menghasilkan hash yang sesuai perhitungan independen; game dan BIOS bisa diambil player dengan nama firmware yang benar; duplikat ditangani jelas; delete memblokir akses baru tanpa menghapus progres. Database dan save tidak dapat diunduh melalui URL aset.
 
 **Area utama:** `server/app.mjs`, modul routes/storage game baru, `package.json`, `package-lock.json`, `public/player/player.js` bila diperlukan untuk kompatibilitas.
+
+**Implementasi dan verifikasi Milestone 3:** API katalog publik/admin, multipart streaming dengan `@fastify/multipart`, validasi cover raster lengkap dengan `sharp`, GET/HEAD/range tanpa cache, dan skema **9** untuk reservasi upload bersama serta antrean cleanup/retry. Publikasi memeriksa ulang sesi/role; delete/restore mempertahankan identitas dan save. URL ROM mempertahankan nama/ekstensi; BIOS raw mempertahankan nama ASCII aman. Capability katalog menjadi `true`, tanpa mengubah frontend/player/engine. `npm test`: **183 lulus**; build **lulus**; regresi browser backend akun/state/progres + smoke katalog: **37 lulus**, tanpa retry/skip (11,3 menit); smoke backend/katalog akhir **7 lulus** (22,2 detik); discovery/tamu statis **5 dev + 5 produksi lulus**. Satu pengulangan browser yang dijalankan bersamaan dengan build mendapat 404 demo ketika `dist/` diganti; pengulangan berurutan lulus, bukan perubahan runtime untuk menutupi kegagalan. **Milestone 3 ditutup dalam cakupan backend ini.** UI admin/Library/pilihan BIOS dinamis tetap Milestone 4–5; backup koleksi tetap Milestone 7. Docker/Alpine, HTTPS/proxy nyata, disk penuh fisik, upload ROM 768 MiB penuh, dan boot BIOS proprietary/semua core tidak diklaim terverifikasi. Rincian bukti dan batas ada pada [panduan API](milestone-3-api-katalog.md).
 
 ## Milestone 4 — Halaman Admin, Manage Game, dan Manage BIOS
 
