@@ -1,6 +1,6 @@
 # Rencana Implementasi Admin, Library Game, dan Pengelolaan BIOS
 
-Status: **Milestone 1 selesai dan terverifikasi pada 2026-10-26 dalam cakupan di bawah. Milestone 2–7 belum diimplementasikan.** Jalankan berurutan per milestone. Setiap milestone ditutup setelah checklist dan kriteria selesainya terverifikasi.
+Status: **Milestone 1–2 selesai dan terverifikasi pada 2026-10-26 dalam cakupan masing-masing di bawah. Milestone 3–7 belum diimplementasikan.** Jalankan berurutan per milestone. Setiap milestone ditutup setelah checklist dan kriteria selesainya terverifikasi.
 
 ## Milestone 1 — Role Akun dan Otorisasi Admin
 
@@ -22,6 +22,8 @@ Status: **Milestone 1 selesai dan terverifikasi pada 2026-10-26 dalam cakupan di
 
 ## Milestone 2 — Metadata Game/BIOS dan Storage Persisten
 
+Rincian keputusan, urutan implementasi, dan gerbang verifikasi: [fondasi katalog dan storage](milestone-2-katalog-storage.md).
+
 **Target:** database menjadi sumber katalog game dan BIOS dinamis, sedangkan ROM, BIOS, dan cover berada di direktori data yang sudah dikonfigurasi melalui `MAIN_DULU_DATA_DIR`.
 
 ```text
@@ -35,19 +37,21 @@ data/
 └── game-saves/     # penyimpanan yang sudah ada
 ```
 
-- [ ] Tambahkan tabel game dengan ID stabil, judul, console, deskripsi, lisensi, nama asli berkas, storage key, ukuran, SHA-256, pembuat, waktu pembuatan/perubahan, dan penanda penghapusan.
-- [ ] Tambahkan tabel BIOS dengan ID stabil, nama tampilan, console, deskripsi, keterangan hak distribusi, nama asli firmware/arsip, storage key, ukuran, SHA-256, pembuat, waktu pembuatan/perubahan, dan penanda penghapusan. Satu console dapat memiliki beberapa pilihan BIOS.
-- [ ] Catat storage key, tipe, ukuran, dan checksum cover jika tersedia agar berkas dapat diverifikasi saat backup.
-- [ ] Pisahkan ID game dari hash ROM: mengganti judul atau cover tidak mengubah identitas save. Penggantian ROM tidak termasuk MVP.
-- [ ] Tetapkan duplikat secara terpisah untuk game dan BIOS berdasarkan pasangan console dan SHA-256 byte berkas upload. Hash ZIP adalah hash arsip, bukan hasil normalisasi ROM/firmware di dalamnya.
-- [ ] Gunakan nama berkas internal yang dibuat server, bukan path/nama yang diberikan admin. Simpan nama asli hanya sebagai metadata.
-- [ ] Pertahankan pemisahan direktori data dari `public/` dan `dist/`, termasuk perlindungan traversal dan symlink.
-- [ ] Siapkan aturan pemulihan staging/berkas yatim setelah proses terhenti, tanpa menghapus berkas aktif atau save pengguna.
-- [ ] Sesuaikan pemeriksaan skema backup yang sudah ada agar perubahan tabel tidak membuat backup tampak berhasil tetapi mengabaikan ROM/BIOS. Backup belum boleh dinyatakan lengkap sebelum Milestone 7 selesai.
+- [x] Tambahkan tabel game dengan ID stabil, judul, console, deskripsi, lisensi, nama asli berkas, storage key, ukuran, SHA-256, pembuat, waktu pembuatan/perubahan, dan penanda penghapusan.
+- [x] Tambahkan tabel BIOS dengan ID stabil, nama tampilan, console, deskripsi, keterangan hak distribusi, nama asli firmware/arsip, storage key, ukuran, SHA-256, pembuat, waktu pembuatan/perubahan, dan penanda penghapusan. Satu console dapat memiliki beberapa pilihan BIOS.
+- [x] Catat storage key, tipe, ukuran, dan checksum cover jika tersedia agar berkas dapat diverifikasi saat backup.
+- [x] Pisahkan ID game dari hash ROM: mengganti judul atau cover tidak mengubah identitas save. Penggantian ROM tidak termasuk MVP.
+- [x] Tetapkan duplikat secara terpisah untuk game dan BIOS berdasarkan pasangan console dan SHA-256 byte berkas upload. Hash ZIP adalah hash arsip, bukan hasil normalisasi ROM/firmware di dalamnya.
+- [x] Gunakan nama berkas internal yang dibuat server, bukan path/nama yang diberikan admin. Simpan nama asli hanya sebagai metadata.
+- [x] Pertahankan pemisahan direktori data dari `public/` dan `dist/`, termasuk perlindungan traversal dan symlink.
+- [x] Siapkan aturan pemulihan staging/berkas yatim setelah proses terhenti, tanpa menghapus berkas aktif atau save pengguna.
+- [x] Sesuaikan pemeriksaan skema backup yang sudah ada agar perubahan tabel tidak membuat backup tampak berhasil tetapi mengabaikan ROM/BIOS. Backup belum boleh dinyatakan lengkap sebelum Milestone 7 selesai.
 
 **Kriteria selesai:** migrasi menjaga akun dan save lama; lokasi storage mengikuti konfigurasi yang ada; katalog dan berkas tidak bergantung pada hasil build. Dua upload identik yang bersamaan tidak menghasilkan dua entri aktif.
 
 **Area utama:** `server/database.mjs`, `server/config.mjs`, modul katalog/storage baru, `server/data-backup.mjs`.
+
+**Implementasi dan verifikasi Milestone 2:** migrasi skema **8**, repository internal game/BIOS, storage privat/staging streaming, dan recovery offline dengan `npm run storage:recover` (`-- --apply` untuk pembersihan). Duplikat diuji lintas koneksi/proses; tombstone mempertahankan ID untuk pemulihan eksplisit. Backup baru hanya boleh pada skema 8 dengan tabel/aset katalog kosong; verify/restore backup skema 7 tetap didukung. `npm test`: **153 lulus**; build **lulus**; regresi browser akun/discovery/state/progres NES: **35 lulus**, tanpa retry/skip (8,3 menit). **Milestone 2 ditutup dalam cakupan persistence ini.** Belum ada API upload/katalog/unduh atau UI; capability katalog tetap `false`. Runtime Docker/HTTPS, disk penuh nyata, dan backup koleksi lengkap tidak diklaim. Rincian kontrak internal, recovery, hasil tes, dan batas verifikasi ada pada [panduan fondasi katalog/storage](milestone-2-katalog-storage.md).
 
 ## Milestone 3 — API Upload, Katalog, Unduh, dan Delete
 

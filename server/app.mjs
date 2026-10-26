@@ -11,6 +11,7 @@ import { registerSaves } from './saves.mjs'
 import { registerGameSaves } from './game-saves.mjs'
 import { registerSaveBackups } from './save-backups.mjs'
 import { registerAdmin } from './admin.mjs'
+import { createCatalogStorage } from './catalog/storage.mjs'
 
 const pages = ['/', '/index.html', '/console', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main']
 const assetDirectories = new Set(['assets', 'vendor', 'player', 'catalog', 'games', 'bios', 'covers'])
@@ -56,6 +57,7 @@ export async function createApp({ env = process.env, root, logger = false } = {}
     return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: false, biosCatalog: false } }
   })
   try {
+    await createCatalogStorage(config)
     const security = registerAuth(app, config)
     registerAdmin(app, security)
     registerSaves(app, config, security)

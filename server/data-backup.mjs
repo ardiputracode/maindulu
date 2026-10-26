@@ -64,10 +64,16 @@ async function copy(source, target) {
   await sync(target)
 }
 
-function inspectDatabase(db) {
+function inspectDatabase(db, { legacy = false } = {}) {
   db.exec('PRAGMA trusted_schema = OFF; PRAGMA query_only = ON;')
-  if (db.prepare('PRAGMA user_version').get().user_version !== schemaVersion) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
+  const version = db.prepare('PRAGMA user_version').get().user_version
+  if (version !== schemaVersion && !(legacy && version === 7)) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
   if (db.prepare('PRAGMA integrity_check').all().some(row => row.integrity_check !== 'ok') || db.prepare('PRAGMA foreign_key_check').all().length) fail('Integritas SQLite backup gagal.')
+  if (version === 7) {
+    if (db.prepare("SELECT name FROM sqlite_master WHERE name IN ('games', 'bios')").all().length) fail('Katalog backup tidak didukung sebelum Milestone 7; jangan gunakan backup yang mengabaikan aset katalog.')
+  } else if (db.prepare('SELECT 1 FROM games UNION ALL SELECT 1 FROM bios LIMIT 1').get()) {
+    fail('Katalog backup belum didukung sebelum Milestone 7. Backup dibatalkan karena ROM/BIOS/cover belum dapat dicadangkan lengkap, termasuk entri terhapus.')
+  }
   const installationId = db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get()?.value
   if (typeof installationId !== 'string') fail('Identitas instalasi backup tidak valid.')
   const files = new Map()
@@ -83,7 +89,17 @@ function inspectDatabase(db) {
   }
   const counts = {}
   for (const table of ['users', 'saves', 'game_saves', 'save_backups', 'save_decisions']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
-  return { installationId, files, counts }
+  if (version === schemaVersion) for (const table of ['games', 'bios']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
+  return { installationId, files, counts, version }
+}
+
+async function refuseCatalogAssets(source) {
+  for (const folder of ['games', 'bios', 'covers']) {
+    const path = join(source, folder)
+    try { await safeEntry(path, true) }
+    catch (error) { if (error.code === 'ENOENT') continue; throw error }
+    if ((await readdir(path)).length) fail('Katalog backup belum didukung sebelum Milestone 7. Folder aset katalog tidak kosong; backup dibatalkan agar tidak mengabaikan berkas.')
+  }
 }
 
 async function tree(folder) {
@@ -111,7 +127,7 @@ async function verify(folder) {
   const actual = await tree(folder)
   if ((await safeEntry(join(folder, 'manifest.json'))).size > 64 * 1024 * 1024) fail('Manifest backup terlalu besar.')
   const manifest = JSON.parse(await readFile(join(folder, 'manifest.json'), 'utf8'))
-  if (manifest?.format !== 'maindulu-data-backup' || manifest.formatVersion !== 1 || manifest.schemaVersion !== schemaVersion || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
+  if (manifest?.format !== 'maindulu-data-backup' || manifest.formatVersion !== 1 || ![7, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
   const files = new Map()
   for (const file of manifest.files) {
     if (!file || typeof file.path !== 'string' || !allowedFile(file.path) || files.has(file.path) || !Number.isSafeInteger(file.size) || file.size < 1 || !checksum.test(file.checksum)) fail('Daftar berkas manifest backup tidak valid.')
@@ -124,8 +140,8 @@ async function verify(folder) {
   }
   const db = new DatabaseSync(join(folder, databaseName), { readOnly: true })
   let info
-  try { info = inspectDatabase(db) } finally { db.close() }
-  if (info.installationId !== manifest.installationId || JSON.stringify(info.counts) !== JSON.stringify(manifest.counts) || info.files.size + 1 !== files.size) fail('Metadata manifest tidak cocok dengan database.')
+  try { info = inspectDatabase(db, { legacy: true }) } finally { db.close() }
+  if (info.version !== manifest.schemaVersion || info.installationId !== manifest.installationId || JSON.stringify(info.counts) !== JSON.stringify(manifest.counts) || info.files.size + 1 !== files.size) fail('Metadata manifest tidak cocok dengan database.')
   for (const [path, row] of info.files) {
     const file = files.get(path)
     if (!file || file.size !== row.size || file.checksum !== row.checksum) fail('Referensi blob backup hilang/tidak cocok dengan database.')
@@ -152,6 +168,7 @@ export async function createDataBackup(config, input) {
   const releaseSource = await acquireDataLock(source, true)
   let releaseTarget, stage
   try {
+    await refuseCatalogAssets(source)
     releaseTarget = await acquireDataLock(target, true)
     stage = await mkdtemp(join(dirname(target), '.' + basename(target) + '.partial-'))
     await chmod(stage, 0o700)
@@ -225,9 +242,9 @@ export async function restoreDataBackup(config, input, destination) {
     }
     const db = new DatabaseSync(join(stage, databaseName))
     try {
-      inspectDatabase(db)
+      inspectDatabase(db, { legacy: true })
       db.exec('PRAGMA query_only = OFF; PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL; BEGIN IMMEDIATE; DELETE FROM sessions; COMMIT;')
-      inspectDatabase(db)
+      inspectDatabase(db, { legacy: true })
     } finally { db.close() }
     await sync(join(stage, databaseName))
     await publish(stage, target)

@@ -112,6 +112,52 @@ const migrations = [
     name: 'account-roles',
     sql: `ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user', 'admin'));`,
   },
+  {
+    version: 8,
+    name: 'persistent-game-and-bios-catalogs',
+    sql: `CREATE TABLE games (
+      id TEXT PRIMARY KEY NOT NULL,
+      title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 200),
+      console_id TEXT NOT NULL CHECK(console_id IN ('nes', 'snes', 'gb', 'gba', 'megadrive', 'psx')),
+      description TEXT NOT NULL DEFAULT '' CHECK(length(description) <= 10000),
+      license TEXT NOT NULL DEFAULT '' CHECK(length(license) <= 2000),
+      original_name TEXT NOT NULL CHECK(length(original_name) BETWEEN 1 AND 240),
+      storage_key TEXT NOT NULL UNIQUE,
+      size INTEGER NOT NULL CHECK(size BETWEEN 1 AND 805306368),
+      sha256 TEXT NOT NULL CHECK(length(sha256) = 64 AND sha256 NOT GLOB '*[^a-f0-9]*'),
+      cover_storage_key TEXT UNIQUE,
+      cover_type TEXT,
+      cover_size INTEGER,
+      cover_sha256 TEXT,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      deleted_at INTEGER,
+      UNIQUE(console_id, sha256),
+      CHECK((cover_storage_key IS NULL AND cover_type IS NULL AND cover_size IS NULL AND cover_sha256 IS NULL)
+        OR (cover_storage_key IS NOT NULL AND cover_type IS NOT NULL AND cover_size IS NOT NULL AND cover_sha256 IS NOT NULL
+          AND cover_type IN ('image/png', 'image/jpeg', 'image/webp') AND cover_size BETWEEN 1 AND 8388608
+          AND length(cover_sha256) = 64 AND cover_sha256 NOT GLOB '*[^a-f0-9]*'))
+    ) STRICT;
+    CREATE INDEX games_active_console ON games(console_id, created_at DESC, id) WHERE deleted_at IS NULL;
+    CREATE TABLE bios (
+      id TEXT PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 200),
+      console_id TEXT NOT NULL CHECK(console_id IN ('nes', 'snes', 'gb', 'gba', 'megadrive', 'psx')),
+      description TEXT NOT NULL DEFAULT '' CHECK(length(description) <= 10000),
+      distribution_rights TEXT NOT NULL DEFAULT '' CHECK(length(distribution_rights) <= 2000),
+      original_name TEXT NOT NULL CHECK(length(original_name) BETWEEN 1 AND 240),
+      storage_key TEXT NOT NULL UNIQUE,
+      size INTEGER NOT NULL CHECK(size BETWEEN 1 AND 33554432),
+      sha256 TEXT NOT NULL CHECK(length(sha256) = 64 AND sha256 NOT GLOB '*[^a-f0-9]*'),
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      deleted_at INTEGER,
+      UNIQUE(console_id, sha256)
+    ) STRICT;
+    CREATE INDEX bios_active_console ON bios(console_id, created_at DESC, id) WHERE deleted_at IS NULL;`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

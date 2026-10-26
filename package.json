@@ -13,6 +13,7 @@
     "data:backup": "node scripts/data-backup.mjs backup",
     "data:verify": "node scripts/data-backup.mjs verify",
     "data:restore": "node scripts/data-backup.mjs restore",
+    "storage:recover": "node scripts/recover-catalog.mjs",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",

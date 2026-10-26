@@ -238,7 +238,7 @@ test('migration from an M5 version-4 database preserves existing state ownership
   const r = await c.app.inject({ method: 'PUT', url: '/api/saves/', headers: { ...a.headers, 'content-type': 'application/octet-stream', 'x-save-metadata': encodeURIComponent(JSON.stringify({ gameId: 'old', consoleId: 'nes', core: 'fceumm', title: 'Old state', slot: 1, expectedRevision: 0, checksum: checksum(state), metadata })) }, payload: state })
   assert.equal(r.statusCode, 201, r.body)
   const save = r.json().save
-  c.app.database.exec('ALTER TABLE users DROP COLUMN role; DROP TABLE save_backups; DROP TABLE save_decisions; DROP TABLE game_saves; DELETE FROM schema_migrations WHERE version >= 5; PRAGMA user_version = 4;')
+  c.app.database.exec('DROP TABLE games; DROP TABLE bios; ALTER TABLE users DROP COLUMN role; DROP TABLE save_backups; DROP TABLE save_decisions; DROP TABLE game_saves; DELETE FROM schema_migrations WHERE version >= 5; PRAGMA user_version = 4;')
   await c.app.close(); c.app = await createApp({ root: c.root, env: c.env })
   assert.equal(c.app.database.prepare('PRAGMA user_version').get().user_version, schemaVersion)
   assert.equal(c.app.database.prepare('SELECT user_id FROM saves').get().user_id, a.user.id)

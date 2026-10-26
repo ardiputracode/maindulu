@@ -18,11 +18,15 @@ server/**
 !server/auth/
 server/auth/**
 !server/auth/*.mjs
+!server/catalog/
+server/catalog/**
+!server/catalog/*.mjs
 !scripts/
 scripts/**
 !scripts/reset-account.mjs
 !scripts/set-account-role.mjs
 !scripts/data-backup.mjs
+!scripts/recover-catalog.mjs
 !deploy/
 deploy/**
 !deploy/Dockerfile

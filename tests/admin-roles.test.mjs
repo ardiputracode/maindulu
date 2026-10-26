@@ -157,7 +157,7 @@ test('version-6 migration preserves credentials, active sessions and both save t
     saves.push({ url: url + r.json().save.id, bytes })
   }
   const before = c.app.database.prepare('SELECT * FROM users').get()
-  c.app.database.exec('ALTER TABLE users DROP COLUMN role; DELETE FROM schema_migrations WHERE version = 7; PRAGMA user_version = 6;')
+  c.app.database.exec('DROP TABLE games; DROP TABLE bios; ALTER TABLE users DROP COLUMN role; DELETE FROM schema_migrations WHERE version >= 7; PRAGMA user_version = 6;')
   await c.app.close()
   c.app = await createApp({ root: c.root, env: {} })
   assert.equal(c.app.database.prepare('PRAGMA user_version').get().user_version, schemaVersion)

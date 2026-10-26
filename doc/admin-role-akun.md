@@ -37,7 +37,7 @@ CLI mengambil lease shared melalui `openDatabase`, sama seperti reset akun. Back
 
 ## Update dan backup
 
-Sebelum migrasi, hentikan server/CLI dan buat backup offline dengan versi aplikasi lama. Setelah database versi 7 dibuat, jangan paksa downgrade. CLI backup saat ini menerima format 1 dengan skema **7**; backup skema 6 harus diverifikasi/di-restore memakai versi lama terlebih dahulu, lalu hasil restore dapat dimigrasikan oleh server baru. Sumber backup tidak dimigrasikan otomatis.
+Sebelum migrasi, hentikan server/CLI dan buat backup offline dengan versi aplikasi lama. Setelah database dimigrasikan, jangan paksa downgrade. Sejak fondasi katalog Milestone 2, startup memakai skema **8**; pembuatan backup baru memerlukan katalog/aset kosong. Verify/restore format 1 tetap menerima skema **7**, serta skema **8** dengan katalog kosong. Backup skema 6 harus diverifikasi/di-restore memakai versi lama terlebih dahulu, lalu hasil restore dapat dimigrasikan oleh server baru. Sumber backup tidak dimigrasikan otomatis. Lihat [fondasi katalog/storage](milestone-2-katalog-storage.md).
 
 Backup skema 7 menyertakan role melalui snapshot tabel `users`; restore mempertahankannya dan mencabut semua sesi seperti sebelumnya. ROM/BIOS/cover belum tercakup—backup koleksi dinamis baru boleh dinyatakan lengkap setelah Milestone 7 rencana Admin/Library/BIOS.
 

@@ -4,6 +4,8 @@ Status: **M8 selesai untuk cakupan penggunaan lokal:** implementasi/verifikasi o
 
 **Pembaruan 0.3.1:** tersedia opsi HTTP akun untuk LAN tepercaya melalui `MAIN_DULU_ALLOW_INSECURE_HTTP=true` dan origin HTTP eksplisit. Ini tidak mengenkripsi koneksi dan bukan bukti deployment HTTPS/LAN pengguna telah diuji. Panduan Docker terkini: [deploy backend](../deploy/README.backend.md).
 
+**Pembaruan pengembangan Admin/Library/BIOS:** startup kini memakai skema **8**. Backup baru hanya diizinkan bila tabel game/BIOS dan direktori aset katalog kosong; termasuk tombstone/aset yatim akan memblokir backup. Verify/restore backup skema **7** tetap didukung secara eksplisit. Backup koleksi lengkap belum tersedia sampai Milestone 7 pada rencana katalog; lihat [fondasi katalog/storage](milestone-2-katalog-storage.md). Penomoran M8 dalam dokumen ini berasal dari rencana akun/save, bukan Milestone 7 katalog.
+
 ## Keputusan dan cakupan
 
 - Administrasi lokal melalui CLI, bukan endpoint/web admin.
@@ -98,7 +100,7 @@ Manifest mencatat versi format, skema, versi aplikasi/Node, checksum `dist/playe
 ## Restore ke data bersih
 
 1. Tutup semua player/browser yang memakai instalasi lama dan hentikan server/admin. Jika data lama masih dapat dibaca, buat backup terpisah dahulu. Jangan hapus data lama.
-2. Siapkan versi aplikasi/engine yang sesuai dengan backup. CLI pengembangan terbaru menerima format backup 1 dan skema **7** saja (role akun); rilis 0.3.1 menerima skema **6**. CLI tidak memigrasikan sumber atau memaksa downgrade. Untuk backup skema 6, verifikasi/restore dengan aplikasi lama terlebih dahulu, kemudian buka hasil restore memakai server baru untuk migrasi. Simpan distribusi yang sesuai; jangan ubah nomor skema/manifest manual.
+2. Siapkan versi aplikasi/engine yang sesuai dengan backup. Verify/restore CLI pengembangan terbaru menerima format backup 1 dengan skema **7**, atau skema **8** dengan katalog kosong; rilis 0.3.1 menerima skema **6**. Pembuatan backup baru mensyaratkan skema 8 dengan katalog/aset kosong. CLI tidak memigrasikan sumber atau memaksa downgrade. Untuk backup skema 6, verifikasi/restore dengan aplikasi lama terlebih dahulu, kemudian buka hasil restore memakai server baru untuk migrasi. Simpan distribusi yang sesuai; jangan ubah nomor skema/manifest manual.
 3. Verifikasi lalu restore ke **folder yang belum ada**:
 
 ```powershell

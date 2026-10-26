@@ -20,7 +20,7 @@ async function main() {
 
 main().catch(error => {
   // Do not print raw SQLite errors, user rows, environment values, or stacks.
-  const safe = /^(Gunakan:|Path backup|Backup\/restore|Folder backup|Folder tujuan|Berkas\/folder backup|Lock data|Data sedang|Versi skema|Integritas SQLite|Identitas instalasi|Referensi blob|Isi folder backup|Manifest backup|Format\/versi manifest|Daftar berkas|Ukuran\/checksum|Metadata manifest|Blob sumber|Salinan restore|Berkas berubah)/
+  const safe = /^(Gunakan:|Path backup|Backup\/restore|Folder backup|Folder tujuan|Berkas\/folder backup|Lock data|Data sedang|Versi skema|Integritas SQLite|Identitas instalasi|Referensi blob|Isi folder backup|Manifest backup|Format\/versi manifest|Daftar berkas|Ukuran\/checksum|Metadata manifest|Blob sumber|Salinan restore|Berkas berubah|Katalog backup)/
   console.error(safe.test(error.message) ? error.message : 'Operasi data gagal. Periksa konfigurasi, sumber, izin, ruang disk, dan versi aplikasi. Data lama tidak ditimpa; folder .partial-* mungkin perlu diperiksa setelah proses terhenti.')
   process.exitCode = 1
 })

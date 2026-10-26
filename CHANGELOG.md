@@ -16,10 +16,13 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 - Guard multipart opt-in per route dengan origin/cookie/CSRF tetap wajib sebelum parsing, tanpa mengubah tipe/batas API akun/save. Health capability `admin: true`, `gameCatalog: false`, `biosCatalog: false`; halaman admin, upload, dan katalog dinamis belum diimplementasikan.
 - Tes role, bypass payload, pencabutan akses, migrasi akun/save/sesi lama, CLI/data lock, serta pelestarian role pada backup/restore. Panduan operasional: `doc/admin-role-akun.md`.
 - Penutupan Milestone 1 dalam cakupan terverifikasi: **125 tes unit/integrasi**, **30 tes browser akun/state/progres NES** tanpa retry/skip, dan build lulus; discovery/tamu statis dev/produksi masing-masing 5 tes lulus. Bukan bukti Docker/HTTPS nyata atau gameplay semua core.
+- Fondasi Milestone 2 Admin/Library/BIOS: migrasi SQLite 8 dengan tabel game/BIOS, UUID stabil, metadata cover, tombstone, dan duplikat unik per console + SHA-256 byte upload termasuk arsip. Storage privat ber-key acak dan staging streaming mengikuti `MAIN_DULU_DATA_DIR`, tanpa API upload/UI atau perubahan identitas save.
+- `npm run storage:recover` untuk inspeksi offline; `npm run storage:recover -- --apply` membersihkan staging/orphan yang dikenali dengan exclusive data lock, tanpa menghapus aset aktif/save. Modul katalog dan CLI masuk allowlist image backend. Panduan: `doc/milestone-2-katalog-storage.md`.
+- Penutupan Milestone 2 dalam cakupan persistence: **153 tes unit/integrasi**, build, dan **35 tes browser backend akun/discovery/state/progres NES** lulus tanpa retry/skip. Tes katalog mencakup konkurensi lintas proses, crash terkontrol, migrasi/rollback, proteksi storage, dan pengaman backup; belum membuktikan upload HTTP, gameplay katalog dinamis, Docker/HTTPS, atau disk penuh nyata.
 
 ### Diubah
 
-- Backup format 1 kini mensyaratkan skema 7 sesuai aplikasi. Untuk backup skema 6, gunakan aplikasi lama untuk verifikasi/restore sebelum hasil restore dimigrasikan oleh server baru; sumber backup tidak diubah otomatis. Backup ROM/BIOS/cover tetap belum tersedia.
+- Backup baru format 1 mensyaratkan skema 8 dengan tabel/aset katalog kosong; entri aktif, tombstone, dan aset yatim memblokir backup agar koleksi tidak diabaikan diam-diam. Verify/restore backup skema 7 tetap didukung tanpa migrasi sumber; untuk skema 6, gunakan aplikasi lama terlebih dahulu. Backup ROM/BIOS/cover lengkap tetap Milestone 7 katalog.
 
 ### Diperbaiki
 
