@@ -30,6 +30,16 @@ test('deployment mode is explicit; the portable static frontend does not probe a
   await expect(page.getByRole('button', { name: /Login|Daftar akun/ })).toHaveCount(0)
 })
 
+test('admin deep links never expose management controls to guests or trigger discovery on static deployments', async ({ page }, testInfo) => {
+  const requests: string[] = []
+  page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/')) requests.push(request.url()) })
+  await page.goto('/admin/bios')
+  await expect(page.getByRole('heading', { name: testInfo.project.name === 'node-backend' ? 'Masuk sebagai admin.' : 'Admin tidak tersedia.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Upload BIOS', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Admin', exact: true })).toHaveCount(0)
+  if (testInfo.project.name !== 'node-backend') expect(requests).toEqual([])
+})
+
 test('an enabled but unreachable backend remains unavailable and supports retry', async ({ page }) => {
   await enableBackend(page)
   await page.route('**/api/health', route => route.abort())

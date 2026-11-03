@@ -1,6 +1,6 @@
 # Rencana Implementasi Admin, Library Game, dan Pengelolaan BIOS
 
-Status: **Milestone 1–3 selesai dan terverifikasi pada 2026-10-26 dalam cakupan masing-masing di bawah. Milestone 4–7 belum diimplementasikan.** Jalankan berurutan per milestone. Setiap milestone ditutup setelah checklist dan kriteria selesainya terverifikasi.
+Status: **Milestone 1–3 selesai dan terverifikasi pada 2026-10-26; Milestone 4 selesai dan terverifikasi pada 2026-11-03 dalam cakupan masing-masing di bawah. Milestone 5–7 belum diimplementasikan.** Jalankan berurutan per milestone. Setiap milestone ditutup setelah checklist dan kriteria selesainya terverifikasi.
 
 ## Milestone 1 — Role Akun dan Otorisasi Admin
 
@@ -104,23 +104,27 @@ Usulan endpoint, disesuaikan dengan pola proyek saat implementasi:
 
 ## Milestone 4 — Halaman Admin, Manage Game, dan Manage BIOS
 
+Panduan penggunaan, kontrak UI, dan batas cakupan: [UI pengelolaan game dan BIOS](milestone-4-ui-admin.md).
+
 **Target:** admin dapat mengelola koleksi melalui UI berbahasa Indonesia.
 
-- [ ] Tambahkan halaman `/admin`, `/admin/games`, dan `/admin/bios`, menu khusus admin, serta registrasi route HTML backend agar refresh/deep link berfungsi. Pisahkan menu Manage Game dari Manage BIOS.
-- [ ] Tampilkan status pemeriksaan sesi; jangan tampilkan konten admin sebelum role terkonfirmasi. Pemeriksaan frontend bukan pengganti otorisasi backend.
-- [ ] Sediakan daftar game dengan pencarian, console, ukuran, tanggal upload, dan status ketersediaan/pembersihan.
-- [ ] Sediakan form judul, console, ROM, cover opsional, deskripsi, dan lisensi/keterangan hak distribusi.
-- [ ] Sediakan daftar BIOS dengan pencarian/filter console, ukuran, SHA-256, nama firmware, dan status; form upload berisi nama tampilan, console, berkas BIOS/arsip, deskripsi, dan keterangan hak distribusi.
-- [ ] Tampilkan progress upload serta fase pemrosesan server secara terpisah. Progress 100% pengiriman belum berarti game/BIOS sudah diterbitkan.
-- [ ] Tangani pembatalan, sesi kedaluwarsa, role dicabut, duplikat, validasi gagal, dan storage penuh dengan pesan yang jelas.
-- [ ] Sediakan edit metadata dan konfirmasi delete yang menyebut bahwa save pengguna tidak dihapus; perbarui daftar setelah operasi berhasil.
-- [ ] Pada delete BIOS, jelaskan bahwa game yang membutuhkan firmware tersebut akan memerlukan pilihan BIOS lain atau berkas lokal untuk sesi berikutnya.
-- [ ] Gunakan komponen dialog dan pola aksesibilitas proyek, termasuk fokus keyboard, Escape, label input, dan tampilan mobile.
-- [ ] Jangan menambahkan pengelolaan role akun lewat UI pada MVP; penetapan admin tetap melalui terminal server.
+- [x] Tambahkan halaman `/admin`, `/admin/games`, dan `/admin/bios`, menu khusus admin, serta registrasi route HTML backend agar refresh/deep link berfungsi. Pisahkan menu Manage Game dari Manage BIOS.
+- [x] Tampilkan status pemeriksaan sesi; jangan tampilkan konten admin sebelum role terkonfirmasi. Pemeriksaan frontend bukan pengganti otorisasi backend.
+- [x] Sediakan daftar game dengan pencarian, console, ukuran, tanggal upload, dan status ketersediaan/pembersihan.
+- [x] Sediakan form judul, console, ROM, cover opsional, deskripsi, dan lisensi/keterangan hak distribusi.
+- [x] Sediakan daftar BIOS dengan pencarian/filter console, ukuran, SHA-256, nama firmware, dan status; form upload berisi nama tampilan, console, berkas BIOS/arsip, deskripsi, dan keterangan hak distribusi.
+- [x] Tampilkan progress upload serta fase pemrosesan server secara terpisah. Progress 100% pengiriman belum berarti game/BIOS sudah diterbitkan.
+- [x] Tangani pembatalan, sesi kedaluwarsa, role dicabut, duplikat, validasi gagal, dan storage penuh dengan pesan yang jelas.
+- [x] Sediakan edit metadata dan konfirmasi delete yang menyebut bahwa save pengguna tidak dihapus; perbarui daftar setelah operasi berhasil.
+- [x] Pada delete BIOS, jelaskan bahwa game yang membutuhkan firmware tersebut akan memerlukan pilihan BIOS lain atau berkas lokal untuk sesi berikutnya.
+- [x] Gunakan komponen dialog dan pola aksesibilitas proyek, termasuk fokus keyboard, Escape, label input, dan tampilan mobile.
+- [x] Jangan menambahkan pengelolaan role akun lewat UI pada MVP; penetapan admin tetap melalui terminal server.
 
 **Kriteria selesai:** admin dapat upload game maupun BIOS, melihat hasil, edit metadata, dan delete tanpa mengedit JSON atau build ulang. Pengguna biasa tidak mendapat akses meskipun membuka URL admin langsung.
 
 **Area utama:** `src/App.tsx`, komponen admin baru di `src/components/`, client API di `src/lib/`, `src/styles.css`, `server/app.mjs`.
+
+**Implementasi dan verifikasi Milestone 4 (2026-11-03):** halaman/menu admin terkonfirmasi, route HTML deep link, daftar terpisah game/BIOS dengan pencarian/filter/status/pagination, form upload XHR dengan fase pengiriman/pemrosesan, edit metadata/ganti-hapus cover, delete berkonfirmasi, dan pemulihan ID lama melalui upload ulang eksplisit. Mutasi memeriksa akun/role/CSRF terbaru sebelum mengirim byte; 401/403 menyembunyikan pengelolaan dan memperbarui sesi. Dialog memakai pola fokus/Escape bersama, fallback fokus toolbar setelah baris daftar diganti, serta tampilan mobile. `npm test`: **189 lulus**; build **lulus**; rangkaian browser backend lengkap **62 lulus** tanpa retry/skip (5,3 menit), mencakup akun/save/progres NES/player, smoke katalog, dan 10 skenario UI admin. Setelah penyempurnaan pesan timeout, peringatan backup, fokus, penggantian cover, dan tampilan ukuran berkas kecil, build diulang dan smoke akhir admin/discovery/katalog **18 lulus** tanpa retry/skip (26,1 detik). Discovery/tamu statis: **6 dev + 6 produksi lulus**, termasuk deep link admin tanpa kontrol pengelolaan/request API. Satu percobaan awal tes fase pemrosesan menahan request di intersepsi browser sebelum body dikirim; fixture diperbaiki menjadi penundaan finalisasi server nyata, bukan perubahan runtime untuk memalsukan progress. **Milestone 4 ditutup dalam cakupan UI pengelolaan ini.** Tidak ada perubahan skema/player/engine/identitas save. Library dan pilihan BIOS dinamis tetap Milestone 5; backup koleksi tetap Milestone 7. ROM/BIOS sintetis pada tes UI bukan bukti gameplay/boot; Docker/Alpine/HTTPS/proxy, disk penuh fisik, dan upload 768 MiB penuh belum diklaim. Rincian penggunaan dan batas ada pada [panduan UI admin](milestone-4-ui-admin.md).
 
 ## Milestone 5 — Library dan Integrasi Player
 

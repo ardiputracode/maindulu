@@ -33,9 +33,9 @@ Buka **http://localhost:7777**. Satu proses Node.js menyajikan frontend dan API,
 
 **Akun lokal opsional**: pilih **Masuk → Daftar**, lalu simpan kode pemulihan yang ditampilkan sekali. Login/logout, ganti password, pemulihan dengan kode sekali pakai, dan penerbitan ulang kode tersedia tanpa Google atau email. Pengelola dengan akses OS dapat menjalankan `npm run account:reset -- <username>` dengan input password tersembunyi. Lihat [panduan akun M3](doc/milestone-3-akun-lokal.md) dan [pemulihan akun M4](doc/milestone-4-pemulihan-akun.md).
 
-**Role admin (belum dirilis):** seluruh akun lama/baru default `user`. Promosi lewat `npm run account:role -- username admin`, demosi lewat `npm run account:role -- username user`; berlaku pada sesi aktif tanpa mengubah akun/save. Pengelolaan lewat API tersedia pada tahap pengembangan; halaman admin belum tersedia. Lihat [panduan role, keamanan, dan migrasi](doc/admin-role-akun.md).
+**Admin (belum dirilis):** seluruh akun lama/baru default `user`. Promosi lewat `npm run account:role -- username admin`, demosi lewat `npm run account:role -- username user`; berlaku pada sesi aktif tanpa mengubah akun/save. Login sebagai admin lalu buka menu **Admin**: `/admin/games` untuk ROM/cover dan `/admin/bios` untuk firmware. Tersedia upload, edit metadata, delete, serta pemulihan ID lama melalui upload ulang berkas yang sama. Role tetap dikelola lewat terminal. Lihat [panduan UI admin](doc/milestone-4-ui-admin.md) dan [role, keamanan, serta migrasi](doc/admin-role-akun.md).
 
-**Katalog persisten (Milestone 2–3 Admin/Library/BIOS, belum dirilis):** metadata game/BIOS memakai SQLite, berkas internal memakai `games/`, `bios/`, `covers/`, dan staging `uploads/` di bawah `MAIN_DULU_DATA_DIR`. API publik katalog/unduh serta API admin upload/edit/delete tersedia; UI admin dan integrasi Library/pilihan BIOS dinamis belum tersedia. Delete menolak akses baru lalu membersihkan berkas dengan retry, tanpa menghapus save. Inspeksi orphan offline: `npm run storage:recover`; pembersihan memerlukan `-- --apply` dan server berhenti. **Jangan gunakan koleksi upload sebagai produksi sebelum backup koleksi Milestone 7 tersedia.** Lihat [fondasi storage](doc/milestone-2-katalog-storage.md) dan [kontrak API, konfigurasi, serta verifikasi Milestone 3](doc/milestone-3-api-katalog.md).
+**Katalog persisten (Milestone 2–4 Admin/Library/BIOS, belum dirilis):** metadata game/BIOS memakai SQLite, berkas internal memakai `games/`, `bios/`, `covers/`, dan staging `uploads/` di bawah `MAIN_DULU_DATA_DIR`. API dan UI admin upload/edit/delete tersedia; integrasi Library/pilihan BIOS dinamis tetap Milestone 5. Upload belum muncul pada katalog bermain yang masih memakai manifest. Delete menolak akses baru lalu membersihkan berkas dengan retry, tanpa menghapus save. Inspeksi orphan offline: `npm run storage:recover`; pembersihan memerlukan `-- --apply` dan server berhenti. **Jangan gunakan koleksi upload sebagai produksi sebelum backup koleksi Milestone 7 tersedia.** Lihat [fondasi storage](doc/milestone-2-katalog-storage.md) dan [kontrak API, konfigurasi, serta verifikasi Milestone 3](doc/milestone-3-api-katalog.md).
 
 **Save state server manual (M5):** login sebelum membuka game, lalu gunakan tombol **Save state server** di toolbar emulator untuk membuka overlay. Game jeda otomatis saat overlay terbuka dan lanjut kembali saat ditutup. Overlay menyediakan simpan/muat pada tiga slot manual dan slot **Autosave** khusus (slot 99) dengan toggle + interval (Nonaktif default, 30 detik, 1–15 menit). Default 32 MiB per state dan 256 MiB per akun, dengan peringatan 80%, pengelola lintas game, serta unduhan cadangan/retry saat upload gagal. Verifikasi otomatis saat ini NES; core lain masih percobaan. Mode tamu/statis tetap menyimpan di browser. Lihat [panduan M5 dan konfigurasi kuota](doc/milestone-5-save-state-server.md).
 
@@ -61,7 +61,7 @@ Untuk mencoba dari HP di Wi-Fi yang sama, buka `http://IP-KOMPUTER:5173`. Server
 
 - Beranda, Jelajahi console, Terakhir dimainkan, Favoritku, Cara bermain, Pengaturan.
 - Membuka ROM/BIOS lokal lewat file picker atau drop ROM. File tidak di-upload atau disimpan permanen.
-- Game/BIOS pada UI melalui manifest; backend menyediakan API upload/katalog/unduh terpisah, belum UI admin/Library.
+- Game/BIOS pada UI bermain masih melalui manifest; admin dapat mengelola katalog database melalui UI terpisah. Library/pilihan BIOS dinamis belum tersedia.
 - Pilihan BIOS lokal/server independen dari sumber ROM.
 - Favorit, metadata riwayat, volume awal, dan toggle riwayat di LocalStorage.
 - Player iframe terisolasi, validasi pesan/sesi, konfirmasi keluar, dan pembersihan instance.
@@ -71,7 +71,7 @@ Untuk mencoba dari HP di Wi-Fi yang sama, buka `http://IP-KOMPUTER:5173`. Server
 
 ## Tambahkan game server (manifest statis)
 
-Untuk upload backend tanpa build ulang, lihat [API katalog Milestone 3](doc/milestone-3-api-katalog.md). Langkah di bawah tetap untuk manifest statis; UI saat ini belum membaca katalog database.
+Untuk upload backend tanpa build ulang, gunakan [UI admin Milestone 4](doc/milestone-4-ui-admin.md) atau [API katalog Milestone 3](doc/milestone-3-api-katalog.md). Langkah di bawah tetap untuk manifest statis; UI bermain saat ini belum membaca katalog database.
 
 1. Simpan ROM yang berhak didistribusikan di `public/games/`.
 2. Simpan cover lokal di `public/covers/`.

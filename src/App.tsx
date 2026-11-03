@@ -16,6 +16,7 @@ import { useBackendStatus } from './lib/useBackendStatus'
 import BackendStatus from './components/BackendStatus'
 import { useAccount } from './lib/useAccount'
 import AccountDialog from './components/AccountDialog'
+import AdminCatalog from './components/AdminCatalog'
 
 const navigation: { path: string; title: string; icon: LucideIcon }[] = [
   { path: '/', title: 'Beranda', icon: House },
@@ -38,6 +39,7 @@ export default function App() {
   const backend = useBackendStatus()
   const accountsEnabled = backend.state.status === 'online' && backend.state.health.capabilities.accounts
   const account = useAccount(accountsEnabled)
+  const adminVisible = backend.state.status === 'online' && backend.state.health.capabilities.admin === true && account.state.status === 'authenticated' && account.state.user?.role === 'admin'
   const [accountOpen, setAccountOpen] = useState(false)
   const [consoles, setConsoles] = useState<ConsoleInfo[]>([])
   const [games, setGames] = useState<Game[]>([])
@@ -99,7 +101,7 @@ export default function App() {
     return () => controller.abort()
   }, [catalogRetry])
 
-  useEffect(() => { setDrawer(false); main.current?.focus(); window.scrollTo({ top: 0 }); document.title = `${navigation.find(n => n.path === location.pathname)?.title || 'Ruang bermain'} — maindulu` }, [location.pathname])
+  useEffect(() => { setDrawer(false); main.current?.focus(); window.scrollTo({ top: 0 }); document.title = `${location.pathname.startsWith('/admin') ? 'Admin' : navigation.find(n => n.path === location.pathname)?.title || 'Ruang bermain'} — maindulu` }, [location.pathname])
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 3200); return () => clearTimeout(timer) }, [toast])
   useEffect(() => {
     const media = matchMedia('(max-width: 760px)')
@@ -143,7 +145,7 @@ export default function App() {
     return <div className="game-grid">{list.map(game => <GameCard key={game.id} game={game} consoleInfo={consoles.find(c => c.id === game.consoleId)} favorite={favorites.some(g => g.id === game.id)} onFavorite={() => favorite(game)} onOpen={() => open({ game })} showTime={showTime} />)}</div>
   }
 
-  const headerTitle = navigation.find(n => n.path === location.pathname)?.title || 'Ruang bermain'
+  const headerTitle = location.pathname.startsWith('/admin') ? 'Admin' : navigation.find(n => n.path === location.pathname)?.title || 'Ruang bermain'
   return <div className="app-shell">
     <a className="skip-link" href="#konten">Lewati ke konten</a>
     {drawer && <button className="drawer-scrim" aria-label="Tutup navigasi" onClick={() => setDrawer(false)} />}
@@ -151,7 +153,7 @@ export default function App() {
       <button className="drawer-close icon-button" aria-label="Tutup navigasi" onClick={() => setDrawer(false)}><X size={19} /></button>
       <Link to="/" className="brand" aria-label="maindulu, beranda"><img src="/assets/maindulu.svg" alt="" width="39" height="39" /><span>maindulu<span className="brand-dot">.</span></span></Link>
       <span className="sidebar-caption">RUANG NOSTALGIAMU</span>
-      <nav>{navigation.map(({ path, title, icon: Icon }, i) => <NavLink key={path} to={path} end={path === '/'} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''} ${i === 4 ? 'nav-separated' : ''}`}><Icon size={19} strokeWidth={1.7} /><span>{title}</span>{path === '/favorit' && favorites.length > 0 && <span className="nav-count">{favorites.length}</span>}</NavLink>)}</nav>
+      <nav>{navigation.map(({ path, title, icon: Icon }, i) => <NavLink key={path} to={path} end={path === '/'} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''} ${i === 4 ? 'nav-separated' : ''}`}><Icon size={19} strokeWidth={1.7} /><span>{title}</span>{path === '/favorit' && favorites.length > 0 && <span className="nav-count">{favorites.length}</span>}</NavLink>)}{adminVisible && <NavLink to="/admin" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}><ShieldCheck size={19} /><span>Admin</span></NavLink>}</nav>
       <div className="sidebar-bottom"><div className="sidebar-note"><div className="note-icon"><Leaf size={19} /></div><strong>Rehat itu perlu.</strong><p>Lima menit juga cukup<br />buat jadi anak kecil lagi.</p><span>TAKE A LITTLE PLAY BREAK <ArrowUpRight size={12} /></span></div><div className="engine-status"><span className="status-dot" /><span>Engine lokal <b>v4.2.3</b></span><ShieldCheck size={14} /></div></div>
     </aside>
     <div className="workspace" inert={mobile && drawer}>
@@ -167,6 +169,7 @@ export default function App() {
             {history.length > 0 && <section className="section"><div className="section-heading"><div><span className="eyebrow">MASIH ADA WAKTU?</span><h2>Terakhir kamu mainkan.</h2></div><Link className="text-link" to="/riwayat">Semua riwayat<ArrowRight size={16} /></Link></div>{cards(history.slice(0, 3), true)}</section>}
             <div className="slow-banner"><span className="slow-icon"><Leaf size={28} strokeWidth={1.2} /></span><div><strong>Nggak harus tamat hari ini.</strong><p>Yang penting, sempat senang sebentar.</p></div><Link to="/cara-bermain" className="text-link">Baru pertama main?<ArrowRight size={16} /></Link></div>
           </>} />
+          <Route path="/admin/*" element={<AdminCatalog backend={backend.state} account={account} consoles={consoles} onLogin={() => setAccountOpen(true)} onRetry={backend.retry} />} />
           <Route path="/console" element={<Explore consoles={consoles} games={games} renderCards={cards} onOpen={open} />} />
           <Route path="/riwayat" element={<><PageHeading eyebrow="KENANGAN YANG BARU DIBUKA" title="Terakhir dimainkan." description="Bukan daftar pekerjaan. Ini daftar kesenanganmu." /><div className="list-toolbar"><span><Clock3 size={16} />{history.length} permainan {!settings.history && '· pencatatan dijeda'}</span>{history.length > 0 && <button className="text-link muted" onClick={() => { if (window.confirm('Hapus semua riwayat bermain? Favorit dan save game tidak akan dihapus.')) { setHistory([]); setToast('Riwayat bermain sudah dibersihkan.') } }}>Bersihkan riwayat</button>}</div>{history.length ? <>{cards(history, true)}<p className="page-footnote">Riwayat bukan save state. Game lokal akan meminta file ROM yang sama saat dibuka kembali.</p></> : <EmptyState icon={Clock3} title="Belum ada jejak jempol." text={settings.history ? 'Mulai satu permainan. Kenangan yang baru dibuka akan muncul di sini.' : 'Pencatatan riwayat sedang dimatikan. Kamu tetap bisa bermain tanpa meninggalkan daftar.'} action="Cari permainan" onClick={() => navigate('/console')} />}</>} />
           <Route path="/favorit" element={<><PageHeading eyebrow="SELALU PUNYA TEMPAT" title="Favoritku." description="Beberapa game memang nggak pernah benar-benar kita tinggalkan." /><div className="list-toolbar"><span><Heart size={16} />{favorites.length} permainan favorit</span></div>{favorites.length ? cards(favorites) : <EmptyState icon={Heart} title="Tempat untuk yang paling berkesan." text="Tekan ikon hati di kartu game untuk menyimpannya di sini. Favorit lokal menyimpan nama game, bukan file ROM-nya." action="Temukan favoritmu" onClick={() => navigate('/console')} />}</>} />

@@ -140,7 +140,7 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -
 
 Nilai boolean hanya `true`/`false`. `MAIN_DULU_HOST=0.0.0.0`, port internal 7777, dan dist `/app/dist` sudah ditetapkan Compose; bukan alamat yang perlu diketik di browser. Data dir harus tetap di bawah `/var/lib/maindulu` agar persisten, bukan di `public/`, `dist/`, atau filesystem image read-only.
 
-**Katalog Milestone 3 belum untuk produksi:** API upload/edit/delete dan unduh publik tersedia, tetapi UI admin/Library serta backup koleksi belum tersedia. ROM/BIOS aktif dapat diunduh tamu. Backup ditolak jika katalog/aset/antrean/reservasi berisi data; jangan menganggap backup akun/save mencakup koleksi. Panduan: [API katalog dan batas verifikasi](../doc/milestone-3-api-katalog.md).
+**Katalog Milestone 4 belum untuk produksi:** API dan UI admin upload/edit/delete serta unduh publik tersedia. Setelah promosi role dan login admin, buka `/admin/games` atau `/admin/bios`; refresh/deep link dilayani backend. Library/pilihan BIOS dinamis serta backup koleksi belum tersedia. ROM/BIOS aktif dapat diunduh tamu. Backup ditolak jika katalog/aset/antrean/reservasi berisi data; jangan menganggap backup akun/save mencakup koleksi. Panduan: [UI admin](../doc/milestone-4-ui-admin.md) dan [API katalog serta batas verifikasi](../doc/milestone-3-api-katalog.md).
 
 Image `maindulu-backend:0.3.1` memakai production dependencies, user `node`, root filesystem read-only, `/tmp` tmpfs, dan healthcheck API. Modul bersama `src/lib/game-save-format.ts` ikut disalin ke runtime karena diimpor langsung oleh server.
 
@@ -232,7 +232,7 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml exec
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml exec backend npm run account:role -- username user
 ```
 
-Gunakan container/data dir yang sama dengan server; jangan pakai container `run` terpisah saat server aktif karena namespace lock berbeda. Role berlaku pada request sesi aktif berikutnya, tanpa menghapus progres/kredensial. CLI ditolak selama maintenance eksklusif. `GET /api/admin/status` hanya menerima admin (tamu 401, akun biasa 403). Pada pengembangan Milestone 3, health mengiklankan `admin`, `gameCatalog`, dan `biosCatalog` sebagai `true`: API katalog/upload tersedia, **bukan** halaman admin/Library atau backup koleksi. Panduan: [role akun](../doc/admin-role-akun.md) dan [API katalog](../doc/milestone-3-api-katalog.md).
+Gunakan container/data dir yang sama dengan server; jangan pakai container `run` terpisah saat server aktif karena namespace lock berbeda. Role berlaku pada request sesi aktif berikutnya, tanpa menghapus progres/kredensial. CLI ditolak selama maintenance eksklusif. `GET /api/admin/status` hanya menerima admin (tamu 401, akun biasa 403). Health mengiklankan `admin`, `gameCatalog`, dan `biosCatalog` sebagai `true` untuk API. Milestone 4 menambahkan menu/halaman admin, **bukan** Library atau backup koleksi. Bila menu belum muncul setelah promosi, muat ulang halaman atau fokuskan kembali tab untuk memperbarui sesi. Panduan: [role akun](../doc/admin-role-akun.md), [UI admin](../doc/milestone-4-ui-admin.md), dan [API katalog](../doc/milestone-3-api-katalog.md).
 
 ## 8. Verifikasi dan troubleshooting
 

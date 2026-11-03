@@ -2,6 +2,8 @@
 
 Fondasi Milestone 1 pada [rencana Admin/Library/BIOS](rencana-admin-library-game.md), **selesai dan terverifikasi pada 2026-10-26** dalam cakupan pengujian di bawah. **Belum menyediakan halaman admin, katalog dinamis, atau upload game/BIOS.**
 
+Catatan perkembangan: batas di atas adalah cakupan historis Milestone 1. API tersedia sejak Milestone 3 dan halaman pengelolaan tersedia pada [Milestone 4 — UI admin](milestone-4-ui-admin.md); Library/pilihan BIOS dinamis dan backup koleksi tetap belum tersedia.
+
 ## Promosi dan demosi
 
 Daftarkan akun biasa melalui aplikasi terlebih dahulu. Dari terminal server di akar proyek:

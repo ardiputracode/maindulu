@@ -78,7 +78,7 @@ test('one server serves SPA pages with runtime discovery and a JSON health endpo
   const root = await backendFixture(t)
   const app = await createApp({ root, env: {} })
   try {
-    for (const page of ['/', '/index.html', '/console?console=nes', '/pengaturan', '/main']) {
+    for (const page of ['/', '/index.html', '/console?console=nes', '/pengaturan', '/main', '/admin', '/admin/games?q=fixture', '/admin/bios']) {
       const response = await app.inject(page)
       assert.equal(response.statusCode, 200)
       assert.match(response.headers['content-type'], /text\/html/)
