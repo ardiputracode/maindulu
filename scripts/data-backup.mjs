@@ -14,6 +14,7 @@ async function main() {
   else if (action === 'verify') manifest = await verifyDataBackup(config, source)
   else manifest = await restoreDataBackup(config, source, resolve(args[2]))
   console.log(`${action === 'backup' ? 'Backup selesai' : action === 'verify' ? 'Backup terverifikasi' : 'Restore selesai; semua sesi dicabut, silakan login ulang'}. ${manifest.files.length} berkas; skema ${manifest.schemaVersion}.`)
+  if (manifest.formatVersion === 2) console.log('Cakupan: akun, save/progres dan metadata katalog saja. Berkas ROM, BIOS, dan cover tidak disertakan. Setelah restore, upload ulang berkas yang sama dan konfirmasi ID lama; cover dapat diunggah lewat edit metadata.')
   if (action === 'restore') console.log('Gunakan folder hasil restore sebagai MAIN_DULU_DATA_DIR. Konfigurasi tidak diterapkan otomatis; password/kode pemulihan kembali ke waktu backup. Tutup semua sesi player lama sebelum membuka server hasil restore.')
   else console.log('Backup berisi data privat semua akun. Simpan salinan di perangkat/lokasi lain; checksum bukan bukti keaslian atau enkripsi.')
 }

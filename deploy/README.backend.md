@@ -140,7 +140,7 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -
 
 Nilai boolean hanya `true`/`false`. `MAIN_DULU_HOST=0.0.0.0`, port internal 7777, dan dist `/app/dist` sudah ditetapkan Compose; bukan alamat yang perlu diketik di browser. Data dir harus tetap di bawah `/var/lib/maindulu` agar persisten, bukan di `public/`, `dist/`, atau filesystem image read-only.
 
-**Katalog Milestone 4 belum untuk produksi:** API dan UI admin upload/edit/delete serta unduh publik tersedia. Setelah promosi role dan login admin, buka `/admin/games` atau `/admin/bios`; refresh/deep link dilayani backend. Library/pilihan BIOS dinamis serta backup koleksi belum tersedia. ROM/BIOS aktif dapat diunduh tamu. Backup ditolak jika katalog/aset/antrean/reservasi berisi data; jangan menganggap backup akun/save mencakup koleksi. Panduan: [UI admin](../doc/milestone-4-ui-admin.md) dan [API katalog serta batas verifikasi](../doc/milestone-3-api-katalog.md).
+**Katalog pengembangan:** API dan UI admin upload/edit/delete serta unduh publik tersedia. Setelah promosi role dan login admin, buka `/admin/games` atau `/admin/bios`; game aktif dapat ditemukan/dimainkan melalui `/library`, dan BIOS dinamis dipilih sesuai console. Refresh/deep link dilayani backend. ROM/BIOS aktif dapat diunduh tamu. **Backup format 2 hanya menyimpan akun/save/metadata**, bukan berkas ROM/BIOS/cover; katalog berisi data tidak lagi memblokir backup. Setelah restore bersih, upload ulang aset identik dan konfirmasi ID lama. Ini bukan backup koleksi lengkap dan bukan bukti verifikasi produksi/container/proxy. Panduan: [backup metadata](../doc/backup-metadata-katalog.md), [Library/player](../doc/milestone-5-library-player.md), [UI admin](../doc/milestone-4-ui-admin.md), dan [API katalog](../doc/milestone-3-api-katalog.md).
 
 Image `maindulu-backend:0.3.1` memakai production dependencies, user `node`, root filesystem read-only, `/tmp` tmpfs, dan healthcheck API. Modul bersama `src/lib/game-save-format.ts` ikut disalin ke runtime karena diimpor langsung oleh server.
 
@@ -157,7 +157,7 @@ Compose project bernama **`maindulu-backend`**, service **`backend`**, volume **
 
 Database bukan isi bawaan repo/image: `data/` diabaikan Git, dan allowlist `.dockerignore` mengecualikan data privat serta SQLite dari build context. Saat volume masih kosong, backend membuat database baru; rebuild/recreate memakai data lama selama volume dan folder data tetap sama. Error lock berasal dari penyimpanan volume, bukan database yang disalin saat build.
 
-Untuk memindahkan instalasi `npm start` ke Docker: hentikan server lokal, buat/verifikasi backup M8 dari folder data yang benar, salin **seluruh folder backup** ke volume secara privat, lalu restore ke folder baru dan set `MAIN_DULU_CONTAINER_DATA_DIR` seperti di bawah. Akun/save tidak digabung otomatis. Jangan hanya menyalin SQLite karena blob save/progres berada di file terpisah. Konfigurasi environment dan progres tamu browser tidak ikut backup.
+Untuk memindahkan instalasi `npm start` ke Docker: hentikan server lokal, buat/verifikasi backup dari folder data yang benar, salin **seluruh folder backup** ke volume secara privat, lalu restore ke folder baru dan set `MAIN_DULU_CONTAINER_DATA_DIR` seperti di bawah. Akun/save tidak digabung otomatis. Jangan hanya menyalin SQLite karena blob save/progres berada di file terpisah. Format 2 sengaja tidak menyalin berkas ROM/BIOS/cover; setelah restore, upload ulang byte identik dan konfirmasi ID lama melalui admin. Konfigurasi environment dan progres tamu browser tidak ikut backup.
 
 **Jangan gunakan `down -v`, hapus volume, atau `docker volume prune` sebagai solusi error.** Rebuild/recreate container tidak menghapus data volume. Volume di disk server yang sama bukan backup terhadap kerusakan disk.
 
@@ -179,7 +179,7 @@ chmod 700 /opt/maindulu-backups
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml cp backend:/var/lib/maindulu/backup-before-0.3.1 /opt/maindulu-backups/backup-before-0.3.1
 ```
 
-Tujuan host tersebut juga harus belum ada. Simpan seluruh folder di perangkat lain secara privat. Backup tidak terenkripsi dan tidak mencakup ROM/BIOS, aplikasi/engine, env, atau progres tamu. Jangan hanya menyalin SQLite aktif tanpa blob/WAL. Simpan kode aplikasi/engine dan konfigurasi yang sesuai secara terpisah.
+Tujuan host tersebut juga harus belum ada. Simpan seluruh folder di perangkat lain secara privat. Backup tidak terenkripsi dan tidak mencakup berkas ROM/BIOS/cover, aplikasi/engine, env, atau progres tamu. Metadata katalog dan hubungan ID save tetap disimpan pada format 2. Jangan hanya menyalin SQLite aktif tanpa blob/WAL. Simpan kode aplikasi/engine dan konfigurasi yang sesuai secara terpisah.
 
 ### Restore tanpa menimpa data lama
 
@@ -195,7 +195,7 @@ Jika backup hanya ada di host, salin seluruh folder ke path baru dalam volume me
 MAIN_DULU_CONTAINER_DATA_DIR=/var/lib/maindulu/data-restored-0.3.1
 ```
 
-Lalu `up -d --force-recreate`, login ulang, dan uji save dengan ROM/core yang sama. Password/kode pemulihan kembali ke waktu backup; konfigurasi dari manifest tidak diterapkan otomatis. Panduan lengkap/lock tertinggal: [operasi M8](../doc/milestone-8-backup-operasi.md).
+Lalu `up -d --force-recreate`, login ulang, dan uji save dengan ROM/core yang sama. Pada restore format 2 ke folder bersih, entri aktif ditampilkan admin sebagai **Berkas hilang** sampai upload ulang byte identik pada console yang sama dikonfirmasi memakai ID lama; cover dapat diunggah ulang lewat edit metadata. Password/kode pemulihan kembali ke waktu backup; konfigurasi manifest tidak diterapkan otomatis. Panduan: [pemulihan metadata tanpa ROM/BIOS](../doc/backup-metadata-katalog.md) dan [operasi M8](../doc/milestone-8-backup-operasi.md).
 
 ## 6. Update ke versi baru
 
@@ -211,7 +211,7 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml logs
 
 4. Periksa versi **0.3.1** di Pengaturan, login, save/progres dan pemulihannya. Rilis 0.3.1 tidak mengubah skema SQLite (**6**), engine (**4.2.3**), atau format save. Jangan paksa downgrade database aktif; rollback memakai backup ke folder baru.
 
-**Pengembangan setelah 0.3.1:** fondasi role admin menaikkan skema menjadi **7**, tanpa mengubah format save/engine. Buat backup pra-update memakai aplikasi lama. CLI baru hanya menerima backup skema 7; verifikasi/restore backup skema 6 dengan aplikasi lama, lalu migrasikan hasil restore memakai server baru. Jangan paksa downgrade atau ubah nomor skema manual.
+**Pengembangan setelah 0.3.1:** role admin dan katalog memakai skema **9**, tanpa mengubah format save/engine. CLI terbaru membuat backup **format 2** akun/save/metadata skema 9, tanpa berkas ROM/BIOS/cover dan tanpa syarat katalog kosong. Verify/restore format 1 skema 7/8/9 dengan katalog kosong tetap diterima. Format 2 memerlukan aplikasi baru; aplikasi lama menolaknya. Untuk skema 6 gunakan aplikasi lama, lalu migrasikan hasil restore memakai server baru. Jangan paksa downgrade atau ubah nomor skema/manifest manual.
 
 ## 7. Reset akun admin
 
@@ -232,7 +232,7 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml exec
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml exec backend npm run account:role -- username user
 ```
 
-Gunakan container/data dir yang sama dengan server; jangan pakai container `run` terpisah saat server aktif karena namespace lock berbeda. Role berlaku pada request sesi aktif berikutnya, tanpa menghapus progres/kredensial. CLI ditolak selama maintenance eksklusif. `GET /api/admin/status` hanya menerima admin (tamu 401, akun biasa 403). Health mengiklankan `admin`, `gameCatalog`, dan `biosCatalog` sebagai `true` untuk API. Milestone 4 menambahkan menu/halaman admin, **bukan** Library atau backup koleksi. Bila menu belum muncul setelah promosi, muat ulang halaman atau fokuskan kembali tab untuk memperbarui sesi. Panduan: [role akun](../doc/admin-role-akun.md), [UI admin](../doc/milestone-4-ui-admin.md), dan [API katalog](../doc/milestone-3-api-katalog.md).
+Gunakan container/data dir yang sama dengan server; jangan pakai container `run` terpisah saat server aktif karena namespace lock berbeda. Role berlaku pada request sesi aktif berikutnya, tanpa menghapus progres/kredensial. CLI ditolak selama maintenance eksklusif. `GET /api/admin/status` hanya menerima admin (tamu 401, akun biasa 403). Health mengiklankan `admin`, `gameCatalog`, dan `biosCatalog` sebagai `true`. Milestone 4 menambahkan menu/halaman admin dan Milestone 5 menghubungkannya ke Library/pilihan BIOS. Backup menyimpan metadata katalog tetapi tidak menyertakan byte aset. Bila menu belum muncul setelah promosi, muat ulang halaman atau fokuskan kembali tab untuk memperbarui sesi. Panduan: [role akun](../doc/admin-role-akun.md), [UI admin](../doc/milestone-4-ui-admin.md), [Library](../doc/milestone-5-library-player.md), dan [backup metadata](../doc/backup-metadata-katalog.md).
 
 ## 8. Verifikasi dan troubleshooting
 

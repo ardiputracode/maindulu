@@ -7,10 +7,10 @@ export type ConsoleInfo = {
 export type Game = {
   id: string; title: string; consoleId: string; source: 'server' | 'local';
   fileName?: string; url?: string; cover?: string; description?: string;
-  license?: string; lastPlayed?: number;
+  license?: string; lastPlayed?: number; sha256?: string; size?: number; createdAt?: number;
 }
 
-export type Bios = { id: string; name: string; consoleId: string; url: string }
+export type Bios = { id: string; name: string; consoleId: string; url: string; sha256?: string; fileName?: string; description?: string; distributionRights?: string }
 export type Settings = { volume: number; history: boolean; widescreen: boolean }
 export const DEFAULT_SETTINGS: Settings = { volume: 50, history: true, widescreen: false }
 export const MAX_ROM_SIZE = 768 * 1024 * 1024
@@ -61,7 +61,7 @@ export function isSafeLocalUrl(value: unknown): value is string {
 export function readGames(value: unknown): Game[] {
   if (!Array.isArray(value)) return []
   return value.filter((g): g is Game => !!g && typeof g === 'object' &&
-    typeof g.id === 'string' && g.id.length < 160 && typeof g.title === 'string' && g.title.length < 200 &&
+    typeof g.id === 'string' && g.id.length < 160 && typeof g.title === 'string' && g.title.length <= 200 &&
     typeof g.consoleId === 'string' && (g.source === 'local' || (g.source === 'server' && isSafeLocalUrl(g.url))) &&
     (g.lastPlayed === undefined || (typeof g.lastPlayed === 'number' && Number.isFinite(g.lastPlayed))) &&
     (g.cover === undefined || isSafeLocalUrl(g.cover))).slice(0, 100)

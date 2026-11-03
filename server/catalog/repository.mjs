@@ -53,8 +53,9 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
     if (typeof id !== 'string' || !uuid.test(id)) throw invalid()
     return db.prepare(`SELECT * FROM ${kind} WHERE id = ? ${includeDeleted ? '' : 'AND deleted_at IS NULL'}`).get(id) ?? null
   }
-  function duplicate(row) {
-    return new CatalogError(row.deleted_at === null ? 'CATALOG_DUPLICATE' : 'CATALOG_RESTORE_REQUIRED', row.deleted_at === null ? 'Berkas sudah ada pada console ini.' : 'Berkas pernah dihapus; pemulihan ID lama harus dipilih secara eksplisit.', row.id)
+  function duplicate(row, missing = false) {
+    return new CatalogError(row.deleted_at === null && !missing ? 'CATALOG_DUPLICATE' : 'CATALOG_RESTORE_REQUIRED',
+      missing ? 'Metadata sudah ada, tetapi berkas hilang. Konfirmasi pemulihan ID lama dengan berkas yang sama.' : row.deleted_at === null ? 'Berkas sudah ada pada console ini.' : 'Berkas pernah dihapus; pemulihan ID lama harus dipilih secara eksplisit.', row.id)
   }
   async function promote(kind, stage) {
     if (!storage.ownsStage(stage, kind)) throw invalid()
@@ -80,24 +81,38 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
       const file = await promote(kind, stage)
       const coverFile = cover ? { file: await promote('covers', cover.stage), type: cover.type } : null
       const fields = coverFields(coverFile)
+      // A metadata-only restore retains active rows but deliberately has no asset
+      // files. Only an absent immutable key permits reattachment, never a valid,
+      // damaged or unsafe existing file. Recheck the key under the transaction so
+      // two concurrent restorations cannot both replace the same publication.
+      const observed = db.prepare(`SELECT * FROM ${kind} WHERE console_id = ? AND sha256 = ?`).get(v.consoleId, file.sha256)
+      let missingKey
+      if (observed?.deleted_at === null) {
+        let previousFile
+        try { previousFile = await storage.open(kind, observed.storage_key) }
+        catch (error) { if (error.code === 'ENOENT') missingKey = observed.storage_key; else throw error }
+        finally { await previousFile?.close() }
+      }
       return transaction(db, () => {
         authorize(actor) // Role may have been revoked during asynchronous I/O.
         const previous = db.prepare(`SELECT * FROM ${kind} WHERE console_id = ? AND sha256 = ?`).get(v.consoleId, file.sha256)
-        if (previous && (previous.deleted_at === null || restoreId !== previous.id)) throw duplicate(previous)
+        if (previous && previous.size !== file.size) throw invalid()
+        const missing = previous && previous.id === observed?.id && previous.deleted_at === null && previous.storage_key === missingKey
+        if (previous && ((!missing && previous.deleted_at === null) || restoreId !== previous.id)) throw duplicate(previous, missing)
         if (restoreId !== undefined && (!previous || previous.id !== restoreId)) throw invalid()
         const id = previous?.id ?? randomUUID()
         const now = Date.now()
         if (previous) {
           enqueueCleanup(db, kind, previous.storage_key)
-          if (kind === 'games' && previous.cover_storage_key) enqueueCleanup(db, 'covers', previous.cover_storage_key)
-          db.prepare(`UPDATE ${kind} SET storage_key = ?, original_name = ?, updated_at = ?, deleted_at = NULL WHERE id = ?`).run(file.key, v.fileName, now, id)
+          if (kind === 'games' && previous.cover_storage_key && (!missing || cover !== null)) enqueueCleanup(db, 'covers', previous.cover_storage_key)
+          db.prepare(`UPDATE ${kind} SET storage_key = ?, original_name = ?, updated_at = ?, deleted_at = NULL WHERE id = ?`).run(file.key, missing ? previous.original_name : v.fileName, now, id)
         } else {
           const title = kind === 'games' ? 'title' : 'name'
           const rights = kind === 'games' ? 'license' : 'distribution_rights'
           db.prepare(`INSERT INTO ${kind} (id, ${title}, console_id, description, ${rights}, original_name, storage_key, size, sha256, created_by, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, v[title], v.consoleId, v.description, kind === 'games' ? v.license : v.distributionRights, v.fileName, file.key, file.size, file.sha256, actor, now, now)
         }
-        if (kind === 'games') db.prepare('UPDATE games SET cover_storage_key = ?, cover_type = ?, cover_size = ?, cover_sha256 = ? WHERE id = ?').run(...fields, id)
+        if (kind === 'games' && (!missing || cover !== null)) db.prepare('UPDATE games SET cover_storage_key = ?, cover_type = ?, cover_size = ?, cover_sha256 = ? WHERE id = ?').run(...fields, id)
         return get(kind, id)
       })
     },

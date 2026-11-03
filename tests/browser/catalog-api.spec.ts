@@ -47,14 +47,10 @@ test('uploaded ROM and raw BIOS stream into the real guest engine with firmware 
     expect(firmware.status()).toBe(201)
     const bios = (await firmware.json()).item
     const page = await guest.newPage()
-    // M3 does not include Library integration. Adapt only the old manifest input
-    // in this test; catalog CRUD, ROM/BIOS HTTP and the engine are all real.
-    await page.route('**/catalog/games.json', route => route.fulfill({ json: [game] }))
-    await page.route('**/catalog/bios.json', route => route.fulfill({ json: [bios] }))
     await page.addInitScript(() => {
       Object.defineProperty(crypto.subtle, 'digest', { value: () => { throw new Error('Server assets must not be hashed in this browser smoke test') } })
     })
-    await page.goto('/')
+    await page.goto('/library')
     await page.getByRole('button', { name: 'Mainkan Game upload uji', exact: true }).click()
     await page.locator('#bios-choice').selectOption(bios.id)
     await page.getByRole('button', { name: 'Main sekarang', exact: true }).click()
@@ -82,7 +78,7 @@ test('uploaded ROM and raw BIOS stream into the real guest engine with firmware 
   }
 })
 
-test('deleting a BIOS between selection and download produces the existing player preflight error', async ({ browser }) => {
+test('deleting a BIOS before launch is caught by metadata refresh without creating a player', async ({ browser }) => {
   const parent = process.platform === 'win32' && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Temp/opencode') : tmpdir()
   const folder = await mkdtemp(join(parent, 'catalog-deleted-bios-'))
   const app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data') } })
@@ -97,11 +93,46 @@ test('deleting a BIOS between selection and download produces the existing playe
     expect(firmware.status()).toBe(201)
     const bios = (await firmware.json()).item
     const page = await guest.newPage()
-    await page.route('**/catalog/bios.json', route => route.fulfill({ json: [bios] }))
     await page.goto('/')
     await page.getByRole('button', { name: 'Mainkan Jalan Pulang', exact: true }).click()
     await page.locator('#bios-choice').selectOption(bios.id)
     expect((await admin.request.delete(`/api/admin/bios/${bios.id}`, { headers, data: {} })).status()).toBe(200)
+    await page.getByRole('button', { name: 'Main sekarang', exact: true }).click()
+    await expect(page.getByRole('dialog').getByRole('alert')).toContainText('sudah dihapus')
+    await expect(page.locator('iframe')).toHaveCount(0)
+  } finally {
+    await guest.close(); await admin.close(); await app.close()
+    await rm(folder, { recursive: true, force: true })
+  }
+})
+
+test('BIOS deletion after metadata refresh is still caught by the real player asset preflight', async ({ browser }) => {
+  const parent = process.platform === 'win32' && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Temp/opencode') : tmpdir()
+  const folder = await mkdtemp(join(parent, 'catalog-bios-race-'))
+  const app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data') } })
+  const address = await app.listen({ host: '127.0.0.1', port: 0 })
+  const admin = await browser.newContext({ baseURL: address })
+  const guest = await browser.newContext({ baseURL: address })
+  try {
+    const headers = await setupAdmin(admin.request, address, app.database)
+    const response = await admin.request.post('/api/admin/bios', { headers, multipart: {
+      name: 'Firmware race', consoleId: 'nes', distributionRights: 'Synthetic test bytes',
+      bios: { name: 'test-firmware.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(512) },
+    } })
+    expect(response.status()).toBe(201)
+    const bios = (await response.json()).item
+    const page = await guest.newPage()
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Mainkan Jalan Pulang', exact: true }).click()
+    await page.locator('#bios-choice').selectOption(bios.id)
+    await page.route(`**/api/bios/${bios.id}`, async route => {
+      // Deliver a genuine active metadata response only after deletion commits:
+      // the host's recheck succeeds, but the subsequent real HEAD must fail.
+      const metadata = await route.fetch()
+      expect(metadata.status()).toBe(200)
+      expect((await admin.request.delete(`/api/admin/bios/${bios.id}`, { headers, data: {} })).status()).toBe(200)
+      await route.fulfill({ response: metadata })
+    })
     await page.getByRole('button', { name: 'Main sekarang', exact: true }).click()
     await expect(page.getByRole('alert')).toContainText('BIOS server tidak ditemukan')
     await expect(page.getByRole('alert')).toContainText('HTTP 404')

@@ -2,6 +2,8 @@
 
 Status: **Milestone 2 selesai dan terverifikasi pada 2026-10-26 dalam cakupan di bawah.** Dokumen ini merinci [Milestone 2](rencana-admin-library-game.md), bukan perluasan ke API/UI Milestone 3–5.
 
+**Revisi setelah milestone ini:** syarat backup koleksi lengkap di bawah bersifat historis dan tidak lagi berlaku. Pengguna tidak memerlukan backup berkas ROM/BIOS. [Format 2](backup-metadata-katalog.md) kini menyimpan akun/save/metadata katalog tanpa byte ROM/BIOS/cover, menerima katalog berisi data, dan memungkinkan upload ulang eksplisit dengan ID lama setelah restore. Verifikasi produksi/deploy tetap terpisah.
+
 ## Keputusan implementasi
 
 1. Migrasi versi 8 menambahkan tabel `games` dan `bios` yang terpisah. UUID merupakan identitas tetap; SHA-256 merupakan identitas byte upload, termasuk byte arsip tanpa ekstraksi/normalisasi.
@@ -11,7 +13,7 @@ Status: **Milestone 2 selesai dan terverifikasi pada 2026-10-26 dalam cakupan di
 5. Modul storage menggunakan I/O asinkron, staging eksklusif, SHA-256 inkremental, dan pemeriksaan path/file. Nama internal dibatasi; traversal, symlink/junction, hard link, dan berkas khusus ditolak. Direktori data tetap harus terpisah dari `public/` dan `dist/`.
 6. Finalisasi: tulis staging sampai lengkap → sync → pindahkan ke final → transaksi SQLite singkat menerbitkan entri. Jangan menahan transaksi SQLite saat menunggu stream. Constraint unik menentukan pemenang duplikat konkuren. Kegagalan/hasil commit tidak pasti mengutamakan meninggalkan orphan daripada menghapus berkas yang mungkin direferensikan.
 7. Recovery destruktif hanya offline dengan exclusive data lock. Shared lease server/CLI akun bukan bukti bahwa staging proses lain telah mati. Recovery hanya membersihkan berkas internal yang dikenali dan tidak aktif; berkas asing dilaporkan. Save dan akun tidak disentuh. Referensi aktif hilang/rusak dilaporkan, bukan dihapus.
-8. Backup format lama belum mencakup aset katalog. Untuk sementara backup skema 8 hanya boleh jika tabel katalog dan direktori aset katalog kosong. Entri terhapus juga memblokir backup; jangan mengklaim backup koleksi lengkap sebelum Milestone 7. Verify/restore backup skema 7 dipertahankan secara eksplisit, tanpa migrasi sumber; aplikasi memigrasikan hasil restore saat dibuka.
+8. Saat M2 ditutup, backup format 1 skema 8 hanya boleh jika tabel/direktori aset katalog kosong; tombstone juga memblokir backup. Verify/restore skema 7 dipertahankan tanpa migrasi sumber. Pengaman historis ini kini digantikan format 2 untuk backup baru: akun/save/metadata tanpa aset dan tanpa syarat katalog kosong. Backup byte ROM/BIOS/cover tidak lagi menjadi target Milestone 7.
 9. Capability `gameCatalog`/`biosCatalog` tetap `false`. Tidak ada parser multipart, endpoint katalog/upload/unduh, perubahan frontend/player, atau penggantian byte pada ID lama pada milestone ini. Validasi raster cover dari upload HTTP termasuk Milestone 3; helper storage bukan validator kompatibilitas/legalitas konten.
 
 ## Urutan pekerjaan
@@ -35,7 +37,7 @@ Status: **Milestone 2 selesai dan terverifikasi pada 2026-10-26 dalam cakupan di
 
 ## Operasional sementara
 
-Jangan gunakan instalasi berisi koleksi upload sebagai deployment produksi sebelum backup koleksi Milestone 7 tersedia. Folder aplikasi dapat read-only; hanya direktori data yang perlu writable. Direktori data harus dikelola operator tepercaya; pemeriksaan path bukan jaminan terhadap administrator lokal yang sengaja mengganti direktori saat operasi sedang berjalan.
+Backup byte ROM/BIOS/cover tidak menjadi syarat MVP sesuai keputusan pengguna; gerbang pengujian/deploy Milestone 6–7 tetap terpisah. Folder aplikasi dapat read-only; hanya direktori data yang perlu writable. Direktori data harus dikelola operator tepercaya; pemeriksaan path bukan jaminan terhadap administrator lokal yang sengaja mengganti direktori saat operasi sedang berjalan.
 
 ### Inspeksi dan pembersihan offline
 

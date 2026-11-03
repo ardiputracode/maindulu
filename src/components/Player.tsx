@@ -15,7 +15,7 @@ import SaveTransfer from './SaveTransfer'
 import type { TransferRequest } from './SaveTransfer'
 import { createPortal } from 'react-dom'
 
-export type LaunchSession = { id: string; game: Game; consoleInfo: ConsoleInfo; rom?: File; bios?: File; biosUrl?: string; storageOwner?: string | null; gameSaves?: boolean }
+export type LaunchSession = { id: string; game: Game; consoleInfo: ConsoleInfo; rom?: File; bios?: File; biosUrl?: string; biosSha256?: string; storageOwner?: string | null; gameSaves?: boolean }
 
 export default function Player({ session, settings, favorite, onFavorite, onStart, onExit, onWidescreen, account, registerExitGuard, onRestart }: {
   session: LaunchSession; settings: Settings; favorite: boolean;

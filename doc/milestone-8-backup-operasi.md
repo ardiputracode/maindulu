@@ -4,17 +4,17 @@ Status: **M8 selesai untuk cakupan penggunaan lokal:** implementasi/verifikasi o
 
 **Pembaruan 0.3.1:** tersedia opsi HTTP akun untuk LAN tepercaya melalui `MAIN_DULU_ALLOW_INSECURE_HTTP=true` dan origin HTTP eksplisit. Ini tidak mengenkripsi koneksi dan bukan bukti deployment HTTPS/LAN pengguna telah diuji. Panduan Docker terkini: [deploy backend](../deploy/README.backend.md).
 
-**Pembaruan pengembangan Admin/Library/BIOS:** startup kini memakai skema **8**. Backup baru hanya diizinkan bila tabel game/BIOS dan direktori aset katalog kosong; termasuk tombstone/aset yatim akan memblokir backup. Verify/restore backup skema **7** tetap didukung secara eksplisit. Backup koleksi lengkap belum tersedia sampai Milestone 7 pada rencana katalog; lihat [fondasi katalog/storage](milestone-2-katalog-storage.md). Penomoran M8 dalam dokumen ini berasal dari rencana akun/save, bukan Milestone 7 katalog.
+**Pembaruan pengembangan Admin/Library/BIOS (2026-11-03):** skema saat ini **9**. Sesuai keputusan pengguna, backup berkas ROM/BIOS bukan fitur MVP. Backup baru **format 2** menyimpan akun/save/progres dan metadata katalog aktif/terhapus, tetapi tidak menyalin ROM/BIOS/cover. Katalog berisi data tidak lagi memblokir backup. Setelah restore bersih, upload ulang aset identik dengan konfirmasi ID lama; lihat [backup metadata tanpa ROM/BIOS](backup-metadata-katalog.md). Format 1 lama tetap diterima untuk skema 7/8/9 dengan katalog kosong. Penomoran M8 dalam dokumen ini berasal dari rencana akun/save, bukan Milestone 7 katalog.
 
 ## Keputusan dan cakupan
 
-- Administrasi lokal melalui CLI, bukan endpoint/web admin.
+- Operasi backup/verify/restore melalui CLI lokal, bukan endpoint/web admin.
 - Backup **offline**: sinkronkan progres, tutup player semua perangkat, lalu hentikan seluruh proses server/admin yang memakai data tersebut.
 - Format folder + `manifest.json`; tanpa ZIP, enkripsi bawaan, penjadwalan, atau penghapusan otomatis.
 - Restore ke **nama folder baru yang belum ada**, bukan merge/overwrite. Bahkan folder kosong yang sudah ada ditolak agar tidak mengganti tujuan yang salah.
 - Sesi login dicabut pada **hasil restore**, tanpa mengubah backup asal atau akun/save.
-- Skema tetap **6**; M8 tidak mengubah fingerprint engine, identitas game, format save, atau kebijakan kompatibilitas M5–M7.
-- Backup seluruh instalasi ini berbeda dari cadangan konflik/impor M7 di disk server yang sama.
+- Saat M8 akun/save ditutup, skema tetap **6**; pengembangan role/katalog berikutnya memakai **9**. Backup metadata format 2 tidak menaikkan skema atau mengubah fingerprint engine, identitas game, format save, maupun kebijakan kompatibilitas save.
+- Backup akun/save/metadata ini berbeda dari cadangan konflik/impor M7 di disk server yang sama, dan bukan salinan lengkap byte koleksi game/BIOS.
 
 ## Instalasi tanpa Docker
 
@@ -80,17 +80,17 @@ backup/
 └─ game-saves/     # progres aktif dan blob cadangan progres M7 yang direferensikan
 ```
 
-Database mencakup seluruh akun/hash kredensial, sesi pada waktu backup, metadata save, slot Autosave 99, tombstone penghapusan, cadangan M7, receipt keputusan, dan identitas instalasi. Blob yang dipakai bersama aktif/cadangan disalin satu kali; file orphan/temp tidak ikut dan tidak dihapus dari sumber.
+Database mencakup seluruh akun/hash kredensial/role, sesi pada waktu backup, metadata save, slot Autosave 99, tombstone penghapusan, cadangan M7, receipt keputusan, identitas instalasi, serta metadata game/BIOS/cover pada format 2. Blob save yang dipakai bersama aktif/cadangan disalin satu kali; file orphan/temp tidak ikut dan tidak dihapus dari sumber. Reservasi/cleanup katalog dikosongkan hanya pada snapshot, bukan sumber.
 
 Manifest mencatat versi format, skema, versi aplikasi/Node, checksum `dist/player/builds.json` bila tersedia, jumlah record, checksum/ukuran setiap berkas, waktu, dan konfigurasi allowlist (host/port/origin/opsi HTTP/pendaftaran/batas/kuota). Tidak menyalin seluruh environment atau path data lokal. Metadata save tetap membawa fingerprint core/runtime aktual masing-masing. Opsi HTTP dicatat sejak 0.3.1; ketiadaan field konfigurasi ini pada backup dengan skema yang sesuai tetap didukung dan konfigurasi tidak diterapkan otomatis. Snapshot skema 7 juga mempertahankan role akun.
 
-**Tidak termasuk:** ROM, BIOS, katalog/cover, kode aplikasi/build/engine, sertifikat HTTPS, konfigurasi process manager, rahasia environment lain, serta pengaturan/favorit/riwayat/progres browser tamu. Simpan distribusi aplikasi yang tepat dan konfigurasi deployment secara terpisah. `appVersion` saja bukan identitas semua perubahan pengembangan yang belum dirilis. Jangan mengganti ROM katalog atau ID game setelah restore lalu menganggap save pasti kompatibel.
+**Tidak termasuk:** berkas ROM, BIOS, dan cover; kode aplikasi/build/engine, sertifikat HTTPS, konfigurasi process manager, rahasia environment lain, serta pengaturan/favorit/riwayat/progres browser tamu. Metadata katalog tetap termasuk pada format 2. Backup berkas ROM/BIOS tidak diwajibkan dan tidak dilakukan aplikasi; bila aset hilang, harus disediakan ulang untuk bermain. Simpan distribusi aplikasi yang tepat dan konfigurasi deployment secara terpisah. `appVersion` saja bukan identitas semua perubahan pengembangan yang belum dirilis. Jangan mengganti ROM katalog atau ID game setelah restore lalu menganggap save pasti kompatibel.
 
 ### Konsistensi dan kegagalan
 
 - Server/reset admin memakai lease shared; backup/verify/restore memakai lease eksklusif per folder. Restore juga mengecualikan instalasi `MAIN_DULU_DATA_DIR` yang saat itu dikonfigurasi, meskipun tujuan restore adalah folder baru lain. Beberapa koneksi server tetap dapat bekerja seperti M5–M7, tetapi maintenance ditolak selama ada koneksi terkait. Verifikasi backup terpisah boleh dilakukan saat server tidak memakai folder backup tersebut.
 - SQLite memakai API backup resmi `node:sqlite`, termasuk halaman committed di WAL; snapshot diubah menjadi journal DELETE yang mandiri. Ini **bukan** salinan sembarang file SQLite aktif atau keharusan menghapus WAL/SHM sumber.
-- Integritas SQLite dan foreign key dicek; seluruh referensi aktif/cadangan harus mempunyai blob dengan ukuran/SHA-256 yang cocok. Verifikasi bukan hanya checksum manifest.
+- Integritas SQLite dan foreign key dicek; seluruh referensi **blob save** aktif/cadangan harus mempunyai berkas dengan ukuran/SHA-256 yang cocok. Path/nama/hash metadata katalog divalidasi, tetapi keberadaan byte ROM/BIOS/cover tidak diperiksa karena tidak termasuk backup. Verifikasi bukan hanya checksum manifest dan bukan bukti koleksi lengkap.
 - Staging privat `.nama.partial-*` dibuat di parent tujuan, file di-flush, direktori di-fsync pada platform yang mendukungnya, lalu dipublikasikan lewat rename. Fsync direktori tidak dilakukan pada Windows. Uji kegagalan bukan simulasi pemadaman listrik atau jaminan hardware/filesystem.
 - Jika sumber rusak, tujuan terisi, atau I/O gagal, operasi gagal dengan exit code nonzero. Data lama tidak ditimpa. Kegagalan normal membersihkan staging milik operasi; crash/kill dapat meninggalkan staging yang **bukan backup selesai**.
 - Jika rename berhasil tetapi flush parent gagal, folder tujuan bisa sudah ada meskipun CLI gagal. Jangan menimpanya atau langsung menghapusnya; jalankan verifikasi/inspeksi dan pilih nama baru untuk retry. Ini bukan jaminan durabilitas setelah listrik padam.
@@ -100,7 +100,7 @@ Manifest mencatat versi format, skema, versi aplikasi/Node, checksum `dist/playe
 ## Restore ke data bersih
 
 1. Tutup semua player/browser yang memakai instalasi lama dan hentikan server/admin. Jika data lama masih dapat dibaca, buat backup terpisah dahulu. Jangan hapus data lama.
-2. Siapkan versi aplikasi/engine yang sesuai dengan backup. Verify/restore CLI pengembangan terbaru menerima format backup 1 dengan skema **7**, atau skema **8** dengan katalog kosong; rilis 0.3.1 menerima skema **6**. Pembuatan backup baru mensyaratkan skema 8 dengan katalog/aset kosong. CLI tidak memigrasikan sumber atau memaksa downgrade. Untuk backup skema 6, verifikasi/restore dengan aplikasi lama terlebih dahulu, kemudian buka hasil restore memakai server baru untuk migrasi. Simpan distribusi yang sesuai; jangan ubah nomor skema/manifest manual.
+2. Siapkan versi aplikasi/engine yang sesuai dengan backup. CLI terbaru membuat/menerima **format 2 skema 9** untuk akun/save/metadata tanpa aset. Verify/restore **format 1 skema 7/8/9 dengan katalog kosong** tetap diterima; format 2 ditolak aplikasi lama. Rilis 0.3.1 menerima skema **6**. CLI tidak memigrasikan sumber atau memaksa downgrade. Untuk backup skema 6 gunakan aplikasi lama terlebih dahulu, kemudian buka hasil restore memakai server baru untuk migrasi. Simpan distribusi yang sesuai; jangan ubah nomor skema/manifest manual.
 3. Verifikasi lalu restore ke **folder yang belum ada**:
 
 ```powershell
@@ -117,7 +117,7 @@ $env:MAIN_DULU_DATA_DIR = 'C:\maindulu-data-pulih'
 npm start
 ```
 
-7. Buka sesi/browser baru, login ulang, pilih ROM/BIOS yang sama, lalu periksa akun, slot, cadangan M7, dan kuota. Untuk progres gunakan Continue/Load dalam game tanpa memuat state. Uji Muat state secara terpisah; jangan hanya mengandalkan pesan RPC.
+7. Buka sesi/browser baru dan login ulang. Pada katalog upload format 2, admin akan melihat **Berkas hilang**; upload ulang byte identik pada console yang sama lalu konfirmasi **Pulihkan ID lama**. Nama firmware lama dan hubungan save dipertahankan; cover dapat diunggah ulang melalui edit metadata. Membuka berkas itu sebagai ROM lokal bukan pemulihan ID upload server. Untuk game lokal, pilih ROM lokal yang sama seperti sebelumnya. Periksa akun, slot, cadangan M7, dan kuota. Untuk progres gunakan Continue/Load dalam game tanpa memuat state. Uji Muat state secara terpisah; jangan hanya mengandalkan pesan RPC.
 8. Setelah hasil benar, lanjutkan dengan data baru. Data lama tetap disimpan terpisah sampai pemulihan diterima. Jangan menjalankan dua salinan instalasi sebagai server aktif yang saling bergantian untuk browser yang sama.
 
 **Efek rollback:** password dan hash kode pemulihan kembali ke waktu backup. Password baru sesudah backup mungkin tidak berlaku; kode sekali pakai yang pernah dipakai sesudah backup dapat kembali berlaku. Penghapusan/save setelah backup juga kembali ke kondisi snapshot. Reset password/terbitkan kode baru bila ada risiko, dan serahkan kode secara privat. Sesi backup dicabut, tetapi browser harus menutup player/antrean lama dan login ulang; jangan mencoba melanjutkan antrean lama terhadap revisi server yang sudah mundur.

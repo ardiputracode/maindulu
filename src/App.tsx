@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowDown, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleHelp, Clock3, Gamepad2, HardDrive, Heart, House, Keyboard, Leaf, Menu, Monitor, Search, Settings2, ShieldCheck, Sparkles, Upload, Volume2, X } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Check, ChevronRight, CircleHelp, Clock3, Gamepad2, HardDrive, Heart, House, Keyboard, Leaf, LibraryBig, Menu, Monitor, Settings2, ShieldCheck, Sparkles, Upload, Volume2, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import ConsoleArt from './components/ConsoleArt'
 import GameCard from './components/GameCard'
@@ -17,10 +17,13 @@ import BackendStatus from './components/BackendStatus'
 import { useAccount } from './lib/useAccount'
 import AccountDialog from './components/AccountDialog'
 import AdminCatalog from './components/AdminCatalog'
+import Library from './components/Library'
+import { readManifestGames } from './lib/catalog'
 
 const navigation: { path: string; title: string; icon: LucideIcon }[] = [
   { path: '/', title: 'Beranda', icon: House },
   { path: '/console', title: 'Jelajahi console', icon: Gamepad2 },
+  { path: '/library', title: 'Library game', icon: LibraryBig },
   { path: '/riwayat', title: 'Terakhir dimainkan', icon: Clock3 },
   { path: '/favorit', title: 'Favoritku', icon: Heart },
   { path: '/cara-bermain', title: 'Cara bermain', icon: CircleHelp },
@@ -92,7 +95,7 @@ export default function App() {
         const c: ConsoleInfo[] = Array.isArray(response[0]) ? response[0].filter((v: ConsoleInfo) => v && typeof v.id === 'string' && typeof v.name === 'string' && typeof v.core === 'string' && Array.isArray(v.extensions) && typeof v.shortName === 'string' && typeof v.family === 'string') : []
         if (!c.length) throw new Error('Manifest console kosong atau tidak valid.')
         setConsoles(c)
-        setGames(readGames(response[1]).filter(g => c.some(console => console.id === g.consoleId)))
+        setGames(readManifestGames(response[1]).filter(g => c.some(console => console.id === g.consoleId)))
         setBiosList(Array.isArray(response[2]) ? response[2].filter((v: Bios) => v && typeof v.id === 'string' && typeof v.name === 'string' && c.some(console => console.id === v.consoleId) && isSafeLocalUrl(v.url)) : [])
       } catch (e) { if (!controller.signal.aborted) setCatalogError(e instanceof Error ? e.message : 'Katalog gagal dimuat.') }
       finally { if (!controller.signal.aborted) setLoading(false) }
@@ -153,7 +156,7 @@ export default function App() {
       <button className="drawer-close icon-button" aria-label="Tutup navigasi" onClick={() => setDrawer(false)}><X size={19} /></button>
       <Link to="/" className="brand" aria-label="maindulu, beranda"><img src="/assets/maindulu.svg" alt="" width="39" height="39" /><span>maindulu<span className="brand-dot">.</span></span></Link>
       <span className="sidebar-caption">RUANG NOSTALGIAMU</span>
-      <nav>{navigation.map(({ path, title, icon: Icon }, i) => <NavLink key={path} to={path} end={path === '/'} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''} ${i === 4 ? 'nav-separated' : ''}`}><Icon size={19} strokeWidth={1.7} /><span>{title}</span>{path === '/favorit' && favorites.length > 0 && <span className="nav-count">{favorites.length}</span>}</NavLink>)}{adminVisible && <NavLink to="/admin" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}><ShieldCheck size={19} /><span>Admin</span></NavLink>}</nav>
+      <nav>{navigation.map(({ path, title, icon: Icon }) => <NavLink key={path} to={path} end={path === '/'} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''} ${path === '/cara-bermain' ? 'nav-separated' : ''}`}><Icon size={19} strokeWidth={1.7} /><span>{title}</span>{path === '/favorit' && favorites.length > 0 && <span className="nav-count">{favorites.length}</span>}</NavLink>)}{adminVisible && <NavLink to="/admin" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}><ShieldCheck size={19} /><span>Admin</span></NavLink>}</nav>
       <div className="sidebar-bottom"><div className="sidebar-note"><div className="note-icon"><Leaf size={19} /></div><strong>Rehat itu perlu.</strong><p>Lima menit juga cukup<br />buat jadi anak kecil lagi.</p><span>TAKE A LITTLE PLAY BREAK <ArrowUpRight size={12} /></span></div><div className="engine-status"><span className="status-dot" /><span>Engine lokal <b>v4.2.3</b></span><ShieldCheck size={14} /></div></div>
     </aside>
     <div className="workspace" inert={mobile && drawer}>
@@ -170,7 +173,8 @@ export default function App() {
             <div className="slow-banner"><span className="slow-icon"><Leaf size={28} strokeWidth={1.2} /></span><div><strong>Nggak harus tamat hari ini.</strong><p>Yang penting, sempat senang sebentar.</p></div><Link to="/cara-bermain" className="text-link">Baru pertama main?<ArrowRight size={16} /></Link></div>
           </>} />
           <Route path="/admin/*" element={<AdminCatalog backend={backend.state} account={account} consoles={consoles} onLogin={() => setAccountOpen(true)} onRetry={backend.retry} />} />
-          <Route path="/console" element={<Explore consoles={consoles} games={games} renderCards={cards} onOpen={open} />} />
+          <Route path="/console" element={<Explore consoles={consoles} onOpen={open} />} />
+          <Route path="/library" element={<Library builtin={games} consoles={consoles} backend={backend.state} onBackendRetry={backend.retry} renderCards={cards} />} />
           <Route path="/riwayat" element={<><PageHeading eyebrow="KENANGAN YANG BARU DIBUKA" title="Terakhir dimainkan." description="Bukan daftar pekerjaan. Ini daftar kesenanganmu." /><div className="list-toolbar"><span><Clock3 size={16} />{history.length} permainan {!settings.history && '· pencatatan dijeda'}</span>{history.length > 0 && <button className="text-link muted" onClick={() => { if (window.confirm('Hapus semua riwayat bermain? Favorit dan save game tidak akan dihapus.')) { setHistory([]); setToast('Riwayat bermain sudah dibersihkan.') } }}>Bersihkan riwayat</button>}</div>{history.length ? <>{cards(history, true)}<p className="page-footnote">Riwayat bukan save state. Game lokal akan meminta file ROM yang sama saat dibuka kembali.</p></> : <EmptyState icon={Clock3} title="Belum ada jejak jempol." text={settings.history ? 'Mulai satu permainan. Kenangan yang baru dibuka akan muncul di sini.' : 'Pencatatan riwayat sedang dimatikan. Kamu tetap bisa bermain tanpa meninggalkan daftar.'} action="Cari permainan" onClick={() => navigate('/console')} />}</>} />
           <Route path="/favorit" element={<><PageHeading eyebrow="SELALU PUNYA TEMPAT" title="Favoritku." description="Beberapa game memang nggak pernah benar-benar kita tinggalkan." /><div className="list-toolbar"><span><Heart size={16} />{favorites.length} permainan favorit</span></div>{favorites.length ? cards(favorites) : <EmptyState icon={Heart} title="Tempat untuk yang paling berkesan." text="Tekan ikon hati di kartu game untuk menyimpannya di sini. Favorit lokal menyimpan nama game, bukan file ROM-nya." action="Temukan favoritmu" onClick={() => navigate('/console')} />}</>} />
           <Route path="/cara-bermain" element={<Guide onOpen={() => open()} />} />
@@ -183,7 +187,7 @@ export default function App() {
         <footer className="footer"><span><img src="/assets/maindulu.svg" alt="" width="19" height="19" />maindulu<span className="footer-dot">·</span><span className="footer-motto">Jeda kecil. Kenangan besar.</span></span><span>Powered by EmulatorJS <b>4.2.3</b><span className="footer-dot">·</span><a href="/vendor/emulatorjs/4.2.3/LICENSE" target="_blank" rel="noreferrer">Lisensi</a><span className="footer-dot">·</span><Link to="/cara-bermain">Bantuan & privasi<ArrowUpRight size={12} /></Link></span><span className="footer-dot">·</span><span>catatan kecil: maindulu dirakit oleh <a href="https://github.com/ardiputracode/maindulu" target="_blank" rel="noopener noreferrer">ArdiputraCode</a> dengan bantuan AI penuh. Engine emulator (EmulatorJS) dan core-nya milik pembuat aslinya.</span></footer>
       </main>
     </div>
-    {selection && <SetupDialog selection={selection} consoles={consoles} biosList={biosList} onClose={() => setSelection(null)} onLaunch={launch} />}
+    {selection && <SetupDialog selection={selection} consoles={consoles} builtinGames={games} biosList={biosList} backend={backend.state} onBackendRetry={backend.retry} onClose={() => setSelection(null)} onLaunch={launch} />}
     {accountOpen && accountsEnabled && <AccountDialog account={account} onClose={() => setAccountOpen(false)} />}
     {toast && <div className="toast" role="status"><Check size={17} />{toast}</div>}
   </div>
@@ -191,13 +195,15 @@ export default function App() {
 
 function InfoIcon() { return <ShieldCheck size={17} /> }
 
-function Explore({ consoles, games, renderCards, onOpen }: { consoles: ConsoleInfo[]; games: Game[]; renderCards: (games: Game[]) => React.ReactNode; onOpen: (selection?: SetupSelection) => void }) {
+function Explore({ consoles, onOpen }: { consoles: ConsoleInfo[]; onOpen: (selection?: SetupSelection) => void }) {
   const [params, setParams] = useSearchParams()
-  const [search, setSearch] = useState('')
   const selected = params.get('console') || 'all'
   const current = consoles.find(c => c.id === selected)
-  const visible = games.filter(g => (selected === 'all' || g.consoleId === selected) && g.title.toLocaleLowerCase('id').includes(search.toLocaleLowerCase('id')))
-  return <><PageHeading eyebrow="PINTU KE MASA ITU" title="Mau main yang mana?" description="Pilih console favoritmu. Kita urus mesin waktunya."><button className="button primary" onClick={() => onOpen({ consoleId: current?.id })}><Upload size={17} />Buka ROM sendiri</button></PageHeading><div className="console-grid explore-consoles">{consoles.map(c => <button className={`console-card ${selected === c.id ? 'selected' : ''}`} key={c.id} onClick={() => setParams({ console: c.id })} style={{ '--console-color': c.color } as React.CSSProperties} aria-pressed={selected === c.id}><span className="console-year">{c.year}</span><ConsoleArt family={c.family} /><strong>{c.shortName}</strong><span className="console-maker">{c.maker}{selected === c.id ? <Check size={14} /> : <ArrowDown size={13} />}</span></button>)}</div><div className="explore-toolbar"><div className="filter-pills"><button className={`filter-pill ${selected === 'all' ? 'active' : ''}`} onClick={() => setParams({})}>Semua console<span>{games.length}</span></button>{current && <span className="selected-console">{current.shortName}<button aria-label="Hapus filter console" className="icon-button" onClick={() => setParams({})}><X size={14} /></button></span>}</div><label className="search-box"><Search size={17} /><input type="search" placeholder="Cari game di server…" value={search} onChange={e => setSearch(e.target.value)} aria-label="Cari game di server" /></label></div><div className="section-heading compact"><h2>{current ? `Koleksi ${current.shortName}` : 'Koleksi server'}</h2><span className="result-count">{visible.length} permainan</span></div>{visible.length ? renderCards(visible) : <EmptyState title={search ? 'Belum ketemu judulnya.' : 'Console siap. Tinggal ROM-mu.'} text={search ? 'Coba kata kunci lain atau buka ROM yang sudah kamu punya.' : `Belum ada game ${current?.shortName || ''} di server. Core console sudah tersimpan lokal, jadi kamu bisa langsung membuka ROM sendiri.`} action="Buka ROM sendiri" onClick={() => onOpen({ consoleId: current?.id })} />}<p className="page-footnote"><ShieldCheck size={14} />Koleksi server hanya berisi game berizin. ROM dan BIOS lokal tidak dikirim ke server.</p></>
+  return <><PageHeading eyebrow="PINTU KE MASA ITU" title="Mau main console apa?" description="Kenali platformnya, lalu temukan game di Library atau buka ROM sendiri."><button className="button primary" onClick={() => onOpen({ consoleId: current?.id })}><Upload size={17} />Buka ROM sendiri</button></PageHeading>
+    <div className="console-grid explore-consoles">{consoles.map(c => <Link to={`/library?console=${encodeURIComponent(c.id)}`} className="console-card" key={c.id} style={{ '--console-color': c.color } as React.CSSProperties}><span className="console-year">{c.year}</span><ConsoleArt family={c.family} /><strong>{c.shortName}</strong><span className="console-maker">{c.maker}<ArrowUpRight size={13} /></span></Link>)}</div>
+    {current && <section className="setup-metadata"><h2>{current.name}</h2><p>{current.biosHint}</p><p>Format ROM: {current.extensions.map(ext => `.${ext}`).join(', ')}; arsip ZIP/7z/RAR.</p><Link className="button primary" to={`/library?console=${encodeURIComponent(current.id)}`}>Lihat game {current.shortName}<ArrowRight size={17} /></Link><button className="text-link" onClick={() => setParams({})}>Semua console</button></section>}
+    <Link className="button secondary" to="/library">Buka semua game di Library<ArrowRight size={17} /></Link>
+  </>
 }
 
 function Guide({ onOpen }: { onOpen: () => void }) {

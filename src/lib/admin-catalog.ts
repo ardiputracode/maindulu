@@ -1,12 +1,9 @@
 import { readAccountSession } from './account.ts'
-import { isSafeLocalUrl } from './domain.ts'
+import { readCatalogEntry } from './catalog.ts'
+import type { CatalogEntry, CatalogKind } from './catalog.ts'
+export { readCatalogEntry } from './catalog.ts'
+export type { CatalogEntry, CatalogKind } from './catalog.ts'
 
-export type CatalogKind = 'games' | 'bios'
-export type CatalogEntry = {
-  id: string; consoleId: string; fileName: string; size: number; sha256: string;
-  description: string; createdAt: number; updatedAt: number; url: string;
-  title?: string; name?: string; license?: string; distributionRights?: string; cover?: string;
-}
 export type AdminEntry = CatalogEntry & {
   deletedAt: number | null; fileStatus: string; coverStatus?: string; cleanupPending: boolean;
 }
@@ -26,15 +23,6 @@ const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const integer = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0
 export const catalogLabel = (item: CatalogEntry) => item.title ?? item.name ?? 'Tanpa nama'
-
-export function readCatalogEntry(value: unknown, kind: CatalogKind): CatalogEntry | null {
-  if (!record(value) || typeof value.id !== 'string' || !uuid.test(value.id) || typeof value.consoleId !== 'string' ||
-    typeof value.fileName !== 'string' || !integer(value.size) || value.size < 1 || typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256) ||
-    typeof value.description !== 'string' || !integer(value.createdAt) || !integer(value.updatedAt) || !isSafeLocalUrl(value.url) ||
-    (value.cover !== undefined && !isSafeLocalUrl(value.cover))) return null
-  if (kind === 'games' ? typeof value.title !== 'string' || typeof value.license !== 'string' : typeof value.name !== 'string' || typeof value.distributionRights !== 'string') return null
-  return value as CatalogEntry
-}
 
 export function readAdminPage(value: unknown, kind: CatalogKind): AdminPage | null {
   if (!record(value) || !Array.isArray(value.items) || !integer(value.page) || value.page < 1 || !integer(value.pageSize) || value.pageSize < 1 || value.pageSize > 100 || !integer(value.total) || value.items.length > value.pageSize) return null

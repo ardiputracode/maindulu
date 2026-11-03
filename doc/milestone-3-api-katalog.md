@@ -2,6 +2,8 @@
 
 Status: **Milestone 3 selesai dan terverifikasi pada 2026-10-26 dalam cakupan backend di bawah.** Dokumen ini menyimpan rencana, keputusan implementasi, kontrak operasional, serta hasil aktual Milestone 3 dari [rencana utama](rencana-admin-library-game.md).
 
+**Revisi kontrak setelah milestone ini:** backup byte ROM/BIOS bukan fitur MVP. [Backup format 2](backup-metadata-katalog.md) menyimpan akun/save/metadata tanpa aset, bukan lagi menolak katalog berisi data. `restoreId` juga dapat memulihkan entri aktif yang berkasnya hilang, hanya dengan byte/hash/ukuran yang sama; ID, metadata, dan nama berkas lama dipertahankan. Berkas aktif yang masih ada/rusak/unsafe tidak boleh diganti melalui jalur ini. Pengaman backup format 1 dan batas pengujian di bawah mencatat kondisi saat M3 ditutup.
+
 ## Cakupan dan keputusan
 
 - Backend saja; UI admin dan Library tetap Milestone 4–5. Tidak mengubah identitas game/save, bundle engine, atau hashing ROM lokal.
@@ -17,7 +19,7 @@ Status: **Milestone 3 selesai dan terverifikasi pada 2026-10-26 dalam cakupan ba
 - Delete menulis tombstone dan antrean cleanup persisten dalam satu transaksi; akses baru langsung ditolak. Worker hanya menghapus key immutable yang tidak aktif, dengan retry setelah kegagalan/restart. Pemulihan memakai key baru. Save/akun tidak disentuh.
 - Staging upload lain tidak dibersihkan online. Recovery umum tetap offline/exclusive. Kompensasi gagal publikasi hanya dilakukan pada berkas milik operasi yang aman dipastikan tidak direferensikan; hasil commit tidak pasti mengutamakan orphan.
 - Reservasi upload bersama di SQLite membatasi konkurensi lintas proses. Quota memperhitungkan berkas fisik katalog termasuk staging/orphan, bukan hanya row aktif; quota save tetap terpisah.
-- Capability katalog diaktifkan setelah API lengkap. Backup format lama tetap fail-closed untuk katalog berisi data; kompatibilitas backup kosong skema lama dipertahankan. Backup koleksi penuh tetap Milestone 7.
+- Capability katalog diaktifkan setelah API lengkap. Saat M3 ditutup, backup format 1 tetap fail-closed untuk katalog berisi data; kompatibilitas backup kosong skema lama dipertahankan. Keputusan berikutnya memakai format 2 metadata/save tanpa byte aset, bukan menambahkan backup koleksi penuh pada Milestone 7.
 
 ## Urutan implementasi
 

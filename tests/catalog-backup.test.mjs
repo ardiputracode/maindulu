@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID, createHash } from 'node:crypto'
-import { readFile, readdir, unlink, writeFile } from 'node:fs/promises'
+import { link, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { DatabaseSync } from 'node:sqlite'
@@ -34,6 +34,8 @@ test('empty current catalogs preserve account/save backup behavior and include e
   const target = join(c.root, 'empty-backup')
   const manifest = await createDataBackup(c.config, target)
   assert.equal(manifest.schemaVersion, schemaVersion)
+  assert.equal(manifest.formatVersion, 2)
+  assert.equal(manifest.catalogAssets, 'excluded')
   assert.equal(manifest.counts.games, 0)
   assert.equal(manifest.counts.bios, 0)
   assert.deepEqual(await verifyDataBackup(c.config, target), manifest)
@@ -44,7 +46,7 @@ test('empty current catalogs preserve account/save backup behavior and include e
   assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
 })
 
-test('backup fails closed for game/BIOS metadata, tombstones and orphan assets without publishing partial backups', async t => {
+test('metadata-only backups include active/deleted catalog metadata but deliberately exclude all catalog asset bytes and orphans', async t => {
   for (const scenario of ['games', 'bios', 'tombstone', 'metadata-only', 'orphan-game', 'orphan-bios', 'orphan-cover']) {
     await t.test(scenario, async t => {
       const c = await setup(t)
@@ -52,7 +54,7 @@ test('backup fails closed for game/BIOS metadata, tombstones and orphan assets w
         const row = await c.publish(scenario === 'bios' ? 'bios' : 'games')
         if (scenario === 'tombstone') c.repo.delete('games', c.actor, row.id)
         if (scenario === 'metadata-only') {
-          // A catalog with lost bytes must not be mislabeled an account-only backup.
+          // Missing ROM bytes do not prevent saving accounts/progress/metadata.
           await unlink(join(c.config.dataDir, 'games', row.storage_key))
         }
       } else {
@@ -60,14 +62,25 @@ test('backup fails closed for game/BIOS metadata, tombstones and orphan assets w
         await writeFile(join(c.config.dataDir, folder, randomUUID() + '.bin'), 'orphan')
       }
       c.close()
-      const destination = join(c.root, 'must-not-publish')
-      await assert.rejects(createDataBackup(c.config, destination), /Katalog backup.*Milestone 7/)
-      await assert.rejects(readFile(join(destination, 'manifest.json')), { code: 'ENOENT' })
+      const destination = join(c.root, 'metadata-backup')
+      const manifest = await createDataBackup(c.config, destination)
+      assert.equal(manifest.formatVersion, 2)
+      assert.equal(manifest.catalogAssets, 'excluded')
+      assert.equal(manifest.files.length, 1)
+      assert.deepEqual((await readdir(destination)).sort(), ['game-saves', 'maindulu.sqlite', 'manifest.json', 'saves'])
+      await verifyDataBackup(c.config, destination)
+      const restored = join(c.root, 'restored')
+      await restoreDataBackup(c.config, destination, restored)
+      const check = new DatabaseSync(join(restored, 'maindulu.sqlite'), { readOnly: true })
+      try {
+        assert.equal(check.prepare('SELECT COUNT(*) AS n FROM games').get().n, manifest.counts.games)
+        assert.equal(check.prepare('SELECT COUNT(*) AS n FROM bios').get().n, manifest.counts.bios)
+        if (scenario === 'tombstone') assert.notEqual(check.prepare('SELECT deleted_at FROM games').get().deleted_at, null)
+      } finally { check.close() }
       assert.equal((await readdir(c.root)).some(name => name.includes('.partial-')), false)
-      const cli = spawnSync(process.execPath, ['scripts/data-backup.mjs', 'backup', destination], { encoding: 'utf8', env: { ...process.env, MAIN_DULU_DATA_DIR: c.config.dataDir }, timeout: 15000 })
-      assert.equal(cli.status, 1)
-      assert.match(cli.stderr, /Katalog backup.*Milestone 7/)
-      assert.doesNotMatch(cli.stderr, /\n\s+at |SELECT|password_hash/)
+      const cli = spawnSync(process.execPath, ['scripts/data-backup.mjs', 'verify', destination], { encoding: 'utf8', env: { ...process.env, MAIN_DULU_DATA_DIR: c.config.dataDir }, timeout: 15000 })
+      assert.equal(cli.status, 0, cli.stderr)
+      assert.match(cli.stdout, /ROM, BIOS, dan cover tidak disertakan/)
     })
   }
 })
@@ -85,6 +98,8 @@ test('schema-7 backups verify and restore without source migration; application 
   legacy.close()
   const original = await readFile(path)
   manifest.schemaVersion = 7
+  manifest.formatVersion = 1
+  delete manifest.catalogAssets
   delete manifest.counts.games
   delete manifest.counts.bios
   delete manifest.counts.catalog_cleanup
@@ -110,11 +125,15 @@ test('schema-7 backups verify and restore without source migration; application 
   await assert.rejects(createDataBackup(c.config, join(c.root, 'legacy-source-refused')), /Versi skema backup/)
 })
 
-test('manifest schema cannot disguise a database version mismatch or unsupported catalog-bearing backup', async t => {
+test('legacy format 1 cannot disguise populated catalog metadata; schema and excluded-assets declarations are verified', async t => {
   const c = await setup(t)
   c.close()
   const source = join(c.root, 'tampered-backup')
   const manifest = await createDataBackup(c.config, source)
+  manifest.formatVersion = 1
+  delete manifest.catalogAssets
+  await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
+  assert.deepEqual(await verifyDataBackup(c.config, source), manifest)
   manifest.schemaVersion = 7
   await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
   await assert.rejects(verifyDataBackup(c.config, source), /Metadata manifest/)
@@ -142,6 +161,8 @@ test('schema-8 empty backups verify/restore without migration or ignoring new co
   legacy.close()
   const original = await readFile(path)
   manifest.schemaVersion = 8
+  manifest.formatVersion = 1
+  delete manifest.catalogAssets
   delete manifest.counts.catalog_cleanup
   delete manifest.counts.catalog_uploads
   manifest.files[0] = { path: 'maindulu.sqlite', size: original.length, checksum: createHash('sha256').update(original).digest('hex') }
@@ -155,18 +176,137 @@ test('schema-8 empty backups verify/restore without migration or ignoring new co
   assert.deepEqual(await readFile(path), original)
 })
 
-test('backup refuses outstanding cleanup/reservations; exclusive recovery apply clears dead coordination only', async t => {
+test('metadata backup drops stale coordination only in its snapshot, without changing the source or copying staging', async t => {
   const c = await setup(t)
   c.db.prepare('INSERT INTO catalog_uploads VALUES (?, ?, ?)').run(randomUUID(), 1024, Date.now() + 60000)
   c.db.prepare('INSERT INTO catalog_cleanup (folder, storage_key) VALUES (?, ?)').run('games', randomUUID() + '.bin')
+  c.db.exec('UPDATE catalog_capacity SET generation = 57 WHERE id = 1')
   c.close()
-  await assert.rejects(createDataBackup(c.config, join(c.root, 'refused')), /Reservasi\/cleanup/)
+  const initial = await createDataBackup(c.config, join(c.root, 'with-stale-coordination'))
+  assert.equal(initial.counts.catalog_uploads, 0)
+  assert.equal(initial.counts.catalog_cleanup, 0)
   await recoverCatalogStorage(c.config)
   c.db = await openDatabase(c.config.dataDir)
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_uploads').get().n, 1)
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_cleanup').get().n, 1)
+  assert.equal(c.db.prepare('SELECT generation FROM catalog_capacity WHERE id = 1').get().generation, 57)
   c.close()
   await recoverCatalogStorage(c.config, { remove: true })
   const manifest = await createDataBackup(c.config, join(c.root, 'recovered-backup'))
   assert.equal(manifest.counts.catalog_uploads, 0)
   assert.equal(manifest.counts.catalog_cleanup, 0)
+})
+
+test('restoring catalog metadata keeps save IDs and cover references; explicit matching uploads repair missing active files without replacing healthy files', async t => {
+  const c = await setup(t)
+  const bytes = Buffer.from('exact original ROM bytes')
+  const firmware = Buffer.from('exact original BIOS bytes')
+  const cover = { stage: await c.storage.stage('covers', Readable.from([Buffer.from('internal raster fixture')])), type: 'image/png' }
+  const game = await c.repo.publish('games', c.actor, { title: 'Original title', consoleId: 'nes', fileName: 'original.nes', license: 'Original fixture' }, await c.storage.stage('games', Readable.from([bytes])), { cover })
+  const bios = await c.repo.publish('bios', c.actor, { name: 'Firmware', consoleId: 'nes', fileName: 'disksys.rom' }, await c.storage.stage('bios', Readable.from([firmware])))
+  await mkdir(join(c.config.dataDir, 'saves'))
+  const savedBytes = Buffer.from('RASTATE saved data'), key = randomUUID() + '.bin'
+  await writeFile(join(c.config.dataDir, 'saves', key), savedBytes)
+  c.db.prepare('INSERT INTO saves VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), c.actor, game.id, 'nes', 'fceumm', 1, 'save title', '{}', 1, savedBytes.length, createHash('sha256').update(savedBytes).digest('hex'), key, 1)
+  const saved = c.db.prepare('SELECT * FROM saves').get()
+  c.close()
+  const source = join(c.root, 'populated-backup')
+  const manifest = await createDataBackup(c.config, source)
+  assert.equal(manifest.files.length, 2)
+  const restored = join(c.root, 'restored')
+  await restoreDataBackup(c.config, source, restored)
+  c.db = await openDatabase(restored)
+  c.storage = await createCatalogStorage({ ...c.config, dataDir: restored })
+  c.repo = createCatalogRepository(c.db, c.storage)
+  assert.deepEqual(c.repo.get('games', game.id), game)
+  assert.deepEqual(c.repo.get('bios', bios.id), bios)
+  assert.deepEqual(c.db.prepare('SELECT * FROM saves').get(), saved)
+  assert.deepEqual(await readFile(join(restored, 'saves', key)), savedBytes)
+  for (const [kind, row, data] of [['games', game, bytes], ['bios', bios, firmware]]) {
+    const fields = { [kind === 'games' ? 'title' : 'name']: 'Ignored replacement metadata', consoleId: 'nes', fileName: kind === 'games' ? 'renamed.nes' : 'renamed.bin' }
+    const stage = () => c.storage.stage(kind, Readable.from([data]))
+    await assert.rejects(c.repo.publish(kind, c.actor, fields, await stage()), error => error.code === 'CATALOG_RESTORE_REQUIRED' && error.id === row.id)
+    await assert.rejects(c.repo.publish(kind, c.actor, fields, await c.storage.stage(kind, Readable.from([Buffer.from('wrong bytes')])), { restoreId: row.id }), error => error.code === 'INVALID_CATALOG')
+    const recovered = await c.repo.publish(kind, c.actor, fields, await stage(), { restoreId: row.id })
+    assert.equal(recovered.id, row.id)
+    assert.equal(recovered.original_name, row.original_name)
+    assert.equal(recovered.sha256, row.sha256)
+    assert.equal(recovered.created_at, row.created_at)
+    assert.equal(recovered[kind === 'games' ? 'title' : 'name'], row[kind === 'games' ? 'title' : 'name'])
+    if (kind === 'games') assert.equal(recovered.cover_storage_key, game.cover_storage_key)
+    await assert.rejects(c.repo.publish(kind, c.actor, fields, await stage(), { restoreId: row.id }), error => error.code === 'CATALOG_DUPLICATE')
+  }
+  assert.deepEqual(c.db.prepare('SELECT * FROM saves').get(), saved)
+})
+
+test('format 2 requires its explicit scope, refuses injected asset files and validates metadata paths even though assets are excluded', async t => {
+  const c = await setup(t)
+  const game = await c.publish()
+  c.close()
+  const source = join(c.root, 'backup')
+  const manifest = await createDataBackup(c.config, source)
+  for (const catalogAssets of [undefined, 'included', true]) {
+    await writeFile(join(source, 'manifest.json'), JSON.stringify({ ...manifest, catalogAssets }))
+    await assert.rejects(verifyDataBackup(c.config, source), /Format\/versi manifest/)
+  }
+  await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
+  await mkdir(join(source, 'games'))
+  await assert.rejects(verifyDataBackup(c.config, source), /Isi folder backup/)
+  // Unsafe catalog keys must fail backup without touching source assets/saves.
+  c.db = await openDatabase(c.config.dataDir)
+  c.db.prepare('UPDATE games SET storage_key = ? WHERE id = ?').run('../maindulu.sqlite', game.id)
+  c.close()
+  await assert.rejects(createDataBackup(c.config, join(c.root, 'bad-metadata')), /Katalog backup/)
+  c.db = await openDatabase(c.config.dataDir)
+  c.db.prepare('UPDATE games SET storage_key = ?, original_name = ? WHERE id = ?').run(game.storage_key, 'unsupported.txt', game.id)
+  c.close()
+  await assert.rejects(createDataBackup(c.config, join(c.root, 'bad-extension')), /Katalog backup/)
+})
+
+test('concurrent repairs of one missing active asset publish exactly once and cannot overwrite a healthy or unsafe file', async t => {
+  const c = await setup(t)
+  const row = await c.publish()
+  const path = join(c.config.dataDir, 'games', row.storage_key)
+  await unlink(path)
+  const args = { title: 'Ignored', consoleId: 'nes', fileName: 'fixture.zip' }
+  const stage = () => c.storage.stage('games', Readable.from([Buffer.from('test bytes')]))
+  c.db.prepare('UPDATE games SET size = ? WHERE id = ?').run(row.size + 1, row.id)
+  await assert.rejects(c.repo.publish('games', c.actor, args, await stage(), { restoreId: row.id }), error => error.code === 'INVALID_CATALOG')
+  c.db.prepare('UPDATE games SET size = ? WHERE id = ?').run(row.size, row.id)
+  const other = await openDatabase(c.config.dataDir)
+  let results
+  try {
+    const storage = await createCatalogStorage(c.config), repo = createCatalogRepository(other, storage)
+    const stages = await Promise.all([stage(), storage.stage('games', Readable.from([Buffer.from('test bytes')]))])
+    results = await Promise.allSettled([c.repo.publish('games', c.actor, args, stages[0], { restoreId: row.id }), repo.publish('games', c.actor, args, stages[1], { restoreId: row.id })])
+  } finally { other.close() }
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1)
+  assert.equal(results.find(r => r.status === 'rejected').reason.code, 'CATALOG_DUPLICATE')
+  const repaired = c.repo.get('games', row.id)
+  assert.notEqual(repaired.storage_key, row.storage_key)
+  await link(join(c.config.dataDir, 'games', repaired.storage_key), join(c.root, 'hardlink'))
+  await assert.rejects(c.repo.publish('games', c.actor, args, await stage(), { restoreId: row.id }), /tidak aman/)
+  assert.equal(c.repo.get('games', row.id).storage_key, repaired.storage_key)
+})
+
+test('metadata inspection is finalized before a multi-page native SQLite backup under forced garbage collection', async t => {
+  const c = await setup(t)
+  const insert = c.db.prepare(`INSERT INTO games (id, title, console_id, description, original_name, storage_key, size, sha256, created_at, updated_at)
+    VALUES (?, 'GC fixture', 'nes', ?, 'fixture.nes', ?, 1, ?, 1, 1)`)
+  c.db.exec('BEGIN IMMEDIATE')
+  for (let n = 0; n < 2000; n++) insert.run(randomUUID(), 'x'.repeat(2000), randomUUID() + '.bin', n.toString(16).padStart(64, '0'))
+  c.db.exec('COMMIT')
+  assert.ok(c.db.prepare('PRAGMA page_count').get().page_count > 100)
+  c.close()
+  const target = join(c.root, 'gc-backup')
+  const script = `import { createDataBackup } from './server/data-backup.mjs';
+    const timer = setInterval(() => globalThis.gc(), 1);
+    try { await createDataBackup(${JSON.stringify(c.config)}, ${JSON.stringify(target)}); console.log('complete'); }
+    finally { clearInterval(timer); }`
+  const child = spawnSync(process.execPath, ['--expose-gc', '--input-type=module', '-e', script], { encoding: 'utf8', timeout: 20000 })
+  assert.equal(child.status, 0, child.stderr || child.error?.message)
+  assert.match(child.stdout, /complete/)
+  const manifest = await verifyDataBackup(c.config, target)
+  assert.equal(manifest.counts.games, 2000)
+  assert.equal(manifest.files.length, 1)
 })

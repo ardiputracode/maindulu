@@ -15,6 +15,7 @@ test('desktop navigation, original assets, and responsive layout', async ({ page
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: 'test-results/desktop-home.png', fullPage: true })
   await page.getByRole('link', { name: 'Jelajahi console', exact: true }).first().click()
+  await page.getByRole('link', { name: 'Buka semua game di Library' }).click()
   await page.getByPlaceholder('Cari game di server…').fill('tidak-ada')
   await expect(page.getByRole('heading', { name: 'Belum ketemu judulnya.' })).toBeVisible()
   await page.getByPlaceholder('Cari game di server…').fill('jalan')

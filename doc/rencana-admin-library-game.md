@@ -1,6 +1,8 @@
 # Rencana Implementasi Admin, Library Game, dan Pengelolaan BIOS
 
-Status: **Milestone 1–3 selesai dan terverifikasi pada 2026-10-26; Milestone 4 selesai dan terverifikasi pada 2026-11-03 dalam cakupan masing-masing di bawah. Milestone 5–7 belum diimplementasikan.** Jalankan berurutan per milestone. Setiap milestone ditutup setelah checklist dan kriteria selesainya terverifikasi.
+Status: **Milestone 1–3 selesai dan terverifikasi pada 2026-10-26; Milestone 4–5 selesai dan terverifikasi pada 2026-11-03 dalam cakupan masing-masing di bawah. Milestone 6–7 belum ditutup.** Jalankan berurutan per milestone. Setiap milestone ditutup setelah checklist dan kriteria selesainya terverifikasi.
+
+**Revisi cakupan pengguna (2026-11-03): tidak perlu backup berkas ROM/BIOS.** Backup hanya mencakup akun, save/progres, dan metadata katalog; aset ROM/BIOS/cover tidak disalin. Persyaratan backup koleksi lengkap dalam catatan historis Milestone 1–5 di bawah telah digantikan keputusan ini. Rincian format 2 dan pemulihan ID: [backup metadata tanpa ROM/BIOS](backup-metadata-katalog.md).
 
 ## Milestone 1 — Role Akun dan Otorisasi Admin
 
@@ -128,27 +130,31 @@ Panduan penggunaan, kontrak UI, dan batas cakupan: [UI pengelolaan game dan BIOS
 
 ## Milestone 5 — Library dan Integrasi Player
 
+Panduan penggunaan, sumber data/pagination, identitas, dan bukti verifikasi: [Library dan player](milestone-5-library-player.md).
+
 **Target:** pengguna dapat mencari dan memainkan game upload admin tanpa hashing lokal.
 
-- [ ] Tambahkan `/library` dengan grid game, pencarian, filter console, urutan A–Z/terbaru, pagination, serta kondisi kosong/loading/error/retry.
-- [ ] Simpan filter, urutan, dan halaman pada query parameter agar deep link dan tombol kembali konsisten.
-- [ ] Jadikan Library pusat penelusuran game; Jelajahi console tetap berfokus pada platform dan menautkan ke Library dengan filter console, bukan menduplikasi katalog penuh.
-- [ ] Pada backend dengan capability katalog, ambil game dari API database. Gabungkan demo statis sebagai konten bawaan dengan ID `jalan-pulang-v1` tetap, tanpa duplikasi; demo bukan entri upload yang dapat dihapus lewat admin.
-- [ ] Pada deployment statis, gunakan manifest bawaan seperti saat ini dan sembunyikan fitur admin. Backend yang dikonfigurasi tetapi gagal harus menampilkan gangguan/retry, bukan diam-diam dianggap mode statis.
-- [ ] Pisahkan parser katalog dari parser metadata tersimpan: `readGames` sekarang membatasi daftar ke 100 item. Jangan menaikkan batas favorit/riwayat hanya demi menampung katalog besar.
-- [ ] Gunakan ID stabil untuk favorit, riwayat, namespace emulator, save state, dan progres server. Jangan mengubah ID game lama atau menyatukan save lokal/server otomatis berdasarkan hash.
-- [ ] Saat membuka game dari favorit/riwayat server, periksa metadata/ketersediaan terbaru; game terhapus menampilkan pesan, bukan mencoba URL usang tanpa penjelasan.
-- [ ] Pertahankan jalur `source: 'server'` pada `SetupDialog`: gunakan metadata server tanpa `hashRom`. Jalur ini sebenarnya sudah melewati hashing lokal; jangan mengklaimnya sebagai optimasi baru.
-- [ ] ROM yang dipilih sendiri dari perangkat tetap di-hash lokal untuk identitas dan verifikasi, serta tidak diunggah. BIOS lokal juga tetap dapat dipilih dan tidak diunggah otomatis.
-- [ ] Ambil daftar BIOS dinamis dari API pada backend yang mendukungnya; pilihan BIOS server di `SetupDialog` menampilkan entri aktif sesuai console, termasuk untuk sesi ROM lokal. Tangani pagination agar tidak menyembunyikan firmware yang tersedia.
-- [ ] Pada mode statis, pertahankan manifest BIOS bawaan. Pada mode backend, gabungkan entri bawaan bila ada tanpa duplikasi; kegagalan API BIOS ditampilkan sebagai gangguan dengan retry, bukan daftar kosong yang menyesatkan.
-- [ ] Pengguna tetap memilih BIOS server/lokal secara eksplisit; jangan otomatis memilih salah satu dari beberapa firmware. Periksa ulang BIOS server terpilih sebelum launch dan tangani penghapusan di antara pemilihan dan unduh.
-- [ ] Gunakan hash BIOS hasil upload server tanpa menghitungnya ulang di browser. Pertahankan aturan BIOS wajib/opsional dan nama firmware/arsip saat diteruskan ke EmulatorJS; jangan menganggap semua BIOS satu console saling kompatibel.
-- [ ] Tampilkan informasi lisensi, kebutuhan BIOS, serta kegagalan unduh/player secara jelas. Hash server bukan jaminan kompatibilitas ROM atau save.
+- [x] Tambahkan `/library` dengan grid game, pencarian, filter console, urutan A–Z/terbaru, pagination, serta kondisi kosong/loading/error/retry.
+- [x] Simpan filter, urutan, dan halaman pada query parameter agar deep link dan tombol kembali konsisten.
+- [x] Jadikan Library pusat penelusuran game; Jelajahi console tetap berfokus pada platform dan menautkan ke Library dengan filter console, bukan menduplikasi katalog penuh.
+- [x] Pada backend dengan capability katalog, ambil game dari API database. Gabungkan demo statis sebagai konten bawaan dengan ID `jalan-pulang-v1` tetap, tanpa duplikasi; demo bukan entri upload yang dapat dihapus lewat admin.
+- [x] Pada deployment statis, gunakan manifest bawaan seperti saat ini dan sembunyikan fitur admin. Backend yang dikonfigurasi tetapi gagal harus menampilkan gangguan/retry, bukan diam-diam dianggap mode statis.
+- [x] Pisahkan parser katalog dari parser metadata tersimpan: `readGames` sekarang membatasi daftar ke 100 item. Jangan menaikkan batas favorit/riwayat hanya demi menampung katalog besar.
+- [x] Gunakan ID stabil untuk favorit, riwayat, namespace emulator, save state, dan progres server. Jangan mengubah ID game lama atau menyatukan save lokal/server otomatis berdasarkan hash.
+- [x] Saat membuka game dari favorit/riwayat server, periksa metadata/ketersediaan terbaru; game terhapus menampilkan pesan, bukan mencoba URL usang tanpa penjelasan.
+- [x] Pertahankan jalur `source: 'server'` pada `SetupDialog`: gunakan metadata server tanpa `hashRom`. Jalur ini sebenarnya sudah melewati hashing lokal; jangan mengklaimnya sebagai optimasi baru.
+- [x] ROM yang dipilih sendiri dari perangkat tetap di-hash lokal untuk identitas dan verifikasi, serta tidak diunggah. BIOS lokal juga tetap dapat dipilih dan tidak diunggah otomatis.
+- [x] Ambil daftar BIOS dinamis dari API pada backend yang mendukungnya; pilihan BIOS server di `SetupDialog` menampilkan entri aktif sesuai console, termasuk untuk sesi ROM lokal. Tangani pagination agar tidak menyembunyikan firmware yang tersedia.
+- [x] Pada mode statis, pertahankan manifest BIOS bawaan. Pada mode backend, gabungkan entri bawaan bila ada tanpa duplikasi; kegagalan API BIOS ditampilkan sebagai gangguan dengan retry, bukan daftar kosong yang menyesatkan.
+- [x] Pengguna tetap memilih BIOS server/lokal secara eksplisit; jangan otomatis memilih salah satu dari beberapa firmware. Periksa ulang BIOS server terpilih sebelum launch dan tangani penghapusan di antara pemilihan dan unduh.
+- [x] Gunakan hash BIOS hasil upload server tanpa menghitungnya ulang di browser. Pertahankan aturan BIOS wajib/opsional dan nama firmware/arsip saat diteruskan ke EmulatorJS; jangan menganggap semua BIOS satu console saling kompatibel.
+- [x] Tampilkan informasi lisensi, kebutuhan BIOS, serta kegagalan unduh/player secara jelas. Hash server bukan jaminan kompatibilitas ROM atau save.
 
 **Kriteria selesai:** game upload admin dapat dimainkan oleh tamu maupun akun; BIOS upload admin muncul sesuai console dan dapat diteruskan ke player untuk ROM server maupun lokal. Pengujian membuktikan jalur aset server tidak menghitung ulang hash di browser. Save dapat dimuat kembali setelah metadata diedit dan aplikasi di-restart. Mode statis, ROM lokal, dan BIOS lokal tetap berfungsi.
 
 **Area utama:** `src/App.tsx`, `src/components/GameCard.tsx`, `src/components/SetupDialog.tsx`, `src/lib/domain.ts`, `src/components/Player.tsx`, `public/player/player.js`.
+
+**Implementasi dan verifikasi Milestone 5 (2026-11-03):** `/library` beserta deep link backend, pencarian/filter/urutan/pagination ber-URL, katalog API + demo bawaan tanpa duplikasi ID, serta Jelajahi console yang menautkan ke Library. Parser katalog dipisahkan dari metadata favorit/riwayat; batas daftar tersimpan tidak dinaikkan. Metadata upload diperiksa saat membuka dialog dan sebelum launch; BIOS API dipaginasi lengkap per console untuk ROM lokal/server, dipilih eksplisit, dengan checksum server dan nama firmware tetap. Kegagalan katalog/BIOS memiliki pesan/retry, bukan fallback statis diam-diam. MVP membaca seluruh halaman metadata hasil filter sebelum merge/sort/pagination grid di browser; belum ada klaim performa koleksi sangat besar. `npm test`: **194 lulus**; build **lulus**; regresi backend lengkap **70 lulus** tanpa retry/skip (5,9 menit). Setelah penambahan satu tes race penghapusan BIOS setelah metadata diperiksa, smoke katalog/Library akhir **11 lulus** tanpa retry/skip (27,5 detik), tanpa perubahan runtime setelah build/regresi lengkap. Mode statis dev dan produksi masing-masing **24 lulus**, dengan **6 skenario khusus backend dilewati** sesuai mode. Tes nyata membuktikan upload UI admin → Library → tamu main tanpa pembacaan/hashing byte aset server di host, 101 pilihan BIOS, serta state dan progres CPU NES tetap pulih setelah edit metadata/restart/browser akun baru. **Milestone 5 ditutup dalam cakupan integrasi ini.** Tidak mengubah skema, bundle engine, format save, atau ID lama. Firmware sintetis bukan bukti boot BIOS proprietary; backup koleksi, Docker/HTTPS/proxy nyata, disk penuh fisik, upload penuh 768 MiB, dan gameplay semua core belum diklaim. Rincian dan batas: [panduan Library/player](milestone-5-library-player.md).
 
 ## Milestone 6 — Pengujian Keamanan dan Regresi End-to-End
 
@@ -167,29 +173,32 @@ Panduan penggunaan, kontrak UI, dan batas cakupan: [UI pengelolaan game dan BIOS
 
 **Area utama:** `tests/`, `tests/browser/`, konfigurasi Playwright yang sudah ada.
 
-## Milestone 7 — Backup, Deploy, dan Dokumentasi Operasional
+## Milestone 7 — Backup Metadata/Save, Deploy, dan Dokumentasi Operasional
 
-**Target:** koleksi game, BIOS, dan progres dapat dipertahankan serta dipulihkan di luar siklus deploy aplikasi.
+**Target:** akun, save/progres, dan identitas/metadata katalog dapat dipulihkan tanpa mencadangkan berkas ROM/BIOS/cover. Aset upload tetap berada pada volume saat deploy normal, tetapi harus disediakan ulang bila volume hilang atau restore dilakukan ke direktori bersih.
 
-- [ ] Perluas `data:backup`, `data:verify`, dan `data:restore` untuk menyertakan tabel katalog game/BIOS, ROM, BIOS, dan cover yang masih direferensikan, lengkap dengan ukuran/checksum serta nama firmware yang diperlukan.
-- [ ] Sesuaikan allowlist path, manifest, perhitungan jumlah record, dan pemeriksaan versi skema. Tentukan penanganan backup versi lama secara eksplisit; jangan mengasumsikan format lama menerima tabel/berkas baru.
-- [ ] Tetap gunakan alur backup offline dengan data lock yang sudah ada; jangan menjanjikan backup konsisten saat server aktif tanpa dukungan baru.
-- [ ] Kecualikan staging upload dan sampah yang sudah tidak direferensikan dari backup. Restore menolak referensi berkas hilang, checksum salah, atau path berbahaya.
+- [x] Perluas `data:backup`, `data:verify`, dan `data:restore` untuk menyertakan akun, save/progres/cadangan, serta metadata game/BIOS/cover dengan ID, ukuran/hash, dan nama firmware; **tidak menyertakan byte ROM/BIOS/cover**.
+- [x] Gunakan manifest format 2 yang menyatakan aset katalog dikecualikan, allowlist khusus database/blob save, jumlah record, dan pemeriksaan skema. Verify/restore format 1 skema 7/8/9 kosong tetap didukung; jangan menerima katalog berisi data lewat format 1.
+- [x] Tetap gunakan alur backup offline dengan data lock yang sudah ada; jangan menjanjikan backup konsisten saat server aktif tanpa dukungan baru.
+- [x] Kecualikan staging, orphan, serta reservasi/cleanup pada snapshot tanpa menghapus sumber. Tolak blob **save** hilang/rusak atau metadata/path berbahaya; ROM/BIOS/cover yang memang tidak disertakan bukan kegagalan verify.
+- [x] Pertahankan metadata aktif/tombstone saat restore; tampilkan berkas hilang pada admin. Upload ulang byte yang sama pada console yang sama memerlukan konfirmasi pemulihan ID lama; berkas aktif yang masih ada tidak boleh diganti lewat jalur ini.
 - [ ] Gunakan volume backend Docker yang sudah ada untuk seluruh direktori data; frontend statis tetap dapat dipakai secara terpisah tanpa fitur upload/admin.
 - [ ] Selaraskan batas multipart, timeout, konfigurasi storage, izin tulis, dan dokumentasi reverse proxy bila digunakan. Folder aplikasi dapat tetap read-only; hanya volume data yang perlu writable.
-- [ ] Dokumentasikan pembuatan admin, upload/delete game dan BIOS, hak distribusi ROM/firmware, batas ukuran, backup/restore, serta penanganan disk penuh dan berkas yatim.
-- [ ] Tegaskan bahwa lokasi di luar `public/` tidak otomatis membuat ROM/BIOS privat: MVP mengizinkan akses aset game/BIOS aktif tanpa login agar tamu dapat bermain. Jangan menyertakan firmware proprieter dalam repository, image, atau fixture pengujian tanpa hak distribusi.
+- [x] Dokumentasikan pembuatan admin, upload/delete game dan BIOS, hak distribusi ROM/firmware, batas ukuran, backup metadata/save tanpa aset, upload ulang setelah restore, serta penanganan disk penuh dan berkas yatim.
+- [x] Tegaskan bahwa lokasi di luar `public/` tidak otomatis membuat ROM/BIOS privat: MVP mengizinkan akses aset game/BIOS aktif tanpa login agar tamu dapat bermain. Jangan menyertakan firmware proprieter dalam repository, image, atau fixture pengujian tanpa hak distribusi.
 - [ ] Buktikan restart/rebuild/recreate container tanpa menghapus volume tetap menjaga akun, game, BIOS, cover, serta progres. Operasi penghapusan volume bukan bagian prosedur deploy rutin.
-- [ ] Buktikan backup → verify → restore ke direktori bersih → game dan pilihan BIOS tampil → aset firmware tetap memiliki nama/checksum yang benar → game dapat dimainkan dan save lama dapat dimuat dalam cakupan core yang diuji.
+- [x] Buktikan backup metadata → verify → restore bersih tanpa aset → admin menandai berkas hilang → upload ulang eksplisit memulihkan ID/nama/hash → game dapat dimainkan dan state/progres lama dimuat dalam cakupan core yang diuji.
 
-**Kriteria selesai:** instalasi dapat dipindahkan/dipulihkan beserta koleksi dan progresnya; deploy tidak menghilangkan upload. Perbarui README, panduan backend, dan changelog dengan hasil verifikasi aktual.
+**Kriteria selesai:** akun/save/metadata dapat dipindahkan/dipulihkan tanpa mencadangkan ROM/BIOS; upload ulang aset yang cocok mempertahankan hubungan save. Deploy normal tidak menghapus volume/upload. Hilangnya byte koleksi diterima sebagai risiko di luar cakupan backup, bukan janji pemulihan. Perbarui README, panduan backend, dan changelog dengan hasil verifikasi aktual. Implementasi backup metadata tidak otomatis menutup verifikasi container/proxy dan gerbang Milestone 6.
 
 **Area utama:** `server/data-backup.mjs`, `scripts/data-backup.mjs`, `deploy/docker-compose.backend.yml`, `deploy/README.backend.md`, `README.md`, `CHANGELOG.md`.
+
+**Implementasi parsial sesuai revisi pengguna (2026-11-03):** backup format 2 akun/save/metadata tanpa byte ROM/BIOS/cover, normalisasi koordinasi pada snapshot saja, kompatibilitas format 1 kosong, peringatan cakupan CLI/admin, serta pemulihan eksplisit berkas hilang pada ID aktif. Tes membuktikan hash/ukuran cocok, ID dan nama firmware lama tetap, metadata cover tidak dihapus pada pemulihan entri aktif, dan save/progres NES dapat dimuat sesudah restore bersih dan upload ulang. `npm test`: **198 lulus**, build **lulus**, integrasi admin/Library/katalog **22 lulus**, dan regresi backend lengkap akhir **72 lulus** tanpa retry/skip (7,6 menit). Koneksi pemeriksaan metadata dipisahkan dan ditutup sebelum snapshot SQLite asinkron; tes GC paksa dan delapan pengulangan backup/save lama lulus tanpa perubahan timeout/lock. Regresi awal memiliki satu timeout; rincian diagnosis/pengulangan dicatat pada panduan, bukan disembunyikan sebagai kelulusan awal. Mode statis dev/produksi masing-masing **8 lulus**, dengan 7 skenario khusus backend dilewati sesuai mode. **Milestone 7 belum ditutup seluruhnya:** verifikasi container/volume/proxy tetap belum dijalankan; tidak ada janji backup byte koleksi atau boot seluruh BIOS/core. Rincian aktual: [backup metadata tanpa ROM/BIOS](backup-metadata-katalog.md).
 
 ## Batas MVP dan Urutan Rilis
 
 - Milestone 1–3 membangun fondasi backend; Milestone 4–5 membuka alur pengguna; Milestone 6–7 menjadi gerbang rilis penggunaan nyata.
 - Pengujian dasar tetap ditambahkan bersama milestone masing-masing, bukan ditunda seluruhnya ke Milestone 6.
-- Upload, edit metadata, delete BIOS, pilihan BIOS server per console, dan backup/restore BIOS termasuk MVP; penggantian byte firmware pada ID BIOS lama tidak termasuk MVP.
-- Di luar MVP: upload massal, ekstraksi/normalisasi arsip di server, scraping metadata, penggantian ROM pada ID lama, perpindahan save lokal/server otomatis, pengelolaan akun lengkap lewat admin, dan penyimpanan cloud eksternal.
+- Upload, edit metadata, delete BIOS, pilihan BIOS server per console, dan backup/restore **metadata** BIOS termasuk MVP; byte ROM/BIOS/cover tidak dicadangkan. Pemulihan berkas hilang memakai byte identik dan ID lama, bukan penggantian firmware/ROM pada ID lama.
+- Di luar MVP: backup berkas ROM/BIOS/cover, upload massal, ekstraksi/normalisasi arsip di server, scraping metadata, penggantian ROM pada ID lama, perpindahan save lokal/server otomatis, pengelolaan akun lengkap lewat admin, dan penyimpanan cloud eksternal.
 - Tidak perlu memodifikasi bundle engine EmulatorJS atau mengganti sistem identitas/save yang sudah ada untuk fitur ini.

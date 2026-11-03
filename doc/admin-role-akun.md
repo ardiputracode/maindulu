@@ -2,7 +2,7 @@
 
 Fondasi Milestone 1 pada [rencana Admin/Library/BIOS](rencana-admin-library-game.md), **selesai dan terverifikasi pada 2026-10-26** dalam cakupan pengujian di bawah. **Belum menyediakan halaman admin, katalog dinamis, atau upload game/BIOS.**
 
-Catatan perkembangan: batas di atas adalah cakupan historis Milestone 1. API tersedia sejak Milestone 3 dan halaman pengelolaan tersedia pada [Milestone 4 — UI admin](milestone-4-ui-admin.md); Library/pilihan BIOS dinamis dan backup koleksi tetap belum tersedia.
+Catatan perkembangan: batas di atas adalah cakupan historis Milestone 1. API tersedia sejak Milestone 3, pengelolaan pada [Milestone 4](milestone-4-ui-admin.md), dan Library/pilihan BIOS dinamis pada [Milestone 5](milestone-5-library-player.md). [Backup format 2](backup-metadata-katalog.md) menyertakan akun/save/metadata katalog, tetapi sengaja tidak mencadangkan byte ROM/BIOS/cover sesuai keputusan pengguna.
 
 ## Promosi dan demosi
 
@@ -39,9 +39,9 @@ CLI mengambil lease shared melalui `openDatabase`, sama seperti reset akun. Back
 
 ## Update dan backup
 
-Sebelum migrasi, hentikan server/CLI dan buat backup offline dengan versi aplikasi lama. Setelah database dimigrasikan, jangan paksa downgrade. Sejak fondasi katalog Milestone 2, startup memakai skema **8**; pembuatan backup baru memerlukan katalog/aset kosong. Verify/restore format 1 tetap menerima skema **7**, serta skema **8** dengan katalog kosong. Backup skema 6 harus diverifikasi/di-restore memakai versi lama terlebih dahulu, lalu hasil restore dapat dimigrasikan oleh server baru. Sumber backup tidak dimigrasikan otomatis. Lihat [fondasi katalog/storage](milestone-2-katalog-storage.md).
+Sebelum migrasi, hentikan server/CLI dan gunakan aplikasi yang mendukung skema sumber untuk backup offline. Setelah database dimigrasikan, jangan paksa downgrade. Startup pengembangan memakai skema **9**; backup baru **format 2** menyimpan akun/save/metadata tanpa byte ROM/BIOS/cover dan tidak mensyaratkan katalog kosong. Verify/restore format 1 skema **7/8/9 dengan katalog kosong** tetap didukung. Backup skema 6 harus diverifikasi/di-restore memakai versi lama terlebih dahulu, lalu hasil restore dapat dimigrasikan oleh server baru. Sumber backup tidak dimigrasikan otomatis. Lihat [backup metadata](backup-metadata-katalog.md).
 
-Backup skema 7 menyertakan role melalui snapshot tabel `users`; restore mempertahankannya dan mencabut semua sesi seperti sebelumnya. ROM/BIOS/cover belum tercakup—backup koleksi dinamis baru boleh dinyatakan lengkap setelah Milestone 7 rencana Admin/Library/BIOS.
+Backup menyertakan role melalui snapshot tabel `users`; restore mempertahankannya dan mencabut semua sesi seperti sebelumnya. Byte ROM/BIOS/cover sengaja tidak dicadangkan, bukan fitur yang menunggu Milestone 7. Metadata/ID katalog tetap dipertahankan agar upload ulang aset identik dapat menghubungkan kembali save lama.
 
 ## Cakupan pengujian
 

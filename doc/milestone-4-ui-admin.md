@@ -2,6 +2,8 @@
 
 Bagian dari [rencana Admin/Library/BIOS](rencana-admin-library-game.md). Implementasi ini memakai API Milestone 3 tanpa perubahan skema, identitas save, player, atau bundle engine.
 
+**Kelanjutan:** batas di bawah menjelaskan kondisi saat Milestone 4 ditutup. [Milestone 5](milestone-5-library-player.md) menambahkan Library/pilihan BIOS API. Sesuai keputusan pengguna berikutnya, backup byte ROM/BIOS tidak diperlukan; [backup metadata format 2](backup-metadata-katalog.md) mempertahankan akun/save/ID katalog tanpa menyalin aset dan tidak mensyaratkan katalog kosong.
+
 ## Menggunakan admin
 
 1. Jalankan backend (`npm run build`, lalu `npm start`), buat akun biasa, dan simpan kode pemulihan.
@@ -31,7 +33,7 @@ Bagian dari [rencana Admin/Library/BIOS](rencana-admin-library-game.md). Impleme
 ## Batas cakupan
 
 - **Upload belum muncul pada UI bermain.** Library dan pemilihan BIOS dari API tetap Milestone 5. Katalog manifest, demo, ROM/BIOS lokal, player, dan namespace save tidak diubah.
-- **Backup koleksi belum tersedia.** Backup saat ini menolak katalog/aset/antrean/reservasi tidak kosong, termasuk tombstone. Hapus melalui admin bukan cara mengaktifkan kembali backup katalog. Simpan salinan sumber secara terpisah; jangan gunakan koleksi upload sebagai produksi sebelum Milestone 6–7 selesai.
+- **Backup hanya akun/save/metadata, bukan byte koleksi.** Format 2 tidak menyalin ROM/BIOS/cover dan tidak memerlukan penghapusan katalog agar backup berjalan. Setelah restore bersih, admin menandai berkas hilang; upload ulang byte identik pada console yang sama menawarkan pemulihan ID lama secara eksplisit, termasuk pada entri aktif. Berkas aktif yang masih ada tidak dapat diganti. Cover dapat diunggah ulang lewat edit metadata. Gerbang pengujian/deploy Milestone 6–7 tetap terpisah.
 - Mode statis tidak memanggil API dan tidak menampilkan menu admin. Membuka URL admin pada host statis dengan SPA fallback menampilkan keterangan fitur tidak tersedia.
 - Tidak ada UI pengelolaan role, upload massal, penggantian byte ROM/BIOS, atau ekstraksi arsip di server.
 

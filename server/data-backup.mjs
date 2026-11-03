@@ -6,12 +6,26 @@ import { DatabaseSync, backup } from 'node:sqlite'
 import { canonicalPath, isWithin } from './config.mjs'
 import { acquireDataLock } from './data-lock.mjs'
 import { schemaVersion } from './database.mjs'
+import { fileName as validateCatalogFileName } from './catalog/validation.mjs'
+import { storageKeyPattern } from './catalog/storage.mjs'
 
 const databaseName = 'maindulu.sqlite'
 const blobName = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.bin$/
 const checksum = /^[a-f0-9]{64}$/
 const allowedFile = path => path === databaseName || /^(saves|game-saves)\//.test(path) && blobName.test(path.split('/')[1]) && path.split('/').length === 2
 const fail = message => { throw new Error(message) }
+
+function inspectCatalog(db) {
+  const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(?![\s\S])/
+  for (const kind of ['games', 'bios']) for (const row of db.prepare(`SELECT * FROM ${kind}`).iterate()) {
+    if (!uuid.test(row.id) || !storageKeyPattern.test(row.storage_key) || !Number.isSafeInteger(row.size) || row.size < 1 || !checksum.test(row.sha256)) fail('Katalog backup memiliki referensi metadata tidak valid.')
+    try { validateCatalogFileName(kind, row.original_name, row.console_id) } catch { fail('Katalog backup memiliki nama/format berkas tidak aman.') }
+    if (kind === 'games' && row.cover_storage_key !== null && (!storageKeyPattern.test(row.cover_storage_key) || !Number.isSafeInteger(row.cover_size) || row.cover_size < 1 || !checksum.test(row.cover_sha256))) fail('Katalog backup memiliki referensi cover tidak valid.')
+  }
+  for (const row of db.prepare('SELECT * FROM catalog_cleanup').iterate()) {
+    if (!['games', 'bios', 'covers'].includes(row.folder) || !storageKeyPattern.test(row.storage_key)) fail('Katalog backup memiliki referensi cleanup tidak aman.')
+  }
+}
 
 async function safeEntry(path, directory = false) {
   const stat = await lstat(path)
@@ -64,18 +78,21 @@ async function copy(source, target) {
   await sync(target)
 }
 
-function inspectDatabase(db, { legacy = false } = {}) {
+function inspectDatabase(db, { legacy = false, catalogMetadata = false } = {}) {
   db.exec('PRAGMA trusted_schema = OFF; PRAGMA query_only = ON;')
   const version = db.prepare('PRAGMA user_version').get().user_version
   if (version !== schemaVersion && !(legacy && [7, 8].includes(version))) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
   if (db.prepare('PRAGMA integrity_check').all().some(row => row.integrity_check !== 'ok') || db.prepare('PRAGMA foreign_key_check').all().length) fail('Integritas SQLite backup gagal.')
   if (version === 7) {
-    if (db.prepare("SELECT name FROM sqlite_master WHERE name IN ('games', 'bios', 'catalog_cleanup', 'catalog_uploads', 'catalog_capacity')").all().length) fail('Katalog backup tidak didukung sebelum Milestone 7; jangan gunakan backup yang mengabaikan aset katalog.')
-  } else if (db.prepare('SELECT 1 FROM games UNION ALL SELECT 1 FROM bios LIMIT 1').get()) {
-    fail('Katalog backup belum didukung sebelum Milestone 7. Backup dibatalkan karena ROM/BIOS/cover belum dapat dicadangkan lengkap, termasuk entri terhapus.')
+    if (db.prepare("SELECT name FROM sqlite_master WHERE name IN ('games', 'bios', 'catalog_cleanup', 'catalog_uploads', 'catalog_capacity')").all().length) fail('Katalog backup skema 7 tidak cocok; tabel katalog tidak boleh ada pada skema ini.')
+  } else if (!catalogMetadata && db.prepare('SELECT 1 FROM games UNION ALL SELECT 1 FROM bios LIMIT 1').get()) {
+    fail('Katalog backup format 1 harus kosong. Gunakan format 2 untuk metadata katalog tanpa berkas ROM/BIOS/cover.')
   }
   if (version === 8 && db.prepare("SELECT name FROM sqlite_master WHERE name IN ('catalog_cleanup', 'catalog_uploads', 'catalog_capacity')").all().length) fail('Katalog backup memiliki tabel yang tidak sesuai versi skema; jangan abaikan antrean/reservasi katalog.')
-  if (version === schemaVersion && db.prepare('SELECT 1 FROM catalog_cleanup UNION ALL SELECT 1 FROM catalog_uploads LIMIT 1').get()) fail('Katalog backup belum didukung sebelum Milestone 7. Reservasi/cleanup katalog belum kosong; jalankan recovery offline terlebih dahulu.')
+  if (version === schemaVersion) {
+    if (catalogMetadata) inspectCatalog(db)
+    else if (db.prepare('SELECT 1 FROM catalog_cleanup UNION ALL SELECT 1 FROM catalog_uploads LIMIT 1').get()) fail('Katalog backup format 1 memiliki reservasi/cleanup yang belum kosong.')
+  }
   const installationId = db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get()?.value
   if (typeof installationId !== 'string') fail('Identitas instalasi backup tidak valid.')
   const files = new Map()
@@ -94,15 +111,6 @@ function inspectDatabase(db, { legacy = false } = {}) {
   if (version >= 8) for (const table of ['games', 'bios']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
   if (version === schemaVersion) for (const table of ['catalog_cleanup', 'catalog_uploads']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
   return { installationId, files, counts, version }
-}
-
-async function refuseCatalogAssets(source) {
-  for (const folder of ['games', 'bios', 'covers']) {
-    const path = join(source, folder)
-    try { await safeEntry(path, true) }
-    catch (error) { if (error.code === 'ENOENT') continue; throw error }
-    if ((await readdir(path)).length) fail('Katalog backup belum didukung sebelum Milestone 7. Folder aset katalog tidak kosong; backup dibatalkan agar tidak mengabaikan berkas.')
-  }
 }
 
 async function tree(folder) {
@@ -130,7 +138,9 @@ async function verify(folder) {
   const actual = await tree(folder)
   if ((await safeEntry(join(folder, 'manifest.json'))).size > 64 * 1024 * 1024) fail('Manifest backup terlalu besar.')
   const manifest = JSON.parse(await readFile(join(folder, 'manifest.json'), 'utf8'))
-  if (manifest?.format !== 'maindulu-data-backup' || manifest.formatVersion !== 1 || ![7, 8, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
+  if (manifest?.format !== 'maindulu-data-backup' || ![1, 2].includes(manifest.formatVersion) || ![7, 8, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
+  const catalogMetadata = manifest.formatVersion === 2
+  if (catalogMetadata && (manifest.schemaVersion !== schemaVersion || manifest.catalogAssets !== 'excluded')) fail('Format/versi manifest backup metadata harus menyatakan bahwa ROM/BIOS/cover tidak disertakan.')
   const files = new Map()
   for (const file of manifest.files) {
     if (!file || typeof file.path !== 'string' || !allowedFile(file.path) || files.has(file.path) || !Number.isSafeInteger(file.size) || file.size < 1 || !checksum.test(file.checksum)) fail('Daftar berkas manifest backup tidak valid.')
@@ -143,7 +153,8 @@ async function verify(folder) {
   }
   const db = new DatabaseSync(join(folder, databaseName), { readOnly: true })
   let info
-  try { info = inspectDatabase(db, { legacy: true }) } finally { db.close() }
+  try { info = inspectDatabase(db, { legacy: true, catalogMetadata }) } finally { db.close() }
+  if (catalogMetadata && (info.counts.catalog_cleanup || info.counts.catalog_uploads)) fail('Katalog backup format 2 tidak boleh membawa reservasi/cleanup aktif.')
   if (info.version !== manifest.schemaVersion || info.installationId !== manifest.installationId || JSON.stringify(info.counts) !== JSON.stringify(manifest.counts) || info.files.size + 1 !== files.size) fail('Metadata manifest tidak cocok dengan database.')
   for (const [path, row] of info.files) {
     const file = files.get(path)
@@ -171,17 +182,24 @@ export async function createDataBackup(config, input) {
   const releaseSource = await acquireDataLock(source, true)
   let releaseTarget, stage
   try {
-    await refuseCatalogAssets(source)
     releaseTarget = await acquireDataLock(target, true)
     stage = await mkdtemp(join(dirname(target), '.' + basename(target) + '.partial-'))
     await chmod(stage, 0o700)
     for (const folder of ['saves', 'game-saves']) await mkdir(join(stage, folder), { mode: 0o700 })
+    // Finalize all inspection statements before the native asynchronous backup
+    // uses a connection on its worker thread. In particular, iterator/statement
+    // GC must not touch the same SQLite connection while backup is running.
+    const inspection = new DatabaseSync(join(source, databaseName), { readOnly: true })
+    try { inspectDatabase(inspection, { catalogMetadata: true }) } finally { inspection.close() }
     const db = new DatabaseSync(join(source, databaseName), { readOnly: true })
     let info
-    try { info = inspectDatabase(db); await backup(db, join(stage, databaseName)) } finally { db.close() }
+    try { await backup(db, join(stage, databaseName)) } finally { db.close() }
     // Make the snapshot self-contained, with no WAL/SHM dependency.
     const snapshot = new DatabaseSync(join(stage, databaseName))
-    try { snapshot.exec('PRAGMA journal_mode = DELETE;') } finally { snapshot.close() }
+    try {
+      snapshot.exec('PRAGMA journal_mode = DELETE; BEGIN IMMEDIATE; DELETE FROM catalog_uploads; DELETE FROM catalog_cleanup; UPDATE catalog_capacity SET generation = 0 WHERE id = 1; COMMIT;')
+      info = inspectDatabase(snapshot, { catalogMetadata: true })
+    } finally { snapshot.close() }
     await chmod(join(stage, databaseName), 0o600)
     await sync(join(stage, databaseName))
     const files = [{ path: databaseName, ...await fingerprint(join(stage, databaseName)) }]
@@ -198,7 +216,7 @@ export async function createDataBackup(config, input) {
     catch (error) { if (error.code !== 'ENOENT') throw error }
     const configuration = {}
     for (const key of ['host', 'port', 'registrationOpen', 'publicOrigin', 'allowInsecureHttp', 'stateMaxBytes', 'gameSaveMaxBytes', 'saveQuotaBytes']) configuration[key] = config[key]
-    const manifest = { format: 'maindulu-data-backup', formatVersion: 1, schemaVersion, createdAt: new Date().toISOString(), appVersion: pkg.version, nodeVersion: process.versions.node, engineBuildsChecksum, installationId: info.installationId, counts: info.counts, configuration, files }
+    const manifest = { format: 'maindulu-data-backup', formatVersion: 2, catalogAssets: 'excluded', schemaVersion, createdAt: new Date().toISOString(), appVersion: pkg.version, nodeVersion: process.versions.node, engineBuildsChecksum, installationId: info.installationId, counts: info.counts, configuration, files }
     await writeFile(join(stage, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
     await sync(join(stage, 'manifest.json'))
     await verify(stage)
@@ -245,9 +263,9 @@ export async function restoreDataBackup(config, input, destination) {
     }
     const db = new DatabaseSync(join(stage, databaseName))
     try {
-      inspectDatabase(db, { legacy: true })
+      inspectDatabase(db, { legacy: true, catalogMetadata: manifest.formatVersion === 2 })
       db.exec('PRAGMA query_only = OFF; PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL; BEGIN IMMEDIATE; DELETE FROM sessions; COMMIT;')
-      inspectDatabase(db, { legacy: true })
+      inspectDatabase(db, { legacy: true, catalogMetadata: manifest.formatVersion === 2 })
     } finally { db.close() }
     await sync(join(stage, databaseName))
     await publish(stage, target)
