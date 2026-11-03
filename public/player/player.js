@@ -7,6 +7,8 @@
   let widescreenState = false
   let widescreenObserver = null
   let memorySaves = false
+  let hostFullscreen = false
+  let hostFullscreenActive = false
   let gameStarted = false
   // Save-state overlay bookkeeping: remember whether the game was running when
   // the host asked for a pause, so closing the overlay only resumes a game that
@@ -33,6 +35,7 @@
     return gm
   }
   function syncHostFullscreen(fullscreen) {
+    hostFullscreenActive = fullscreen
     const e = window.EJS_emulator
     const buttons = e?.elements?.bottomBar?.fullscreen
     if (buttons) {
@@ -138,12 +141,13 @@
 
   // No cookies, tokens or account IDs cross this bridge. HTTP belongs to React.
   window.addEventListener('message', event => {
-    if (event.origin !== location.origin || event.source !== parent || event.data?.channel !== 'maindulu:host' || event.data.sessionId !== sessionId || !memorySaves) return
+    if (event.origin !== location.origin || event.source !== parent || event.data?.channel !== 'maindulu:host' || event.data.sessionId !== sessionId || !configured) return
     const { type, requestId } = event.data
-    if (type === 'fullscreen-state' && typeof event.data.fullscreen === 'boolean') {
+    if (type === 'fullscreen-state' && hostFullscreen && typeof event.data.fullscreen === 'boolean') {
       syncHostFullscreen(event.data.fullscreen)
       return
     }
+    if (!memorySaves) return
     if (!gameStarted) return
     // Save-state overlay pause: pause only if started, and remember whether the
     // game was running so closing the overlay (resume-session) restores exactly
@@ -271,10 +275,14 @@
       }
       window.EJS_ready = () => {
         hideNativeStateSettings()
-        // Account dialogs live in React. Fullscreen the host's shared shell so
-        // the iframe, save overlay and autosave notices stay in the same layer.
-        // Keep guest fullscreen behavior unchanged and avoid editing the engine.
-        if (memorySaves) window.EJS_emulator.toggleFullscreen = fullscreen => send('fullscreen-request', { fullscreen: fullscreen === true })
+        // Account dialogs live in React. Browsers without element fullscreen
+        // (notably iPhone) also need the host's viewport-filling fallback.
+        const emulator = window.EJS_emulator
+        hostFullscreen = memorySaves || !emulator.elements.parent.requestFullscreen || !document.fullscreenEnabled
+        if (hostFullscreen) {
+          emulator.toggleFullscreen = fullscreen => send('fullscreen-request', { fullscreen: fullscreen === true })
+          syncHostFullscreen(false) // The engine hides both buttons if its API is absent.
+        }
         const startButton = document.querySelector('.ejs_start_button')
         if (startButton) {
           startButton.setAttribute('role', 'button')
@@ -323,6 +331,9 @@
       script.onerror = () => fail('Loader lokal tidak ditemukan. Periksa folder vendor/emulatorjs/4.2.3/data.')
       document.head.appendChild(script)
     } catch (error) { fail(error instanceof Error ? error.message : 'Player gagal disiapkan.') }
+  })
+  window.addEventListener('keydown', event => {
+    if (hostFullscreen && hostFullscreenActive && event.key === 'Escape') send('fullscreen-request', { fullscreen: false })
   })
   window.addEventListener('error', event => fail(event.message || 'Terjadi kesalahan pada engine. Periksa format ROM dan BIOS.'))
   window.addEventListener('unhandledrejection', event => {

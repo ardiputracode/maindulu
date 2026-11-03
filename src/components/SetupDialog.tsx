@@ -59,7 +59,7 @@ export default function SetupDialog({ selection, consoles, biosList, onClose, on
   }
 
   return <Dialog title={selection.game ? 'Siap main lagi?' : 'Buka kenanganmu.'} onClose={onClose} busy={busy}>
-    <input ref={romInput} type="file" hidden disabled={busy} onChange={e => selectRom(e.target.files?.[0])} accept={['nes','fds','unf','unif','sfc','smc','fig','swc','gb','gbc','gba','md','gen','smd','bin','cue','chd','pbp','iso','zip','7z','rar'].map(x => '.' + x).join(',')} />
+    <input ref={romInput} type="file" hidden disabled={busy} onChange={e => selectRom(e.target.files?.[0])} />
     <div className={`dropzone ${dragging ? 'dragging' : ''} ${rom || serverGame ? 'has-file' : ''}`} onDragOver={e => { e.preventDefault(); if (!busy) setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={e => { e.preventDefault(); setDragging(false); if (!busy) selectRom(e.dataTransfer.files[0]) }}>
       <div className="drop-icon">{rom || serverGame ? <FileArchive size={27} /> : <Upload size={27} />}</div>
       <strong>{rom?.name || serverGame?.title || 'Tarik ROM ke sini'}</strong>

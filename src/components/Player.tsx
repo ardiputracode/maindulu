@@ -25,6 +25,8 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
 }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const shell = useRef<HTMLDivElement>(null)
+  const pseudoFullscreenRef = useRef(false)
+  const [pseudoFullscreen, setPseudoFullscreen] = useState(false)
   const started = useRef(false)
   const [status, setStatus] = useState('Menyiapkan ruang bermain…')
   const [error, setError] = useState('')
@@ -82,6 +84,17 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     frame.current.contentWindow.postMessage({ channel: 'maindulu:host', type, sessionId: session.id, requestId, ...(bytes ? { bytes } : {}) }, location.origin)
   }), [session.id])
   const liveRef = useRef(true)
+  useEffect(() => {
+    if (!pseudoFullscreen) return
+    const previousBodyOverflow = document.body.style.overflow
+    const previousRootOverflow = document.documentElement.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousBodyOverflow
+      document.documentElement.style.overflow = previousRootOverflow
+    }
+  }, [pseudoFullscreen])
   // Opening the overlay always pauses; closing resumes only games that were
   // running when the overlay opened (the bridge keeps that decision).
   useEffect(() => {
@@ -145,19 +158,32 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
       setStatus('Memuat engine dan core lokal…')
     }
     const syncFullscreen = () => {
-      frame.current?.contentWindow?.postMessage({ channel: 'maindulu:host', type: 'fullscreen-state', sessionId: session.id, fullscreen: !!shell.current && document.fullscreenElement === shell.current }, location.origin)
+      frame.current?.contentWindow?.postMessage({ channel: 'maindulu:host', type: 'fullscreen-state', sessionId: session.id, fullscreen: pseudoFullscreenRef.current || !!shell.current && document.fullscreenElement === shell.current }, location.origin)
+    }
+    function setFallbackFullscreen(value: boolean) {
+      pseudoFullscreenRef.current = value
+      setPseudoFullscreen(value)
+      syncFullscreen()
     }
     async function toggleFullscreen(fullscreen: boolean) {
-      try {
-        const target = shell.current
-        if (fullscreen) {
-          if (!target?.requestFullscreen) throw new Error('Fullscreen tidak tersedia.')
+      const target = shell.current
+      if (!target) return
+      if (!fullscreen) {
+        if (pseudoFullscreenRef.current) setFallbackFullscreen(false)
+        else if (document.fullscreenElement === target) await document.exitFullscreen().catch(() => {})
+        syncFullscreen()
+        return
+      }
+      if (target.requestFullscreen && document.fullscreenEnabled) {
+        try {
           await target.requestFullscreen()
-        } else if (document.fullscreenElement === target) await document.exitFullscreen()
-      } catch {
-        setSaveNotice({ kind: 'error', message: 'Fullscreen tidak tersedia. Coba lagi.' })
-      } finally { syncFullscreen() }
+          syncFullscreen()
+          return
+        } catch { /* Fullscreen can be denied, e.g. across an iframe click. */ }
+      }
+      setFallbackFullscreen(true)
     }
+    const escapePseudoFullscreen = (event: KeyboardEvent) => { if (event.key === 'Escape' && pseudoFullscreenRef.current) setFallbackFullscreen(false) }
     function receive(event: MessageEvent) {
       if (event.origin !== location.origin || event.source !== frame.current?.contentWindow || event.data?.channel !== 'maindulu:player') return
       if (event.data.type === 'ready' && !configured) {
@@ -167,7 +193,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
       if (event.data.sessionId !== session.id) return
       // Fullscreen the shared player shell, not the iframe alone: React save
       // dialogs and notices must be descendants of the fullscreen element.
-      if (event.data.type === 'fullscreen-request' && active.current && typeof event.data.fullscreen === 'boolean') {
+      if (event.data.type === 'fullscreen-request' && (!owner || active.current) && typeof event.data.fullscreen === 'boolean') {
         void toggleFullscreen(event.data.fullscreen)
       }
       // The "Save state server" button lives inside the emulator toolbar; the
@@ -217,12 +243,13 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     }
     window.addEventListener('message', receive)
     document.addEventListener('fullscreenchange', syncFullscreen)
+    document.addEventListener('keydown', escapePseudoFullscreen)
     timeout = setTimeout(() => { setStatus(''); setError('Player belum siap. Periksa koneksi ke server maindulu dan kelengkapan aset engine, lalu buka game kembali.') }, 90000)
     const warn = (e: BeforeUnloadEvent) => { if (started.current) e.preventDefault() }
     window.addEventListener('beforeunload', warn)
     return () => {
       disposed = true; sync?.close(); progressSync.current = null
-      clearTimeout(timeout); window.removeEventListener('message', receive); window.removeEventListener('beforeunload', warn); document.removeEventListener('fullscreenchange', syncFullscreen); liveRef.current = false
+      clearTimeout(timeout); window.removeEventListener('message', receive); window.removeEventListener('beforeunload', warn); document.removeEventListener('fullscreenchange', syncFullscreen); document.removeEventListener('keydown', escapePseudoFullscreen); liveRef.current = false
       for (const request of requests.current.values()) { clearTimeout(request.timer); request.reject(new Error('Sesi player ditutup.')) }
       requests.current.clear()
     }
@@ -247,7 +274,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
   function closeTransfer() { setTransfer(null); progressSync.current?.release() }
   return <div className="player-page">
     <div className="player-heading"><button className="button secondary small" onClick={exit}><ArrowLeft size={17} />Kembali</button><div className="player-title"><h1>{session.game.title}</h1><span>{session.consoleInfo.shortName} <i>·</i> {session.game.source === 'local' ? 'ROM lokal' : 'Koleksi server'}</span></div><button className={`icon-button ${favorite ? 'is-favorite' : ''}`} onClick={onFavorite} aria-label={favorite ? 'Hapus dari favorit' : 'Tambahkan ke favorit'} aria-pressed={favorite}><Heart fill={favorite ? 'currentColor' : 'none'} size={21} /></button></div>
-    <div ref={shell} className={`player-shell${widescreen ? ' is-widescreen' : ''}`}>{!terminated && <iframe key={progressRetry} ref={frame} src="/player/index.html" title={`Emulator ${session.game.title}`} allow="autoplay; fullscreen; gamepad" allowFullScreen />}{(error || terminated) && <div className="player-error" role="alert"><Info size={27} /><h2>{terminated ? 'Sesi akun berakhir.' : 'Belum bisa mulai.'}</h2><p>{terminated ? 'Player dibersihkan untuk mencegah pencampuran data akun. Unduh snapshot tertunda di bawah bila tersedia, lalu login dan buka game kembali.' : error}</p>{!terminated && !started.current && progressAvailable && <button className="button secondary" onClick={() => setProgressRetry(v => v + 1)}>Coba ambil progres lagi</button>}<button className="button primary" onClick={onExit}>Kembali dan coba lagi<ArrowLeft size={17} /></button></div>}
+    <div ref={shell} className={`player-shell${widescreen ? ' is-widescreen' : ''}${pseudoFullscreen ? ' is-pseudo-fullscreen' : ''}`}>{!terminated && <iframe key={progressRetry} ref={frame} src="/player/index.html" title={`Emulator ${session.game.title}`} allow="autoplay; fullscreen; gamepad" allowFullScreen />}{(error || terminated) && <div className="player-error" role="alert"><Info size={27} /><h2>{terminated ? 'Sesi akun berakhir.' : 'Belum bisa mulai.'}</h2><p>{terminated ? 'Player dibersihkan untuk mencegah pencampuran data akun. Unduh snapshot tertunda di bawah bila tersedia, lalu login dan buka game kembali.' : error}</p>{!terminated && !started.current && progressAvailable && <button className="button secondary" onClick={() => setProgressRetry(v => v + 1)}>Coba ambil progres lagi</button>}<button className="button primary" onClick={onExit}>Kembali dan coba lagi<ArrowLeft size={17} /></button></div>}
       {enabled && !saveOverlay && saveNotice && <div className={`player-save-notice player-save-notice--${saveNotice.kind}`} role="status" aria-live="polite" aria-atomic="true">
         {saveNotice.kind === 'saving' ? <LoaderCircle size={15} className="spin" /> : saveNotice.kind === 'success' ? <Check size={15} /> : <Info size={15} />}
         <span>{saveNotice.message}</span>

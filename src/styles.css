@@ -31,6 +31,7 @@
 .server-overlay { z-index: 70; padding: 24px; }
 .player-shell:fullscreen { width: 100%; height: 100%; max-width: none; max-height: none; min-height: 0; aspect-ratio: auto; border: 0; border-radius: 0; background: #080e0b; }
 .player-shell:fullscreen::backdrop { background: #080e0b; }
+.player-shell.is-pseudo-fullscreen { position: fixed; inset: 0; z-index: 100; width: 100%; height: 100vh; height: 100dvh; max-width: none; max-height: none; min-height: 0; aspect-ratio: auto; border: 0; border-radius: 0; background: #080e0b; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 .player-save-notice { position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); z-index: 5; display: flex; align-items: center; gap: 7px; max-width: calc(100% - 24px); padding: 8px 11px; border: 1px solid #43624c; border-radius: 8px; background: #102017ed; color: #c9ebd3; box-shadow: 0 3px 12px #0004; font-size: 12px; line-height: 1.5; pointer-events: none; }
 .player-save-notice svg { flex-shrink: 0; }
 .player-save-notice--error { border-color: #8d6543; color: #f4d5af; }

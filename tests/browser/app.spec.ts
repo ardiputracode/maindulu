@@ -64,6 +64,40 @@ test('mobile drawer, readable hero, and no horizontal overflow', async ({ page }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 
+test('mobile player offers viewport mode when element fullscreen is unavailable', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => {
+    Object.defineProperty(Element.prototype, 'requestFullscreen', { configurable: true, value: undefined })
+  })
+  const player = await launchDemo(page)
+  const enter = player.getByRole('button', { name: 'Enter Fullscreen' })
+  const exit = player.getByRole('button', { name: 'Exit Fullscreen' })
+  await expect(enter).toBeVisible()
+  await enter.click({ force: true })
+  await expect(page.locator('.player-shell')).toHaveClass(/is-pseudo-fullscreen/)
+  expect(await page.locator('.player-shell').evaluate(element => {
+    const box = element.getBoundingClientRect()
+    return { left: box.left, top: box.top, width: box.width, height: box.height }
+  })).toEqual({ left: 0, top: 0, width: 390, height: 844 })
+  expect(await page.evaluate(() => ({ fullscreen: document.fullscreenElement, overflow: document.body.style.overflow }))).toEqual({ fullscreen: null, overflow: 'hidden' })
+  await expect(exit).toBeVisible()
+  await exit.click({ force: true })
+  await expect(page.locator('.player-shell')).not.toHaveClass(/is-pseudo-fullscreen/)
+  await expect(enter).toBeVisible()
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe('')
+  await enter.click({ force: true })
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.player-shell')).not.toHaveClass(/is-pseudo-fullscreen/)
+})
+
+test('desktop guest retains native emulator fullscreen', async ({ page }) => {
+  const player = await launchDemo(page)
+  await player.getByRole('button', { name: 'Enter Fullscreen' }).click({ force: true })
+  await expect.poll(() => player.locator('.ejs_parent').evaluate(element => document.fullscreenElement === element)).toBe(true)
+  await expect(page.locator('.player-shell')).not.toHaveClass(/is-pseudo-fullscreen/)
+  await page.keyboard.press('Escape')
+})
+
 test('cold-cache server game runs without any external request and records real play', async ({ page, context, baseURL }) => {
   const external: string[] = []
   const errors: string[] = []
