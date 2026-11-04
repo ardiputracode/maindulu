@@ -82,7 +82,9 @@ MAIN_DULU_ALLOW_INSECURE_HTTP=false
 
 Proxy meneruskan seluruh path ke `http://127.0.0.1:7777`, mempertahankan **Host publik beserta port bila nonstandar** (Nginx: `proxy_set_header Host $http_host;`), dan menerima body biner sampai batas state yang dikonfigurasi. Jangan mengubah error API menjadi HTML. Jika proxy di container lain, gunakan jaringan Docker bersama, bukan `127.0.0.1` container proxy.
 
-Untuk API upload katalog pengembangan, lihat [batas multipart, buffering, timeout, dan contoh location proxy](../doc/milestone-3-api-katalog.md#reverse-proxy). API akun/save tetap memakai limit sendiri; jangan cache aset katalog dinamis atau mengekspos volume data melalui Nginx.
+Untuk API upload katalog pengembangan, lihat [batas multipart, buffering, timeout, dan contoh location proxy](../doc/milestone-3-api-katalog.md#reverse-proxy). API akun/save tetap memakai limit sendiri; jangan mengekspos volume data melalui Nginx.
+
+Pertahankan kebijakan cache backend: respons ROM/BIOS upload yang valid (`/games/:id/rom/:filename`, `/bios/:id/:filename`) memakai `Cache-Control: private, no-cache` dan ETag SHA-256; browser boleh menyimpan lalu memvalidasi ulang, termasuk setelah restart jika disk cache tersedia. Jangan menimpa respons ini dengan `no-store`, membuang ETag/`If-None-Match`, mengabaikan `private`, atau melayani shared cache tanpa validasi origin. API akun/save/metadata, cover, redirect ROM, serta error tetap `no-store`. Jika proxy mengubah representasi, pastikan validator tetap benar. Kebijakan ini tidak mengubah aset statis/bawaan; bukan mode offline atau penyimpanan ROM permanen. Lihat [hasil pengujian dan batas cache](../doc/rencana-cache-rom-bios.md#hasil-implementasi-dan-verifikasi); tes browser loopback tersebut tidak membuktikan konfigurasi proxy/HTTPS nyata.
 
 ```sh
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -d --force-recreate

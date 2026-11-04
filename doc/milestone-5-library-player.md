@@ -19,13 +19,14 @@ Bagian dari [rencana Admin/Library/BIOS](rencana-admin-library-game.md). Tidak m
 ## Membuka game dan memilih BIOS
 
 - Game upload diperiksa melalui metadata API saat dialog dibuka, termasuk dari favorit/riwayat. Judul, deskripsi, dan lisensi terbaru ditampilkan; metadata diperiksa ulang sebelum launch. Entri terhapus atau backend gagal ditampilkan jelas tanpa mencoba URL ROM lama. Player tetap melakukan preflight aset untuk penghapusan di antara pemeriksaan metadata dan unduh.
-- ID upload dari backend dipertahankan untuk favorit, riwayat, namespace engine, save state, dan progres akun. Mengedit judul/cover tidak mengganti ID. Tidak menggabungkan save lokal/server berdasarkan hash.
+- ID upload dari backend dipertahankan untuk favorit/riwayat/katalog; mengedit judul/cover tidak mengganti ID. **Revisi sesudah M5:** namespace engine, save state, dan progres kini memakai `saveIdentity` (`core-SHA256`, fallback `core-ID` bila hash tidak tersedia), sehingga ROM lokal/server dengan hash dan core sama berbagi identitas save. Lihat [implementasi Opsi B](rencana-save-identity-hash.md). Fitur HTTP cache tidak mengubah kontrak save ini.
 - Jalur `source: 'server'` memang sudah tidak menjalankan `hashRom` sebelum milestone ini. Integrasi baru tetap memakai jalur tersebut; bukan klaim optimasi hashing baru.
 - ROM yang dipilih dari perangkat tetap di-hash untuk ID/verifikasi lokal dan tidak diunggah. BIOS lokal juga tidak diunggah otomatis. Checksum save/progres akun tetap diverifikasi secara terpisah; larangan hashing ulang hanya berlaku untuk aset ROM/BIOS server.
 - BIOS API aktif ditampilkan sesuai console untuk ROM server maupun lokal, digabung dengan BIOS manifest tanpa duplikasi ID. Tidak ada auto-select firmware. Pilihan raw/arsip dan URL/nama firmware dipertahankan.
 - BIOS upload terpilih diperiksa ulang sebelum launch; hash SHA-256 yang dihitung backend ditampilkan/dibawa dalam metadata sesi tanpa membaca ulang byte firmware untuk hashing di browser. Hash bukan bukti kompatibilitas/keamanan/legalitas.
 - Gangguan API BIOS menampilkan retry, bukan daftar kosong yang dianggap sukses. BIOS lokal atau tanpa BIOS tetap dapat dipilih bila aturan core mengizinkan. BIOS wajib, termasuk FDS, tidak dapat dilewati. Pilihan server yang dihapus ditolak; pengguna harus memilih ulang secara eksplisit.
 - Entri manifest dengan ID berbentuk UUID tetap diperlakukan sebagai konten bawaan, bukan otomatis sebagai upload database.
+- ROM/BIOS upload valid boleh disimpan dalam HTTP cache browser, tetapi tetap divalidasi ulang ke server melalui HEAD/GET dan ETag sebelum reuse. Penghapusan atau kegagalan validasi aset tetap menolak sesi baru; database cache EmulatorJS tetap mati. Ini bukan cache offline, tidak mempersistenkan file lokal pilihan pengguna, dan tidak mengubah cache demo/aset statis. Desain dan bukti lintas restart browser: [cache ROM/BIOS](rencana-cache-rom-bios.md).
 
 ## Verifikasi dan batas
 

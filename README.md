@@ -130,6 +130,8 @@ Ini **bukan penyimpanan ROM permanen, save/progres, atau mode offline**. Koneksi
 
 Reverse proxy harus mempertahankan ETag dan kebijakan origin: jangan mengganti header ROM/BIOS menjadi `no-store`, mengabaikan `private`, atau melayani cache tanpa validasi origin. Jika proxy mengubah representasi (misalnya kompresi), pastikan validator ETag tetap benar.
 
+Desain, checklist selesai, bukti pengujian, dan rollback: [cache ROM/BIOS server](doc/rencana-cache-rom-bios.md). Kontrak endpoint terkini tersedia di [panduan API katalog](doc/milestone-3-api-katalog.md#kontrak-http).
+
 ## Engine, sumber, dan kemandirian
 
 `RENCANA.md` memuat rencana produk, dan `CHANGELOG.md` daftar perubahan per rilis. `third_party/emulatorjs/README.md` menjelaskan sumber, lisensi, provenance, dan patch yang dapat direproduksi. Runtime sekitar 15 MB, dimuat sesuai kebutuhan, bukan seluruh core sekaligus.

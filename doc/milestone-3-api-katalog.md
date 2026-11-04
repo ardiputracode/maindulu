@@ -4,6 +4,8 @@ Status: **Milestone 3 selesai dan terverifikasi pada 2026-10-26 dalam cakupan ba
 
 **Revisi kontrak setelah milestone ini:** backup byte ROM/BIOS bukan fitur MVP. [Backup format 2](backup-metadata-katalog.md) menyimpan akun/save/metadata tanpa aset, bukan lagi menolak katalog berisi data. `restoreId` juga dapat memulihkan entri aktif yang berkasnya hilang, hanya dengan byte/hash/ukuran yang sama; ID, metadata, dan nama berkas lama dipertahankan. Berkas aktif yang masih ada/rusak/unsafe tidak boleh diganti melalui jalur ini. Pengaman backup format 1 dan batas pengujian di bawah mencatat kondisi saat M3 ditutup.
 
+**Revisi cache 2026-11-04:** respons sukses ROM/BIOS upload kini memakai `private, no-cache`, ETag SHA-256, dan conditional GET/HEAD 304. Cover, redirect, API, serta error tetap `no-store`. Kontrak HTTP/operasional di bawah mengikuti implementasi sekarang; tabel hasil Milestone 3 tetap historis. Desain, hasil 234 tes unit/integrasi + 75 browser backend, dan batas cache ada di [rencana cache yang sudah selesai](rencana-cache-rom-bios.md).
+
 ## Cakupan dan keputusan
 
 - Backend saja; UI admin dan Library tetap Milestone 4–5. Tidak mengubah identitas game/save, bundle engine, atau hashing ROM lokal.
@@ -15,7 +17,7 @@ Status: **Milestone 3 selesai dan terverifikasi pada 2026-10-26 dalam cakupan ba
 - List publik/admin memakai `q`, `console`, `sort=newest|title`, `page`, `pageSize` (maksimum 100), respons `{ items, page, pageSize, total }`. Admin juga menerima `status=active|deleted|all`.
 - DTO publik tidak mengekspos storage key/path/pembuat. Admin memperoleh status file dan cleanup, bukan path privat. Error duplikat 409 memuat `code` dan `existingId`.
 - URL ROM kanonis `/games/:id/rom/:filename`; `/games/:id/rom` redirect tanpa cache. BIOS `/bios/:id/:filename`; cover `/games/:id/cover`. Nama URL divalidasi terhadap metadata dan basename aman, tidak dipakai sebagai path filesystem. Ekstensi ROM dipertahankan karena EmulatorJS menurunkan nama berkas dari URL.
-- Aset aktif terbuka untuk tamu. GET/HEAD mendukung panjang, MIME, single byte range (206/416), dan `Cache-Control: no-store`. Multi-range diabaikan menjadi 200. Aset dinamis tidak boleh jatuh ke static/SPA fallback.
+- Aset aktif terbuka untuk tamu. GET/HEAD mendukung panjang, MIME, single byte range (206/416), serta conditional request ROM/BIOS (304). ROM/BIOS valid memakai `Cache-Control: private, no-cache` dan ETag SHA-256; cover/error tetap `no-store`. Multi-range diabaikan menjadi 200 bila kondisi tidak menghasilkan 304. Aset dinamis tidak boleh jatuh ke static/SPA fallback.
 - Delete menulis tombstone dan antrean cleanup persisten dalam satu transaksi; akses baru langsung ditolak. Worker hanya menghapus key immutable yang tidak aktif, dengan retry setelah kegagalan/restart. Pemulihan memakai key baru. Save/akun tidak disentuh.
 - Staging upload lain tidak dibersihkan online. Recovery umum tetap offline/exclusive. Kompensasi gagal publikasi hanya dilakukan pada berkas milik operasi yang aman dipastikan tidak direferensikan; hasil commit tidak pasti mengutamakan orphan.
 - Reservasi upload bersama di SQLite membatasi konkurensi lintas proses. Quota memperhitungkan berkas fisik katalog termasuk staging/orphan, bukan hanya row aktif; quota save tetap terpisah.
@@ -70,10 +72,10 @@ Satu pengulangan 7 tes sempat gagal pada demo statis karena build dijalankan par
 | `PATCH /api/admin/games/:id` | Admin + CSRF | JSON metadata/removeCover atau multipart metadata/cover; 200 `{ item }` |
 | `PATCH /api/admin/bios/:id` | Admin + CSRF | JSON metadata saja; 200 `{ item }` |
 | `DELETE /api/admin/games/:id`, `DELETE /api/admin/bios/:id` | Admin + CSRF | JSON `{}`; 200 `{ ok, id, deletedAt, cleanupPending }`; idempoten pada tombstone |
-| `GET/HEAD /games/:id/rom/:filename` | Publik | Streaming ROM; ekstensi dipertahankan |
+| `GET/HEAD /games/:id/rom/:filename` | Publik | 200/206 dengan metadata ROM; 304 bila ETag cocok setelah validasi aset; ekstensi dipertahankan |
 | `GET/HEAD /games/:id/rom` | Publik | 302 ke URL ROM kanonis |
 | `GET/HEAD /games/:id/cover` | Publik | Raster cover saat ini; 404 bila tidak ada |
-| `GET/HEAD /bios/:id/:filename` | Publik | Streaming firmware/arsip dengan nama asli |
+| `GET/HEAD /bios/:id/:filename` | Publik | 200/206 dengan metadata firmware/arsip; 304 bila ETag cocok setelah validasi aset; nama asli dipertahankan |
 
 - Seluruh mutasi memakai cookie sesi `/api`, `Origin` yang cocok, dan header `X-CSRF-Token` dari sesi login. Gunakan `GET /api/auth/session` untuk membaca token; jangan menaruhnya pada query URL atau log. Registrasi tidak dapat memilih role; promosi tetap CLI `account:role`.
 - Field file bernama `rom`, `bios`, atau `cover`, bukan `file`. Field teks multipart harus string biasa, bukan part JSON. Urutan file/metadata bebas. Field tak dikenal/berulang ditolak; maksimal 6 field teks, 2 file untuk POST game, dan 1 file untuk operasi upload lainnya, maksimal 8 part, 40.000 byte per field. Header multipart harus memiliki boundary 1–70 karakter.
@@ -84,7 +86,10 @@ Satu pengulangan 7 tes sempat gagal pada demo statis karena build dijalankan par
 - List default halaman 1, 24 item, `newest`; maksimum 100 item/halaman. Pencarian literal substring pada judul/nama, `%`/`_` bukan wildcard. Case folding SQLite bawaan terutama ASCII, bukan pencarian linguistik Unicode lengkap. Urutan memakai ID sebagai tie-breaker; pagination berbasis offset bukan snapshot lintas perubahan katalog.
 - 400 validasi/multipart tidak lengkap, 401 sesi hilang/berakhir, 403 role/origin/CSRF, 404 entri/aset, 409 duplikat/pemulihan, 413 batas body/file/part, 415 POST bukan multipart, 429 upload sibuk (`Retry-After: 1`), 507 quota/disk, 503 timeout/storage tidak aman. Kegagalan tak terduga menjadi 500 tanpa membocorkan path/error internal.
 - Pada 409 `CATALOG_RESTORE_REQUIRED`, admin memilih pemulihan lalu mengirim **upload lengkap kembali** beserta `restoreId=existingId`. ID, pembuat, tanggal pembuatan, judul/deskripsi/lisensi lama dipertahankan; cover memakai upload baru atau kosong. Edit metadata sesudah restore bila diperlukan. Upload dengan hash/console berbeda tidak dapat memulihkan ID itu.
-- Unduh mendukung satu rentang `bytes=start-end`, `bytes=start-`, atau `bytes=-suffix`. Range tidak satisfiable mendapat 416; multi-range/sintaks yang tidak didukung diabaikan menjadi 200. Tanpa validator aset yang dapat digunakan, `If-Range` menyebabkan pengiriman penuh. Tidak ada respons 304 untuk aset dinamis. Delete memblokir permintaan baru, bukan menarik kembali byte atau stream yang sudah dibuka.
+- Respons 200/206/304 ROM/BIOS valid memakai `Cache-Control: private, no-cache` dan ETag berbentuk `"<sha256-upload>"` dari metadata tersimpan, tanpa rehash file per request. GET/HEAD dengan `If-None-Match` cocok (weak comparison, daftar tag, atau wildcard `*`) mendapat 304 tanpa body/Content-Length. Header malformed atau tidak cocok tidak menghasilkan 304. Cover, redirect, seluruh API metadata/akun/save, dan error termasuk 416 tetap `no-store`; error tidak membawa ETag sukses.
+- Validasi entri aktif, nama/key aman, file, ukuran, dan referensi storage terkini tetap mendahului evaluasi ETag. Entri terhapus/file hilang/rusak/unsafe tidak boleh dijawab 304 meski validator cocok. Delete memblokir permintaan baru, bukan menarik kembali byte yang sudah diterima atau menghentikan sesi berjalan. Strong ETag mengasumsikan storage tidak diubah di luar aplikasi; pemeriksaan ukuran tidak mendeteksi perubahan byte berukuran sama.
+- Unduh mendukung satu rentang `bytes=start-end`, `bytes=start-`, atau `bytes=-suffix`. `If-None-Match` dievaluasi sebelum Range: cocok menghasilkan 304, termasuk bila Range sendiri tidak satisfiable. Selain itu, Range tidak satisfiable mendapat 416; multi-range/sintaks yang tidak didukung diabaikan menjadi 200. Kehadiran `If-Range` tetap menyebabkan fallback pengiriman penuh bila kondisi tidak menghasilkan 304, bahkan jika nilai `If-Range` sama dengan ETag; dukungan `If-Range` tidak diperluas. HEAD mengirim metadata yang sama tanpa body.
+- HTTP cache hanya mengurangi unduhan ulang ketika browser masih menyimpan respons; ini bukan mode offline atau penyimpanan permanen. Preflight HEAD player tetap aktif, database cache EmulatorJS tetap dimatikan, dan file lokal pilihan pengguna tidak dipersistenkan oleh fitur ini. `private` melarang shared cache, bukan enkripsi atau isolasi per akun pada profil browser yang sama. Aset statis/bawaan di luar endpoint upload tidak berubah.
 
 ## Konfigurasi dan operasional
 
@@ -123,4 +128,6 @@ location ~ ^/api/admin/(games|bios)(/|$) {
 }
 ```
 
-`proxy_request_buffering off` mencegah proxy menampung ROM penuh sebelum guard backend bisa menolak akses. Timeout Nginx di atas adalah idle timeout, bukan deadline total aplikasi. Selaraskan bila deadline server diubah, jangan cache/menimpa `Cache-Control: no-store` pada API/aset dinamis, dan jangan mengganti error API/aset dengan HTML. Batas BIOS 32 MiB dan cover 8 MiB tetap ditegakkan aplikasi walaupun location menerima request lebih besar. Contoh proxy/HTTPS ini belum diuji runtime pada milestone ini.
+`proxy_request_buffering off` mencegah proxy menampung ROM penuh sebelum guard backend bisa menolak akses. Timeout Nginx di atas adalah idle timeout, bukan deadline total aplikasi. Selaraskan bila deadline server diubah, dan jangan mengganti error API/aset dengan HTML. Batas BIOS 32 MiB dan cover 8 MiB tetap ditegakkan aplikasi walaupun location menerima request lebih besar. Contoh proxy/HTTPS ini belum diuji runtime pada milestone ini.
+
+Pertahankan kebijakan cache origin pada respons unduh: ROM/BIOS upload valid memakai `private, no-cache` + ETag, sedangkan API, cover, redirect, serta error tetap `no-store`. Jangan memaksa `no-store` global pada respons ROM/BIOS, menghapus validator/header `If-None-Match`, mengabaikan `private`, atau menyajikan salinan shared cache tanpa validasi origin. Bila proxy mengubah representasi (misalnya kompresi), pastikan penanganan ETag tetap benar. Jangan mengekspos direktori data melalui static alias. Verifikasi cache browser loopback tidak menjadi bukti runtime proxy/HTTPS.

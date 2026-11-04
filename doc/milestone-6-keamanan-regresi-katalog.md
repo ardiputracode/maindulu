@@ -4,6 +4,8 @@ Bagian dari [rencana Admin/Library/BIOS](rencana-admin-library-game.md), bukan M
 
 **Status: ditutup pada 2026-11-04 dalam cakupan otomatis dan batas lingkungan di bawah. Verifikasi deploy Milestone 7 tetap terbuka.**
 
+**Catatan revisi cache setelah gerbang ini:** sebutan `no-store` untuk seluruh aset pada matriks/hasil historis di bawah mencatat kondisi saat M6 ditutup. ROM/BIOS upload sukses kini memakai `private, no-cache` + ETag dan conditional GET/HEAD 304; cover, redirect, API, dan error tetap `no-store`. Validasi aset tetap mendahului 304. Bukti terbaru (234 tes unit/integrasi, build, 75 browser backend, termasuk restart browser persisten) dan batasnya ada pada [implementasi cache ROM/BIOS](rencana-cache-rom-bios.md#hasil-implementasi-dan-verifikasi); angka gerbang M6 tidak diganti dengan hasil pengujian fitur berikutnya.
+
 ## Cakupan dan bukti
 
 Gerbang ini mencocokkan pengujian yang sudah ditambahkan pada Milestone 1–5 dengan checklist keamanan/regresi, lalu melengkapi celahnya. Pengujian menggunakan database/direktori data sementara; tidak menghapus koleksi pengguna. Tidak mengganti bundle engine, format save, skema SQLite, atau identitas game lama.

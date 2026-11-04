@@ -4,6 +4,8 @@ Status: **Milestone 1–3 selesai dan terverifikasi pada 2026-10-26; Milestone 4
 
 **Revisi cakupan pengguna (2026-11-03): tidak perlu backup berkas ROM/BIOS.** Backup hanya mencakup akun, save/progres, dan metadata katalog; aset ROM/BIOS/cover tidak disalin. Persyaratan backup koleksi lengkap dalam catatan historis Milestone 1–5 di bawah telah digantikan keputusan ini. Rincian format 2 dan pemulihan ID: [backup metadata tanpa ROM/BIOS](backup-metadata-katalog.md).
 
+**Revisi cache sesudah milestone (2026-11-04):** catatan GET/HEAD/range tanpa cache pada hasil historis M3 tidak lagi menjadi kebijakan ROM/BIOS upload sukses. Kini digunakan HTTP cache browser `private, no-cache` + ETag, dengan validasi server sebelum 304 dan penolakan aset terhapus/rusak/unsafe. Cover, redirect, API, serta error tetap `no-store`; byte aset tetap tidak masuk backup. Lihat [rencana cache yang sudah diimplementasikan dan diverifikasi](rencana-cache-rom-bios.md).
+
 ## Milestone 1 — Role Akun dan Otorisasi Admin
 
 **Target:** akun admin dapat dikenali dengan aman tanpa mengubah pengalaman akun biasa.
