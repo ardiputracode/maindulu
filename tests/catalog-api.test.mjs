@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
-import { readFile, writeFile, rm, link } from 'node:fs/promises'
+import { readFile, writeFile, rm, link, mkdir, rename, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { request as httpRequest } from 'node:http'
 import { once } from 'node:events'
@@ -87,23 +87,163 @@ test('catalog HTTP uploads exact hashes, private DTOs and usable ROM/BIOS filena
 
 test('asset GET/HEAD supports single, suffix, open and unsatisfiable ranges; multi-range is ignored', async t => {
   const c = await setup(t)
-  const game = item(await c.upload())
-  for (const [range, expected] of [['bytes=2-5', rom.subarray(2, 6)], ['bytes=-5', rom.subarray(-5)], ['bytes=5-', rom.subarray(5)], ['bytes=0-9999', rom]]) {
-    for (const method of ['GET', 'HEAD']) {
-      const response = await c.app.inject({ method, url: game.url, headers: { range } })
-      assert.equal(response.statusCode, 206, response.body)
-      assert.equal(Number(response.headers['content-length']), expected.length)
-      assert.deepEqual(response.rawPayload, method === 'HEAD' ? Buffer.alloc(0) : expected)
+  const cover = await png()
+  const game = item(await c.upload('games', {}, [{ field: 'rom', name: 'fixture.nes', bytes: rom }, { field: 'cover', name: 'cover.png', bytes: cover }]))
+  const bios = item(await c.upload('bios'))
+  for (const [url, bytes] of [[game.url, rom], [bios.url, rom], [game.cover, cover]]) {
+    const full = await c.app.inject(url)
+    assert.equal(full.statusCode, 200)
+    assert.deepEqual(full.rawPayload, bytes)
+    assert.equal(full.headers['accept-ranges'], 'bytes')
+    assert.equal(full.headers['cache-control'], 'no-store')
+    for (const [range, expected, start] of [['bytes=2-5', bytes.subarray(2, 6), 2], ['bytes=-5', bytes.subarray(-5), bytes.length - 5], ['bytes=5-', bytes.subarray(5), 5], ['bytes=0-9999', bytes, 0]]) {
+      for (const method of ['GET', 'HEAD']) {
+        const response = await c.app.inject({ method, url, headers: { range } })
+        assert.equal(response.statusCode, 206, response.body)
+        assert.equal(Number(response.headers['content-length']), expected.length)
+        assert.equal(response.headers['content-range'], `bytes ${start}-${start + expected.length - 1}/${bytes.length}`)
+        assert.equal(response.headers['cache-control'], 'no-store')
+        assert.deepEqual(response.rawPayload, method === 'HEAD' ? Buffer.alloc(0) : expected)
+      }
+    }
+    for (const range of ['bytes=999-', 'bytes=8-2', 'bytes=-0']) {
+      for (const method of ['GET', 'HEAD']) {
+        const response = await c.app.inject({ method, url, headers: { range } })
+        assert.equal(response.statusCode, 416)
+        assert.equal(response.headers['content-range'], `bytes */${bytes.length}`)
+      }
+    }
+    for (const headers of [{ range: 'bytes=0-1,4-5' }, { range: 'nonsense' }, { range: 'bytes=1-2', 'if-range': 'old-validator' }]) {
+      assert.equal((await c.app.inject({ url, headers })).statusCode, 200)
     }
   }
-  for (const range of ['bytes=999-', 'bytes=8-2', 'bytes=-0']) {
-    const response = await c.app.inject({ url: game.url, headers: { range } })
-    assert.equal(response.statusCode, 416)
-    assert.equal(response.headers['content-range'], `bytes */${rom.length}`)
+})
+
+test('every catalog mutation rejects guests, ordinary users and invalid CSRF before staging or changing records', async t => {
+  const c = await setup(t)
+  const game = item(await c.upload()), bios = item(await c.upload('bios'))
+  const before = ['games', 'bios'].map(table => c.app.database.prepare(`SELECT * FROM ${table}`).all())
+  let stages = 0, reservations = 0
+  const stage = c.app.catalog.storage.stage
+  const reserve = c.app.catalog.maintenance.reserve
+  c.app.catalog.storage.stage = (...args) => { stages++; return stage(...args) }
+  c.app.catalog.maintenance.reserve = (...args) => { reservations++; return reserve(...args) }
+  const cases = [
+    { extra: { cookie: '' }, status: 401 },
+    { role: 'user', extra: { 'x-role': 'admin' }, status: 403 },
+    { extra: { 'x-csrf-token': '' }, status: 403 },
+    { extra: { 'x-csrf-token': 'f'.repeat(64) }, status: 403 },
+    { extra: { origin: 'https://evil.example' }, status: 403 },
+    { extra: { 'sec-fetch-site': 'cross-site' }, status: 403 },
+  ]
+  for (const [kind, value] of [['games', game], ['bios', bios]]) {
+    const form = multipart({ [kind === 'games' ? 'title' : 'name']: 'Forbidden', consoleId: 'nes', role: 'admin' }, [{ field: kind === 'games' ? 'rom' : 'bios', name: value.fileName, bytes: rom }])
+    for (const denied of cases) {
+      c.app.database.prepare('UPDATE users SET role = ?').run(denied.role ?? 'admin')
+      for (const [method, suffix, payload, type] of [
+        ['POST', '', form.payload, form.type],
+        ['PATCH', '/' + value.id, { [kind === 'games' ? 'title' : 'name']: 'Forbidden' }, 'application/json'],
+        ['DELETE', '/' + value.id, {}, 'application/json'],
+        ...(kind === 'games' ? [['PATCH', '/' + value.id, form.payload, form.type]] : []),
+      ]) {
+        const response = await c.app.inject({ method, url: `/api/admin/${kind}${suffix}`, headers: { ...c.headers, 'content-type': type, ...denied.extra }, payload })
+        assert.equal(response.statusCode, denied.status, `${method} ${kind}: ${response.body}`)
+      }
+    }
   }
-  for (const headers of [{ range: 'bytes=0-1,4-5' }, { range: 'nonsense' }, { range: 'bytes=1-2', 'if-range': 'old-validator' }]) {
-    assert.equal((await c.app.inject({ url: game.url, headers })).statusCode, 200)
+  assert.equal(stages, 0)
+  assert.equal(reservations, 0)
+  assert.equal(c.app.database.prepare('SELECT COUNT(*) AS n FROM catalog_uploads').get().n, 0)
+  assert.equal(c.app.database.prepare('SELECT COUNT(*) AS n FROM catalog_cleanup').get().n, 0)
+  for (const [i, table] of ['games', 'bios'].entries()) assert.deepEqual(c.app.database.prepare(`SELECT * FROM ${table}`).all(), before[i])
+})
+
+test('BIOS accepts exactly 32 MiB with an independent checksum and concurrent duplicates publish only once', async t => {
+  const c = await setup(t)
+  const bytes = Buffer.alloc(32 * 1024 * 1024, 42)
+  const bios = item(await c.upload('bios', {}, [{ field: 'bios', name: 'boundary.bin', bytes }]))
+  assert.equal(bios.size, bytes.length)
+  assert.equal(bios.sha256, hash(bytes))
+  const head = await c.app.inject({ method: 'HEAD', url: bios.url })
+  assert.equal(head.statusCode, 200)
+  assert.equal(Number(head.headers['content-length']), bytes.length)
+  const results = await Promise.all([c.upload('bios'), c.upload('bios')])
+  const created = item(results.find(response => response.statusCode === 201))
+  const duplicate = results.find(response => response.statusCode === 409).json()
+  assert.equal(duplicate.code, 'CATALOG_DUPLICATE')
+  assert.equal(duplicate.existingId, created.id)
+  const list = (await c.app.inject('/api/bios?console=nes&pageSize=1&page=2')).json()
+  assert.equal(list.total, 2)
+  assert.equal(list.items.length, 1)
+  assert.equal(c.app.database.prepare('SELECT COUNT(*) AS n FROM catalog_uploads').get().n, 0)
+  assert.deepEqual(await c.app.catalog.storage.entries('uploads'), [])
+})
+
+test('disk-full after a partial staged write cleans the real staging file and permits a subsequent upload', async t => {
+  for (const kind of ['games', 'bios']) await t.test(kind, async t => {
+    const c = await setup(t)
+    const stage = c.app.catalog.storage.stage
+    c.app.catalog.storage.stage = (folder, source) => stage(folder, (async function* () {
+      for await (const chunk of source) {
+        yield chunk.subarray(0, 8) // Real file write precedes the injected failure.
+        throw Object.assign(new Error('controlled mid-stream disk full'), { code: 'ENOSPC' })
+      }
+    })())
+    const response = await c.upload(kind)
+    assert.equal(response.statusCode, 507, response.body)
+    assert.equal(response.json().code, 'STORAGE_FULL')
+    assert.equal((await c.app.inject(`/api/${kind}`)).json().total, 0)
+    assert.deepEqual(await c.app.catalog.storage.entries('uploads'), [])
+    assert.deepEqual(await c.app.catalog.storage.entries(kind), [])
+    assert.equal(c.app.database.prepare('SELECT COUNT(*) AS n FROM catalog_uploads').get().n, 0)
+    c.app.catalog.storage.stage = stage
+    item(await c.upload(kind))
+  })
+})
+
+test('HTTP assets reject substituted symlink/junction directories without exposing private save bytes', async t => {
+  const c = await setup(t)
+  const game = item(await c.upload('games', {}, [{ field: 'rom', name: 'fixture.nes', bytes: rom }, { field: 'cover', name: 'cover.png', bytes: await png() }]))
+  const bios = item(await c.upload('bios'))
+  const gameRow = c.app.catalog.repository.get('games', game.id)
+  const biosRow = c.app.catalog.repository.get('bios', bios.id)
+  const privateDir = join(c.root, 'private-save-fixture')
+  await mkdir(privateDir)
+  for (const [kind, key, url] of [['games', gameRow.storage_key, game.url], ['bios', biosRow.storage_key, bios.url], ['covers', gameRow.cover_storage_key, game.cover]]) {
+    const folder = join(c.root, 'data', kind), parked = folder + '-original'
+    const secret = Buffer.alloc(kind === 'covers' ? gameRow.cover_size : rom.length, 83)
+    await writeFile(join(privateDir, key), secret)
+    await rename(folder, parked)
+    try {
+      await symlink(privateDir, folder, process.platform === 'win32' ? 'junction' : 'dir')
+      for (const method of ['GET', 'HEAD']) {
+        const response = await c.app.inject({ method, url })
+        assert.equal(response.statusCode, 503, url)
+        assert.doesNotMatch(response.body, /SSSS|private-save-fixture/)
+      }
+    } finally { await rm(folder, { force: true }); await rename(parked, folder) }
+    assert.deepEqual(await readFile(join(privateDir, key)), secret)
+    assert.equal((await c.app.inject(url)).statusCode, 200)
   }
+})
+
+test('delete committed while an asset is opening blocks GET/HEAD and closes the already-open file handle', async t => {
+  for (const kind of ['games', 'bios']) for (const method of ['GET', 'HEAD']) await t.test(`${kind} ${method}`, async t => {
+    const c = await setup(t)
+    const value = item(await c.upload(kind))
+    const open = c.app.catalog.storage.open
+    let handle
+    c.app.catalog.storage.open = async (...args) => {
+      handle = await open(...args)
+      c.app.catalog.repository.delete(kind, c.actor, value.id)
+      return handle
+    }
+    const response = await c.app.inject({ method, url: value.url })
+    assert.equal(response.statusCode, 404, response.body)
+    assert.equal(response.headers['cache-control'], 'no-store')
+    assert.equal(handle.fd, -1)
+    assert.equal((await c.app.inject(`/api/${kind}/${value.id}`)).statusCode, 404)
+  })
 })
 
 test('long and UTF-8 ROM/archive names remain downloadable within the documented basename limit', async t => {

@@ -92,6 +92,17 @@ async function upload(page: Page, site: Site, kind: 'games' | 'bios', name: stri
   return (await response.json()).item
 }
 
+async function uploadGameUi(page: Page, title: string, buffer: Buffer) {
+  await page.getByRole('button', { name: 'Upload game', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Judul game', { exact: true }).fill(title)
+  await dialog.getByLabel('Console', { exact: true }).selectOption('nes')
+  await dialog.getByLabel('Berkas ROM', { exact: true }).setInputFiles({ name: 'homebrew.nes', mimeType: 'application/octet-stream', buffer })
+  await dialog.getByLabel('Lisensi / hak distribusi').fill('CC0-1.0 original homebrew fixture')
+  await dialog.getByRole('button', { name: 'Upload game', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+}
+
 test('admin UI upload is discoverable by a guest through the real API and plays without reading or hashing server asset bytes in the host', async ({ page, browser, site }) => {
   await page.goto(site.address + '/admin/games')
   await page.getByRole('button', { name: 'Upload game', exact: true }).click()
@@ -135,6 +146,30 @@ test('admin UI upload is discoverable by a guest through the real API and plays 
     expect(files).toContain('test-firmware.bin')
     expect(files).toContain('jalan-pulang.nes')
     expect(await guest.evaluate(() => JSON.parse(localStorage.getItem('maindulu.history.v1') || '[]')[0].id)).toMatch(/^[a-f0-9-]{36}$/)
+    await guest.close()
+    const local = await context.newPage()
+    await local.goto('/library')
+    await local.getByRole('button', { name: 'Buka ROM', exact: true }).click()
+    await local.locator('input[type=file]').first().setInputFiles('public/games/jalan-pulang.nes')
+    await local.locator('#bios-choice').selectOption(value!)
+    await local.getByRole('button', { name: 'Main sekarang', exact: true }).click()
+    const localEngine = await startPlayer(local)
+    expect(await localEngine.locator('body').evaluate(() => (window as unknown as { EJS_emulator: { gameManager: { FS: { readdir: (path: string) => string[] } } } }).EJS_emulator.gameManager.FS.readdir('/'))).toContain('test-firmware.bin')
+    const bios = (await (await page.request.get(site.address + '/api/bios/' + value)).json()).item
+    await page.getByRole('article', { name: 'Firmware Library', exact: true }).getByRole('button', { name: 'Hapus BIOS', exact: true }).click()
+    await expect(page.getByRole('dialog')).toContainText('pilihan BIOS lain atau berkas lokal')
+    await page.getByRole('button', { name: 'Ya, hapus' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    for (const method of ['GET', 'HEAD']) expect((await context.request.fetch(site.address + bios.url, { method })).status()).toBe(404)
+    // An already running engine retains its downloaded bytes, not future access.
+    await expect(localEngine.locator('canvas')).toBeVisible()
+    await local.close()
+    const afterDelete = await context.newPage()
+    await afterDelete.goto('/library')
+    await afterDelete.getByRole('button', { name: 'Mainkan Homebrew Library', exact: true }).click()
+    await expect(afterDelete.locator('#bios-choice option')).toHaveCount(2)
+    await expect(afterDelete.locator('#bios-choice')).toHaveValue('none')
+    await expect(afterDelete.locator('#bios-choice')).not.toContainText('Firmware Library')
   } finally { await context.close() }
 })
 
@@ -255,6 +290,100 @@ async function states(page: Page, frame: FrameLocator) {
   await expect(dialog).toBeVisible()
   return dialog
 }
+
+test('complete admin login/upload → guest play → ordinary account progress/state → UI metadata edit → reload saves → UI delete rejects old URLs without deleting saves', async ({ page, site, browser }) => {
+  // This is one uninterrupted lifecycle, in addition to the focused restart,
+  // failure and migration tests. All catalog mutations here use the real UI.
+  expect((await page.request.post(site.address + '/api/auth/logout', { headers: site.headers, data: {} })).status()).toBe(200)
+  await page.goto(site.address + '/admin/games')
+  await page.getByRole('main').getByRole('button', { name: 'Masuk ke akun', exact: true }).click()
+  await page.getByLabel('Username', { exact: true }).fill(site.username)
+  await page.getByLabel('Password', { exact: true }).fill('Library123')
+  await page.getByRole('dialog').getByRole('button', { name: 'Masuk', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await uploadGameUi(page, 'Lifecycle homebrew', buildNesBatteryFixture())
+  const game = (await (await page.request.get(site.address + '/api/games')).json()).items[0]
+  const guest = await browser.newContext({ baseURL: site.address })
+  try {
+    const visitor = await guest.newPage()
+    await visitor.goto('/library')
+    await visitor.getByRole('button', { name: 'Mainkan Lifecycle homebrew', exact: true }).click()
+    await visitor.getByRole('button', { name: 'Main sekarang', exact: true }).click()
+    const engine = await startPlayer(visitor)
+    await increment(engine, 1)
+    expect(await visitor.evaluate(() => JSON.parse(localStorage.getItem('maindulu.history.v1') || '[]')[0].id)).toBe(game.id)
+    expect(site.app.database.prepare('SELECT COUNT(*) AS n FROM game_saves').get()?.n).toBe(0)
+  } finally { await guest.close() }
+
+  const account = await browser.newContext({ baseURL: site.address })
+  try {
+    const csrf = (await (await account.request.get('/api/auth/csrf')).json()).csrfToken
+    const response = await account.request.post('/api/auth/register', {
+      headers: { origin: site.address, 'x-csrf-token': csrf },
+      data: { username: 'player_' + randomUUID().replaceAll('-', '').slice(0, 12), password: 'Library123', passwordConfirmation: 'Library123' },
+    })
+    expect(response.status()).toBe(201)
+    const user = (await response.json()).user
+    expect(user.role).toBe('user')
+    expect((await account.request.get('/api/admin/games')).status()).toBe(403)
+    const player = await account.newPage()
+    await player.goto('/library')
+    await player.getByRole('button', { name: 'Mainkan Lifecycle homebrew', exact: true }).click()
+    await player.getByRole('button', { name: 'Main sekarang', exact: true }).click()
+    const engine = await startPlayer(player)
+    await expect.poll(async () => (await battery(engine))[2]).toBe(0) // Guest SRAM was not imported.
+    await increment(engine, 1)
+    await player.getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
+    const snapshot = encodeGameSave({ layout: 'nes-sram-v1', files: [{ key: 'sram', bytes: new Uint8Array(await battery(engine)) }] })
+    const checksum = createHash('sha256').update(snapshot).digest('hex')
+    await expect.poll(() => site.app.database.prepare('SELECT checksum FROM game_saves WHERE game_id = ? AND user_id = ?').get(game.id, user.id)?.checksum).toBe(checksum)
+    const overlay = await states(player, engine)
+    await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
+    await expect(overlay).toContainText('Tersimpan di server')
+    await player.close()
+
+    await page.getByRole('article', { name: 'Lifecycle homebrew', exact: true }).getByRole('button', { name: 'Edit metadata' }).click()
+    const edit = page.getByRole('dialog')
+    await edit.getByLabel('Judul game', { exact: true }).fill('Lifecycle renamed')
+    await edit.getByLabel('Deskripsi', { exact: true }).fill('Metadata berubah; identitas save tetap.')
+    await edit.getByRole('button', { name: 'Simpan metadata' }).click()
+    await expect(edit).toHaveCount(0)
+    expect((await (await page.request.get(site.address + '/api/games/' + game.id)).json()).item.id).toBe(game.id)
+
+    const fresh = await account.newPage()
+    await fresh.goto('/library')
+    await fresh.getByRole('button', { name: 'Mainkan Lifecycle renamed', exact: true }).click()
+    await fresh.getByRole('button', { name: 'Main sekarang', exact: true }).click()
+    const restored = await startPlayer(fresh)
+    await expect.poll(async () => (await battery(restored))[2]).toBe(1)
+    await increment(restored, 2)
+    const saved = await states(fresh, restored)
+    fresh.once('dialog', dialog => dialog.accept())
+    await saved.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Muat', exact: true }).click()
+    await expect(saved).toContainText('Perintah muat dikirim ke core')
+    await saved.getByRole('button', { name: 'Tutup dialog', exact: true }).click()
+    await expect.poll(async () => (await battery(restored))[2]).toBe(1)
+  } finally { await account.close() }
+
+  const saves = site.app.database.prepare('SELECT id, user_id, game_id FROM saves').all()
+  const progress = site.app.database.prepare('SELECT id, user_id, game_id FROM game_saves').all()
+  expect(saves).toHaveLength(1); expect(progress).toHaveLength(1)
+  await page.getByRole('article', { name: 'Lifecycle renamed', exact: true }).getByRole('button', { name: 'Hapus game', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('Save, progres pengguna, dan akun tidak dihapus.')
+  await page.getByRole('button', { name: 'Ya, hapus' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  for (const url of [game.url, `/games/${game.id}/rom`, `/api/games/${game.id}`]) {
+    for (const method of ['GET', 'HEAD']) {
+      const denied = await page.request.fetch(site.address + url, { method })
+      expect(denied.status()).toBe(404)
+      expect(denied.headers()['cache-control']).toBe('no-store')
+    }
+  }
+  expect(site.app.database.prepare('SELECT id, user_id, game_id FROM saves').all()).toEqual(saves)
+  expect(site.app.database.prepare('SELECT id, user_id, game_id FROM game_saves').all()).toEqual(progress)
+  await page.goto(site.address + '/library')
+  await expect(page.getByRole('button', { name: 'Mainkan Lifecycle renamed', exact: true })).toHaveCount(0)
+})
 
 test('uploaded game state and CPU-written progress survive metadata edits, server restart and a fresh account browser with the same game ID', async ({ page, site, browser }) => {
   const game = await upload(page, site, 'games', 'Battery Library', buildNesBatteryFixture())

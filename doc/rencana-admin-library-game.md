@@ -1,6 +1,6 @@
 # Rencana Implementasi Admin, Library Game, dan Pengelolaan BIOS
 
-Status: **Milestone 1–3 selesai dan terverifikasi pada 2026-10-26; Milestone 4–5 selesai dan terverifikasi pada 2026-11-03 dalam cakupan masing-masing di bawah. Milestone 6–7 belum ditutup.** Jalankan berurutan per milestone. Setiap milestone ditutup setelah checklist dan kriteria selesainya terverifikasi.
+Status: **Milestone 1–3 selesai dan terverifikasi pada 2026-10-26; Milestone 4–5 selesai dan terverifikasi pada 2026-11-03; Milestone 6 selesai dan terverifikasi pada 2026-11-04 dalam cakupan masing-masing di bawah. Milestone 7 belum ditutup.** Jalankan berurutan per milestone. Setiap milestone ditutup setelah checklist dan kriteria selesainya terverifikasi.
 
 **Revisi cakupan pengguna (2026-11-03): tidak perlu backup berkas ROM/BIOS.** Backup hanya mencakup akun, save/progres, dan metadata katalog; aset ROM/BIOS/cover tidak disalin. Persyaratan backup koleksi lengkap dalam catatan historis Milestone 1–5 di bawah telah digantikan keputusan ini. Rincian format 2 dan pemulihan ID: [backup metadata tanpa ROM/BIOS](backup-metadata-katalog.md).
 
@@ -158,20 +158,24 @@ Panduan penggunaan, sumber data/pagination, identitas, dan bukti verifikasi: [Li
 
 ## Milestone 6 — Pengujian Keamanan dan Regresi End-to-End
 
+Matriks checklist → tes, hasil aktual, diagnosis percobaan gagal, dan batas klaim: [keamanan dan regresi katalog](milestone-6-keamanan-regresi-katalog.md).
+
 **Target:** menguji alur lengkap dan batas kegagalannya, bukan hanya keberhasilan API.
 
-- [ ] Tambahkan unit/integration test untuk migrasi, role, bypass payload, pencabutan role, CSRF multipart, hash, duplikat konkuren, pagination, dan validasi metadata/berkas.
-- [ ] Uji traversal, symlink, cover berbahaya, ukuran berlebih, disk penuh, koneksi upload putus, dan pembersihan setelah crash secara terkontrol.
-- [ ] Uji GET/HEAD/range, game/BIOS terhapus, berkas hilang, validasi nama firmware URL, dan larangan mengakses database/save melalui endpoint ROM/BIOS.
-- [ ] Tambahkan browser test: admin login → upload homebrew fixture → muncul di Library → tamu main → akun main dan menyimpan progres → edit metadata → progres tetap terbaca → delete → URL lama ditolak.
-- [ ] Tambahkan alur admin upload BIOS → muncul hanya pada pilihan console yang sesuai → dipilih bersama ROM lokal/server → diteruskan ke engine dengan nama firmware benar → delete → pilihan/URL lama ditolak. Uji beberapa BIOS per console, duplikat, batas 32 MiB, dan kondisi BIOS wajib belum dipilih.
-- [ ] Uji duplikat, pemulihan ID setelah upload ulang, pencarian/filter, navigasi mobile, keyboard, serta akses admin oleh pengguna biasa.
-- [ ] Gunakan ROM/BIOS uji yang boleh didistribusikan. BIOS sintetis hanya membuktikan plumbing/nama/validasi, bukan keberhasilan boot firmware nyata; catat pengujian BIOS/core nyata secara terpisah. Bedakan bukti gameplay NES dari uji struktur aset atau hasil manual console lain.
-- [ ] Jalankan `npm test`, `npm run build`, `npm run test:e2e`, `npm run test:e2e:production`, dan `npm run test:e2e:backend` sesuai kebutuhan lingkungan; catat hasil aktual dan skenario yang belum diuji.
+- [x] Tambahkan unit/integration test untuk migrasi, role, bypass payload, pencabutan role, CSRF multipart, hash, duplikat konkuren, pagination, dan validasi metadata/berkas.
+- [x] Uji traversal, symlink, cover berbahaya, ukuran berlebih, disk penuh, koneksi upload putus, dan pembersihan setelah crash secara terkontrol.
+- [x] Uji GET/HEAD/range, game/BIOS terhapus, berkas hilang, validasi nama firmware URL, dan larangan mengakses database/save melalui endpoint ROM/BIOS.
+- [x] Tambahkan browser test: admin login → upload homebrew fixture → muncul di Library → tamu main → akun main dan menyimpan progres → edit metadata → progres tetap terbaca → delete → URL lama ditolak.
+- [x] Tambahkan alur admin upload BIOS → muncul hanya pada pilihan console yang sesuai → dipilih bersama ROM lokal/server → diteruskan ke engine dengan nama firmware benar → delete → pilihan/URL lama ditolak. Uji beberapa BIOS per console, duplikat, batas 32 MiB, dan kondisi BIOS wajib belum dipilih.
+- [x] Uji duplikat, pemulihan ID setelah upload ulang, pencarian/filter, navigasi mobile, keyboard, serta akses admin oleh pengguna biasa.
+- [x] Gunakan ROM/BIOS uji yang boleh didistribusikan. BIOS sintetis hanya membuktikan plumbing/nama/validasi, bukan keberhasilan boot firmware nyata; catat pengujian BIOS/core nyata secara terpisah. Bedakan bukti gameplay NES dari uji struktur aset atau hasil manual console lain.
+- [x] Jalankan `npm test`, `npm run build`, `npm run test:e2e`, `npm run test:e2e:production`, dan `npm run test:e2e:backend` sesuai kebutuhan lingkungan; catat hasil aktual dan skenario yang belum diuji.
 
 **Kriteria selesai:** alur admin–Library–player dan pengelolaan/pemilihan BIOS lulus otomatis dalam cakupan yang dinyatakan; akun/save lama, ROM/BIOS lokal, dan mode statis tidak mengalami regresi. Hasil manual tidak disajikan sebagai bukti otomatis semua core.
 
 **Area utama:** `tests/`, `tests/browser/`, konfigurasi Playwright yang sudah ada.
+
+**Implementasi dan verifikasi Milestone 6 (2026-11-04):** audit cakupan tes Milestone 1–5, matriks penolakan seluruh mutasi game/BIOS sebelum staging/reservasi, GET/HEAD/range ROM/BIOS/cover, substitusi junction direktori aset, ENOSPC sesudah write parsial, delete saat open yang menutup handle, upload BIOS tepat 32 MiB, dan duplikat BIOS konkuren. Browser menambahkan alur login/upload UI → tamu main → akun user biasa menyimpan SRAM/state → edit UI → pulih → delete UI tanpa menghapus save; BIOS UI diteruskan ke engine untuk ROM lokal/server, lalu pilihan/URL lama ditolak. Duplikat/pemulihan tombstone BIOS mempertahankan ID/hash dan memakai nama upload ulang; pemulihan entri aktif dengan berkas hilang tetap mempertahankan nama lama. Tes menemukan race Windows `EPERM` saat gate lock delete-pending: retry terbatas memakai jendela lama, tanpa bypass gate/lease atau perubahan perilaku platform lain; 20 pengulangan publikasi lintas proses lulus. Tes dua tab mengaktifkan tab yang dipakai, memakai lebih sedikit input CPU dengan snapshot tetap berbeda, dan melepas engine yang selesai; tes native toolbar memakai handler DOM nyata serta menunggu IndexedDB. **210 tes unit/integrasi lulus**, build **lulus**, browser statis dev/produksi masing-masing **27 lulus + 52 skip khusus backend** tanpa gagal/retry, dan regresi backend lengkap akhir **74 lulus tanpa retry/skip** (8,2 menit). Percobaan timeout/kontrak tes yang keliru dan hasil pengulangan dicatat pada panduan, bukan disembunyikan. **Milestone 6 ditutup dalam cakupan ini.** Gameplay/state/SRAM otomatis terbatas pada NES; BIOS sintetis bukan bukti boot firmware proprietary. Disk penuh fisik, upload penuh ROM 768 MiB, gameplay semua core, Docker/Alpine/volume, dan HTTPS/proxy nyata tidak diklaim. Verifikasi deploy Milestone 7 tetap terbuka.
 
 ## Milestone 7 — Backup Metadata/Save, Deploy, dan Dokumentasi Operasional
 
@@ -189,7 +193,7 @@ Panduan penggunaan, sumber data/pagination, identitas, dan bukti verifikasi: [Li
 - [ ] Buktikan restart/rebuild/recreate container tanpa menghapus volume tetap menjaga akun, game, BIOS, cover, serta progres. Operasi penghapusan volume bukan bagian prosedur deploy rutin.
 - [x] Buktikan backup metadata → verify → restore bersih tanpa aset → admin menandai berkas hilang → upload ulang eksplisit memulihkan ID/nama/hash → game dapat dimainkan dan state/progres lama dimuat dalam cakupan core yang diuji.
 
-**Kriteria selesai:** akun/save/metadata dapat dipindahkan/dipulihkan tanpa mencadangkan ROM/BIOS; upload ulang aset yang cocok mempertahankan hubungan save. Deploy normal tidak menghapus volume/upload. Hilangnya byte koleksi diterima sebagai risiko di luar cakupan backup, bukan janji pemulihan. Perbarui README, panduan backend, dan changelog dengan hasil verifikasi aktual. Implementasi backup metadata tidak otomatis menutup verifikasi container/proxy dan gerbang Milestone 6.
+**Kriteria selesai:** akun/save/metadata dapat dipindahkan/dipulihkan tanpa mencadangkan ROM/BIOS; upload ulang aset yang cocok mempertahankan hubungan save. Deploy normal tidak menghapus volume/upload. Hilangnya byte koleksi diterima sebagai risiko di luar cakupan backup, bukan janji pemulihan. Perbarui README, panduan backend, dan changelog dengan hasil verifikasi aktual. Implementasi backup metadata tidak otomatis menutup verifikasi container/proxy; gerbang Milestone 6 diverifikasi secara terpisah pada 2026-11-04.
 
 **Area utama:** `server/data-backup.mjs`, `scripts/data-backup.mjs`, `deploy/docker-compose.backend.yml`, `deploy/README.backend.md`, `README.md`, `CHANGELOG.md`.
 

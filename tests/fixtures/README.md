@@ -16,3 +16,9 @@ Jalankan tes ini melalui `tests/browser/save-proof.spec.ts`. Fixture ini bukan b
 ## Pengujian M7
 
 Suite M7 memakai kembali fixture NES/homebrew proyek untuk menghasilkan SRAM dan state melalui engine nyata, lalu membaca persistence tamu atau mengimpor byte hasil ekspornya. Tidak ada ROM/BIOS proprietari baru. Data memcard PS1 sintetis pada API hanya menguji kontrak penyimpanan. Pengguna telah mengonfirmasi tes PS1 M7 berhasil secara manual, terpisah dari suite otomatis; rincian skenario/konfigurasi belum dicatat dan tidak disimpulkan dari fixture sintetis. Lihat `doc/milestone-7-konflik-impor-save.md`.
+
+## Pengujian Milestone 6 Admin/Library/BIOS
+
+`tests/browser/library.spec.ts` mengunggah fixture battery CC0 melalui UI admin, lalu membuktikan alur tamu dan akun biasa, progres hasil CPU, pemulihan state/progres sesudah edit metadata, dan delete tanpa menghapus save. Demo `public/games/jalan-pulang.nes` mengikuti `public/games/LICENSE.txt` (CC0).
+
+BIOS pada tes katalog/API/browser adalah buffer nol/byte sintetis yang dibuat khusus untuk tes, termasuk buffer batas 32 MiB. Buffer tersebut boleh didistribusikan tetapi **bukan firmware boot yang valid**. Keberadaan nama firmware pada filesystem engine membuktikan plumbing, bukan boot FDS/PS1 atau kompatibilitas seluruh core. Matriks bukti dan batas lingkungan: `doc/milestone-6-keamanan-regresi-katalog.md`.

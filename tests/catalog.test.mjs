@@ -249,10 +249,10 @@ test('catalog publication is unique across connections and separate competing pr
     const exits = children.map(child => once(child, 'exit'))
     const errors = children.map(() => '')
     children.forEach((child, i) => child.stderr.on('data', data => { errors[i] += data }))
-    const ready = children.map(child => new Promise((resolve, reject) => {
+    const ready = children.map((child, i) => new Promise((resolve, reject) => {
       child.once('message', message => message.phase === 'ready' ? resolve() : reject(new Error('Unexpected child message')))
       child.once('error', reject)
-      child.once('exit', code => reject(new Error('Publisher exited before ready: ' + code)))
+      child.once('exit', code => reject(new Error(`Publisher exited before ready (${code}): ${errors[i]}`)))
     }))
     try {
       await Promise.all(ready)

@@ -163,11 +163,15 @@ test('M7: explicit two-tab SRAM choices retain both losing versions and restart 
   // Keep the first snapshot distinct from every intermediate value in tab 2.
   // Otherwise its autosync of value 1 can legitimately acknowledge the exact
   // same write and refresh its revision, leaving no stale revision to test.
-  await increment(first, 1); await increment(first, 2); await increment(first, 3)
+  // Simulated input/evaluate does not activate a tab like a real user would.
+  // Keep the tab being exercised visible so emulation/autosync is not throttled.
+  await page.bringToFront()
+  await increment(first, 1); await increment(first, 2)
   await progress(page).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
   await expectServerSnapshot(backend!, first)
   const baselineRevision = Number(backend!.app.database.prepare('SELECT revision FROM game_saves').get()!.revision)
-  await increment(second, 1); await increment(second, 2)
+  await other.bringToFront()
+  await increment(second, 1)
   // Autosync may already have detected the conflict and disabled manual sync.
   // Exercise the real periodic upload instead of clicking a disabled control.
   await expect(progress(other)).toContainText('Progres server berubah', { timeout: 20000 })
@@ -176,14 +180,18 @@ test('M7: explicit two-tab SRAM choices retain both losing versions and restart 
   await review.getByRole('button', { name: 'Gunakan snapshot sesi ini', exact: true }).click()
   await expect(review).toHaveCount(0)
   expect(backend!.app.database.prepare('SELECT COUNT(*) AS n FROM save_backups').get()!.n).toBe(1)
-  await increment(first, 4); await increment(first, 5)
+  // The second session has committed its decision; it is no longer needed for
+  // the first tab's independent server-choice path. Release that engine now.
+  await other.close()
+  await page.bringToFront()
+  await increment(first, 3)
   await expect(progress(page)).toContainText('Progres server berubah', { timeout: 20000 })
   await progress(page).getByRole('button', { name: 'Tinjau konflik progres' }).click()
   const serverReview = await reviewTransfer(page)
   await serverReview.getByRole('button', { name: 'Gunakan versi server', exact: true }).click()
   const restored = await startPlayer(page)
-  await expect.poll(async () => (await bytes(restored))[2]).toBe(2)
-  await increment(restored, 3) // RAM really restored, not only filesystem contents
+  await expect.poll(async () => (await bytes(restored))[2]).toBe(1)
+  await increment(restored, 2) // RAM really restored, not only filesystem contents
   expect(backend!.app.database.prepare('SELECT COUNT(*) AS n FROM save_backups').get()!.n).toBe(2)
   expect(backend!.app.database.prepare('SELECT revision FROM game_saves').get()!.revision).toBe(baselineRevision + 1)
 })
@@ -333,12 +341,13 @@ test('M6: two tabs cannot overwrite stale revisions and progress can be managed 
   const secondPage = await context.newPage()
   await secondPage.goto('/')
   const second = await launchBattery(secondPage)
-  await increment(first, 1); await increment(first, 2); await increment(first, 3)
+  await page.bringToFront()
+  await increment(first, 1); await increment(first, 2)
   await progress(page).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
   await expectServerSnapshot(backend!, first)
   const baselineRevision = backend!.app.database.prepare('SELECT revision FROM game_saves').get()!.revision
+  await secondPage.bringToFront()
   await increment(second, 1)
-  await increment(second, 2)
   await expect(progress(secondPage)).toContainText('Progres server berubah', { timeout: 20000 })
   expect(backend!.app.database.prepare('SELECT revision FROM game_saves').get()!.revision).toBe(baselineRevision)
   await page.close(); await secondPage.close()

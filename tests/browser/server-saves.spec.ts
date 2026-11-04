@@ -71,6 +71,7 @@ async function x(frame: FrameLocator) {
   })
 }
 async function move(page: Page, frame: FrameLocator) {
+  await page.bringToFront()
   await frame.locator('canvas').click()
   await page.keyboard.down('ArrowRight')
   try { await expect.poll(() => x(frame)).toBeGreaterThan(0xa0) }
@@ -128,7 +129,9 @@ test('M7: browser and file states import explicitly, preserve guest data and pro
   await page.getByRole('button', { name: 'Main sekarang', exact: true }).click()
   const guest = await startPlayer(page)
   const position = await move(page, guest)
-  await guest.getByRole('button', { name: 'Save State', exact: true }).click()
+  // The native auto-hiding toolbar has the same hit-testing race as the server
+  // state button. Invoke its real DOM handler; readGuestState waits for real IDB.
+  await guest.getByRole('button', { name: 'Save State', exact: true }).dispatchEvent('click')
   const native = await readGuestState(guest)
   expect(native.length).toBeGreaterThan(1000)
   page.once('dialog', d => d.accept())
@@ -185,7 +188,7 @@ test('M7: browser and file states import explicitly, preserve guest data and pro
   await page.getByRole('button', { name: 'Mainkan Jalan Pulang', exact: true }).first().click()
   await page.getByRole('button', { name: 'Main sekarang', exact: true }).click()
   const again = await startPlayer(page)
-  await again.getByRole('button', { name: 'Load State', exact: true }).click()
+  await again.getByRole('button', { name: 'Load State', exact: true }).dispatchEvent('click')
   await expect.poll(() => x(again)).toBe(position)
 })
 
@@ -445,7 +448,7 @@ test('M5: account players never read/write guest state store or IDBFS, and guest
   const guest = await startPlayer(page)
   await expect(guest.getByRole('button', { name: 'Save state server', exact: true })).toHaveCount(0)
   const progress = await move(page, guest)
-  await guest.getByRole('button', { name: 'Save State', exact: true }).click()
+  await guest.getByRole('button', { name: 'Save State', exact: true }).dispatchEvent('click')
   const original = await readGuestState(guest)
   expect(original.length).toBeGreaterThan(1000)
   page.on('dialog', dialog => dialog.accept())
@@ -473,7 +476,7 @@ test('M5: account players never read/write guest state store or IDBFS, and guest
   await page.getByRole('button', { name: 'Mainkan Jalan Pulang', exact: true }).first().click()
   await page.getByRole('button', { name: 'Main sekarang', exact: true }).click()
   const again = await startPlayer(page)
-  await again.getByRole('button', { name: 'Load State', exact: true }).click()
+  await again.getByRole('button', { name: 'Load State', exact: true }).dispatchEvent('click')
   await expect.poll(() => x(again)).toBe(progress)
 })
 

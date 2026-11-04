@@ -50,7 +50,7 @@ Jika tidak lagi memiliki ROM/BIOS yang diperlukan, akun/save/metadata tetap dapa
 
 Rebuild/recreate normal memakai volume data yang sama, sehingga aset upload tetap berada di volume; ini berbeda dari restore metadata ke direktori bersih. Jangan memakai `down -v`, menghapus volume, atau membersihkan data untuk deploy rutin. Volume bukan jaminan terhadap kerusakan disk.
 
-Milestone 7 katalog kini mencakup backup metadata/save, deploy, dan dokumentasi — **bukan** backup byte ROM/BIOS. Implementasi ini tidak menutup gerbang pengujian Milestone 6 atau verifikasi Docker/Alpine/HTTPS/proxy nyata yang belum dijalankan. BIOS sintetis menguji transport/nama, bukan boot firmware proprietary.
+Milestone 7 katalog kini mencakup backup metadata/save, deploy, dan dokumentasi — **bukan** backup byte ROM/BIOS. Implementasi ini tidak otomatis menutup gerbang pengujian: [Milestone 6](milestone-6-keamanan-regresi-katalog.md) diverifikasi terpisah dan ditutup pada 2026-11-04, sedangkan verifikasi Docker/Alpine/volume/HTTPS/proxy nyata tetap belum dijalankan. BIOS sintetis menguji transport/nama, bukan boot firmware proprietary.
 
 Verifikasi 2026-11-03:
 

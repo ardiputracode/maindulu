@@ -28,7 +28,11 @@ export async function acquireDataLock(directory, exclusive = false) {
   for (let i = 0; i < 100; i++) {
     try { fd = openSync(gate, 'wx', 0o600); break }
     catch (error) {
-      if (error.code !== 'EEXIST') throw error
+      // Windows can report EPERM while another process's unlinked gate is
+      // delete-pending. Retry within the same bounded contention window; never
+      // enter without successfully creating our own exclusive gate. Permanent
+      // permission failures still fail closed, and other platforms keep EPERM.
+      if (error.code !== 'EEXIST' && !(process.platform === 'win32' && error.code === 'EPERM')) throw error
       await setTimeout(20)
     }
   }

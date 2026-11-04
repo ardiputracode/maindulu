@@ -139,6 +139,37 @@ test('duplicates are explained and deleted ROM requires explicit reupload restor
   expect(after.id).toBe(before.id)
 })
 
+test('BIOS duplicates and explicit tombstone restoration preserve ID/hash and use the reuploaded firmware filename', async ({ page, site }) => {
+  await page.goto(site.address + '/admin/bios')
+  let dialog = await openUpload(page, 'BIOS', 'Original firmware')
+  await dialog.getByRole('button', { name: 'Upload BIOS', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  const before = (await (await page.request.get(site.address + '/api/bios')).json()).items[0]
+  dialog = await openUpload(page, 'BIOS', 'Duplicate firmware')
+  await dialog.getByRole('button', { name: 'Upload BIOS', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText(/sudah|duplikat/i)
+  await dialog.getByRole('button', { name: 'Tutup', exact: true }).click()
+  await page.getByRole('article', { name: 'Original firmware', exact: true }).getByRole('button', { name: 'Hapus BIOS' }).click()
+  await page.getByRole('button', { name: 'Ya, hapus' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect((await page.request.head(site.address + before.url)).status()).toBe(404)
+  dialog = await openUpload(page, 'BIOS', 'Ignored restored name', { ...firmware, name: 'renamed.bin' })
+  await dialog.getByRole('button', { name: 'Upload BIOS', exact: true }).click()
+  await expect(dialog).toContainText(before.id)
+  await dialog.getByRole('button', { name: 'Pulihkan ID lama' }).click()
+  await expect(dialog).toHaveCount(0)
+  // Tombstone restoration uses the new upload basename. Only repair of an
+  // active missing asset (metadata-only backup) retains the old basename.
+  await expect(page.getByRole('article', { name: 'Original firmware', exact: true })).toContainText('renamed.bin')
+  const after = (await (await page.request.get(site.address + '/api/bios')).json()).items[0]
+  expect(after.id).toBe(before.id)
+  expect(after.sha256).toBe(before.sha256)
+  expect(after.fileName).toBe('renamed.bin')
+  expect(after.url).toBe(`/bios/${before.id}/renamed.bin`)
+  expect((await page.request.head(site.address + before.url)).status()).toBe(404)
+  expect(await (await page.request.get(site.address + after.url)).body()).toEqual(firmware.buffer)
+})
+
 test('admin list supports pagination/search/deep-link refresh and mobile keyboard dialog focus', async ({ page, site }) => {
   for (let i = 0; i < 13; i++) {
     const response = await page.request.post(site.address + '/api/admin/games', { headers: site.headers, multipart: { title: `Game ${i}`, consoleId: 'nes', rom: { ...rom, buffer: Buffer.from(`Fixture ${i}`) } } })
