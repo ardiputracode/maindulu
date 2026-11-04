@@ -76,6 +76,13 @@ export function toggleFavorite(favorites: Game[], game: Game): Game[] {
   return favorites.some(g => g.id === game.id) ? favorites.filter(g => g.id !== game.id) : [game, ...favorites].slice(0, 100)
 }
 
+export function saveIdentity(game: { id: string; sha256?: string }, core: string): string {
+  const base = game.sha256 && /^[a-f0-9]{64}$/i.test(game.sha256)
+    ? game.sha256.toLowerCase()
+    : game.id
+  return `${core}-${base}`
+}
+
 export function relativeTime(timestamp?: number): string {
   if (!timestamp) return 'Belum dimainkan'
   const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000))

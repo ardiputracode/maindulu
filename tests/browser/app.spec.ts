@@ -129,7 +129,7 @@ test('cold-cache server game runs without any external request and records real 
   expect(roundTrip.bytes).toBeGreaterThan(1000)
   expect(roundTrip.restored).toBe(roundTrip.bytes)
   expect(roundTrip.loaded).toBe(roundTrip.bytes)
-  expect(roundTrip.key).toContain('jalan-pulang-v1')
+  expect(roundTrip.key).toContain('06287da470d87118a904e45734b7e88a843d49b0c530dc0ba1af36a5b0ee6dbb')
   await page.screenshot({ path: 'test-results/player-server.png', fullPage: true })
   expect(external).toEqual([])
   expect(errors).toEqual([])

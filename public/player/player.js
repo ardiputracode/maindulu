@@ -217,7 +217,7 @@
       window.EJS_core = config.core
       window.EJS_gameUrl = config.rom instanceof Blob ? blobUrl(config.rom) : config.game.url
       window.EJS_biosUrl = config.bios instanceof File ? blobUrl(await biosArchive(config.bios)) : config.biosUrl || ''
-      window.EJS_gameName = `${config.core}-${config.game.id}`
+      window.EJS_gameName = config.saveId || `${config.core}-${config.game?.sha256 || config.game.id}`
       window.EJS_pathtodata = '/vendor/emulatorjs/4.2.3/data/'
       window.EJS_color = '#a9ecc3'
       window.EJS_backgroundColor = '#080e0b'

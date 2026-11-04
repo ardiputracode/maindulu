@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, ArrowRight, Check, FileArchive, HardDrive, LoaderCircle, ShieldCheck, Upload, X } from 'lucide-react'
 import Dialog from './Dialog'
-import { detectConsole, extension, validateBios, validateRom } from '../lib/domain'
+import { detectConsole, extension, saveIdentity, validateBios, validateRom } from '../lib/domain'
 import { createSessionId, hashRom } from '../lib/identity'
 import type { Bios, ConsoleInfo, Game } from '../lib/domain'
 import type { LaunchSession } from './Player'
@@ -107,7 +107,7 @@ export default function SetupDialog({ selection, consoles, builtinGames, biosLis
         const hash = await hashRom(rom!)
         const id = `local-${consoleId}-${hash}`
         if (selection.game?.source === 'local' && selection.game.id !== id) throw new Error('File ini berbeda dari game yang dipilih. Pilih ROM yang sama, atau buka sebagai game baru lewat Buka ROM.')
-        game = { id, title: rom!.name.replace(/\.[^.]+$/, '').slice(0, 180), consoleId, source: 'local', fileName: rom!.name }
+        game = { id, title: rom!.name.replace(/\.[^.]+$/, '').slice(0, 180), consoleId, source: 'local', fileName: rom!.name, sha256: hash }
       }
       let firmware = serverBios
       if (serverBios && !biosList.some(b => b.id === serverBios.id) && catalogId.test(serverBios.id)) {
@@ -116,7 +116,7 @@ export default function SetupDialog({ selection, consoles, builtinGames, biosLis
         if (firmware.consoleId !== consoleId) throw new Error('BIOS server tidak cocok dengan console yang dipilih.')
       }
       controller.signal.throwIfAborted()
-      const launched = await onLaunch({ id: createSessionId(), game, consoleInfo, rom, bios: biosSource === 'local' ? bios : undefined, biosUrl: firmware?.url, biosSha256: firmware?.sha256 })
+      const launched = await onLaunch({ id: createSessionId(), game, consoleInfo, rom, bios: biosSource === 'local' ? bios : undefined, biosUrl: firmware?.url, biosSha256: firmware?.sha256, saveId: saveIdentity(game, consoleInfo.core) })
       if (launched === false) setBusy(false)
     } catch (e) { if (!controller.signal.aborted) { setError(e instanceof Error ? e.message : 'File tidak dapat dibaca. Coba pilih ulang file ROM.'); setBusy(false) } }
     finally { if (operation.current === controller) operation.current = null }

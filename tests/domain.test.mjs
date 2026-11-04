@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { DEFAULT_SETTINGS, MAX_ROM_SIZE, detectConsole, validateRom, validateBios, readSettings, readGames, isSafeLocalUrl, recordHistory, toggleFavorite } from '../src/lib/domain.ts'
+import { DEFAULT_SETTINGS, MAX_ROM_SIZE, detectConsole, validateRom, validateBios, readSettings, readGames, isSafeLocalUrl, recordHistory, toggleFavorite, saveIdentity } from '../src/lib/domain.ts'
 
 const consoles = JSON.parse(await readFile(new URL('../public/catalog/consoles.json', import.meta.url), 'utf8'))
 const game = { id: 'local-nes-abc', title: 'A game', consoleId: 'nes', source: 'local' }
@@ -79,6 +79,12 @@ test('vendored source disables upstream version checks and CDN fallback', async 
   assert.ok(source.includes('addToMenu("Layar lebar", "mainduluWidescreen"'))
   assert.ok(source.includes('window.EJS_onWidescreen(value === "enabled")'))
 })
+test('saveIdentity uses sha256 when available and falls back to game id', () => {
+  assert.equal(saveIdentity({ id: 'jalan-pulang-v1', sha256: '06287da470d87118a904e45734b7e88a843d49b0c530dc0ba1af36a5b0ee6dbb' }, 'fceumm'), 'fceumm-06287da470d87118a904e45734b7e88a843d49b0c530dc0ba1af36a5b0ee6dbb')
+  assert.equal(saveIdentity({ id: 'jalan-pulang-v1' }, 'fceumm'), 'fceumm-jalan-pulang-v1')
+  assert.equal(saveIdentity({ id: 'local-nes-abc', sha256: 'NOTVALID' }, 'fceumm'), 'fceumm-local-nes-abc')
+})
+
 test('server homebrew is a valid NROM-128 cartridge', async () => {
   const bytes = await readFile(new URL('../public/games/jalan-pulang.nes', import.meta.url))
   assert.equal(bytes.subarray(0, 4).toString('hex'), '4e45531a')

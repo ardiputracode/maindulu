@@ -4,6 +4,7 @@ import type { LaunchSession } from './Player.tsx'
 import type { StateMetadata } from '../lib/saves'
 import { compatibleState, downloadState, formatBytes, SaveError } from '../lib/saves'
 import { hashRom } from '../lib/identity'
+import { saveIdentity } from '../lib/domain'
 import { useSaveLibrary } from '../lib/useSaveLibrary'
 import { SaveManager, SaveQuota } from './SaveLibrary'
 import Dialog from './Dialog'
@@ -42,7 +43,8 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
   useEffect(() => {
     if (accountChanged) { setPendingState(null); setMsg(''); setErr('Akun berganti. Snapshot akun sebelumnya dibersihkan dan tidak diteruskan ke akun baru.') }
   }, [accountChanged])
-  const slotInfo = (slot: number) => library.list?.saves.find(s => s.gameId === session.game.id && s.consoleId === session.consoleInfo.id && s.core === session.consoleInfo.core && s.slot === slot)
+  const saveId = session.saveId ?? saveIdentity(session.game, session.consoleInfo.core)
+  const slotInfo = (slot: number) => library.list?.saves.find(s => s.gameId === saveId && s.consoleId === session.consoleInfo.id && s.core === session.consoleInfo.core && s.slot === slot)
   const ready = enabled && !!metadata && !!library.client && !!library.list
   const unsupportedCore = session.consoleInfo.core !== 'fceumm' || metadata?.variant === 'normal'
   const intervalReady = autosave.active && autosave.intervalMs > 0
@@ -59,7 +61,7 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
     if (!ready || !library.client) throw new SaveError('Sesi/daftar save belum siap. Jangan tutup tab sebelum mengunduh cadangan.')
     if (snapshot.bytes.length > library.list!.usage.maxStateBytes) throw new SaveError(`State ${formatBytes(snapshot.bytes.length)} melebihi batas ${formatBytes(library.list!.usage.maxStateBytes)}. Unduh cadangan atau hubungi pengelola.`)
     setMsg('Menyimpan…')
-    await library.client.put(snapshot.bytes, { gameId: session.game.id, title: session.game.title, consoleId: session.consoleInfo.id, core: session.consoleInfo.core, slot: snapshot.slot, expectedRevision: snapshot.revision, checksum: snapshot.checksum, metadata: snapshot.metadata })
+    await library.client.put(snapshot.bytes, { gameId: saveId, title: session.game.title, consoleId: session.consoleInfo.id, core: session.consoleInfo.core, slot: snapshot.slot, expectedRevision: snapshot.revision, checksum: snapshot.checksum, metadata: snapshot.metadata })
     if (!live.current || changed.current) return
     setPendingState(null); setMsg('Tersimpan di server')
     if (snapshot.slot === AUTOSAVE_SLOT) onAutosaveStatus('saved')
@@ -173,14 +175,14 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
         </div>
         <p className="autosave-hint">Slot Autosave ditimpa otomatis saat autosave aktif; tiga slot manual hanya berubah saat kamu menekan Ganti.</p>
       </div>
-      {pendingState && <div className="save-pending"><p>State {pendingSlotName(pendingState.slot)} belum dikonfirmasi server ({formatBytes(pendingState.bytes.length)}). {library.list && `Ruang tersisa ${formatBytes(Math.max(0, library.list.usage.quotaBytes - library.list.usage.usedBytes))}; penggantian slot hanya dihitung selisih ukurannya.`} Menutup tab dapat menghilangkan snapshot ini.</p><div className="account-actions"><button className="button secondary small" disabled={busy} onClick={() => downloadState(pendingState.bytes, `${session.game.id}-${pendingSlotName(pendingState.slot).replace(' ', '-')}-cadangan`)}>Unduh cadangan state terbaru</button><button className="button secondary small" disabled={!ready || busy} onClick={() => void run(() => upload(pendingState))}>Coba simpan lagi</button><button className="button secondary small" disabled={busy} onClick={() => { if (window.confirm('Abaikan snapshot yang belum tersimpan? Pastikan cadangan sudah diunduh.')) setPendingState(null) }}>Abaikan state tertunda</button></div></div>}
+      {pendingState && <div className="save-pending"><p>State {pendingSlotName(pendingState.slot)} belum dikonfirmasi server ({formatBytes(pendingState.bytes.length)}). {library.list && `Ruang tersisa ${formatBytes(Math.max(0, library.list.usage.quotaBytes - library.list.usage.usedBytes))}; penggantian slot hanya dihitung selisih ukurannya.`} Menutup tab dapat menghilangkan snapshot ini.</p><div className="account-actions"><button className="button secondary small" disabled={busy} onClick={() => downloadState(pendingState.bytes, `${saveId}-${pendingSlotName(pendingState.slot).replace(' ', '-')}-cadangan`)}>Unduh cadangan state terbaru</button><button className="button secondary small" disabled={!ready || busy} onClick={() => void run(() => upload(pendingState))}>Coba simpan lagi</button><button className="button secondary small" disabled={busy} onClick={() => { if (window.confirm('Abaikan snapshot yang belum tersimpan? Pastikan cadangan sudah diunduh.')) setPendingState(null) }}>Abaikan state tertunda</button></div></div>}
        <div className="account-actions">
          {progressAvailable && <button className="button secondary small" disabled={busy || !ready} onClick={() => onTransfer({ mode: progressConflict ? 'conflict' : 'import', kind: 'progress' })}>{progressConflict ? 'Tinjau konflik progres' : 'Impor progres'}</button>}
          <button className="button secondary small" disabled={busy || !ready || !!pendingState} onClick={() => onTransfer({ mode: 'import', kind: 'state' })}>Impor state</button>
          {conflict && pendingState && <button className="button primary small" disabled={busy || !ready} onClick={() => onTransfer({ mode: 'conflict', kind: 'state', slot: pendingState.slot, bytes: pendingState.bytes })}>Tinjau konflik state</button>}
         <button className="button primary small" disabled={busy || !library.client || !library.list} onClick={() => setManager(true)}>Kelola simpanan</button>
         <button className="button secondary small" disabled={busy || !enabled} onClick={() => void library.refresh()}>Muat ulang daftar save</button>
-        <button className="text-link" disabled={!metadata || busy || !enabled} onClick={() => void run(async () => { const bytes = await rpc('export-state'); if (bytes) downloadState(bytes, `${session.game.id}-cadangan`) })}>Unduh state saat ini</button>
+        <button className="text-link" disabled={!metadata || busy || !enabled} onClick={() => void run(async () => { const bytes = await rpc('export-state'); if (bytes) downloadState(bytes, `${saveId}-cadangan`) })}>Unduh state saat ini</button>
       </div>
       <details className="server-state-help"><summary>Tentang penyimpanan progres</summary><p>State tidak dimuat otomatis dan save browser tamu tidak diimpor otomatis. Gunakan Impor state/progres untuk meninjau sumber dan tujuan secara eksplisit. Sinkronisasi progres game terpisah dari Autosave state; cadangan konflik/impor memakai kuota akun tanpa penghapusan otomatis.</p><p>Periksa status sinkronisasi progres di halaman player. NES tersedia, memcard PS1 masih percobaan; core lain tetap memerlukan ekspor cadangan. Memuat state lama dapat ikut mengembalikan save dalam game lama.</p></details>
       </div>

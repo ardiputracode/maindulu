@@ -3,6 +3,8 @@
     "id": "jalan-pulang-v1", "title": "Jalan Pulang", "consoleId": "nes", "source": "server",
     "url": "/games/jalan-pulang.nes", "cover": "/covers/jalan-pulang.svg",
     "description": "Satu perjalanan kecil menuju rumah. Gerakkan karakter ke kiri dan kanan, tangkap bintang mint, dan kumpulkan kenangan. Homebrew NES orisinal maindulu.",
-    "license": "CC0-1.0 · Homebrew orisinal maindulu"
+    "license": "CC0-1.0 · Homebrew orisinal maindulu",
+    "sha256": "06287da470d87118a904e45734b7e88a843d49b0c530dc0ba1af36a5b0ee6dbb",
+    "size": 24592
   }
 ]

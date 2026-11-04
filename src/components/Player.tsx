@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Check, ChevronDown, Heart, Info, Keyboard, LoaderCircle, ShieldCheck } from 'lucide-react'
 import type { ConsoleInfo, Game, Settings } from '../lib/domain'
+import { saveIdentity } from '../lib/domain'
 import type { AccountState } from '../lib/account'
 import type { StateMetadata } from '../lib/saves'
 import { readStateMetadata } from '../lib/saves'
@@ -15,7 +16,7 @@ import SaveTransfer from './SaveTransfer'
 import type { TransferRequest } from './SaveTransfer'
 import { createPortal } from 'react-dom'
 
-export type LaunchSession = { id: string; game: Game; consoleInfo: ConsoleInfo; rom?: File; bios?: File; biosUrl?: string; biosSha256?: string; storageOwner?: string | null; gameSaves?: boolean }
+export type LaunchSession = { id: string; game: Game; consoleInfo: ConsoleInfo; rom?: File; bios?: File; biosUrl?: string; biosSha256?: string; storageOwner?: string | null; gameSaves?: boolean; saveId?: string }
 
 export default function Player({ session, settings, favorite, onFavorite, onStart, onExit, onWidescreen, account, registerExitGuard, onRestart }: {
   session: LaunchSession; settings: Settings; favorite: boolean;
@@ -141,7 +142,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     async function configure() {
       let initialProgress = null
       if (progressAvailable && owner && layout) {
-        sync = new GameSaveSync(new GameSaveClient(owner), { gameId: session.game.id, consoleId: session.consoleInfo.id, core: session.consoleInfo.core, title: session.game.title }, async () => {
+        sync = new GameSaveSync(new GameSaveClient(owner), { gameId: session.saveId ?? saveIdentity(session.game, session.consoleInfo.core), consoleId: session.consoleInfo.id, core: session.consoleInfo.core, title: session.game.title }, async () => {
           const bytes = await rpc('export-progress')
           return bytes ? encodeGameSave({ layout, files: [{ key: 'sram', bytes }] }) : null
         }, view => {
@@ -281,7 +282,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
       </div>}
       {progressAvailable && enabled && ['failed', 'conflict', 'stopped'].includes(progress.status) && <div className="player-progress-notice" role="alert">Progres belum tersinkron. {progress.message} Gunakan kontrol progres di bawah player; keluar fullscreen bila perlu.</div>}
       {transfer && owner && !terminated && !(account.status === 'authenticated' && account.user?.id !== owner) && metadata && createPortal(<SaveTransfer owner={owner} ownerName={ownerName.current} enabled={enabled} request={transfer}
-        target={{ gameId: session.game.id, consoleId: session.consoleInfo.id, core: session.consoleInfo.core, title: session.game.title }}
+        target={{ gameId: session.saveId ?? saveIdentity(session.game, session.consoleInfo.core), consoleId: session.consoleInfo.id, core: session.consoleInfo.core, title: session.game.title }}
         metadata={transfer.kind === 'progress' && layout ? { ...metadata, layout } as StateMetadata : metadata}
         stateKey={browserKeys.state} progressPath={browserKeys.progress}
         capture={async () => { const bytes = transfer.kind === 'progress' ? await progressSync.current?.conflictSnapshot() : await rpc('export-state'); if (!bytes) throw new Error('Snapshot tidak tersedia.'); return bytes }}
@@ -307,7 +308,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
           try {
             const current = enabled && started.current ? await rpc('export-progress') : null
             const bytes = current && layout ? encodeGameSave({ layout, files: [{ key: 'sram', bytes: current }] }) : progressSync.current?.snapshot()
-            if (bytes) downloadGameSave(bytes, session.game.id + '-cadangan')
+            if (bytes) downloadGameSave(bytes, (session.saveId ?? saveIdentity(session.game, session.consoleInfo.core)) + '-cadangan')
             else setProgress(v => ({ ...v, message: 'Game belum menghasilkan berkas progres untuk diunduh.' }))
           } catch (e) { setProgress(v => ({ ...v, message: e instanceof Error ? e.message : 'Ekspor progres gagal. Gunakan ekspor native emulator.' })) }
         })()}>Unduh cadangan progres</button></div>
