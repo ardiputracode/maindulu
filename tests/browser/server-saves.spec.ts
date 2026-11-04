@@ -1,12 +1,13 @@
 import { test as base, expect } from '@playwright/test'
 import type { Page, FrameLocator } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { DatabaseSync } from 'node:sqlite'
 import { createApp } from '../../server/app.mjs'
 import { startPlayer } from './helpers/player'
+import { saveIdentity } from '../../src/lib/domain'
 
 type TestApp = Awaited<ReturnType<typeof createApp>> & { database: DatabaseSync; appConfig: { saveQuotaBytes: number } }
 const test = base.extend({
@@ -495,7 +496,8 @@ test('M5: autosave writes only its dedicated slot while the game runs, pauses wi
     await openOverlay(page, frame)
     await overlay(page).getByLabel('Aktifkan autosave state').check()
     await overlay(page).getByLabel('Interval', { exact: true }).selectOption('30000')
-    const rows = () => app.database.prepare('SELECT slot, revision FROM saves WHERE game_id = ?').all('jalan-pulang-v1')
+    const demo = JSON.parse(await readFile('public/catalog/games.json', 'utf8'))[0]
+    const rows = () => app.database.prepare('SELECT slot, revision FROM saves WHERE game_id = ?').all(saveIdentity(demo, 'fceumm'))
     // The overlay pauses the game: no autosave write may happen while it is open.
     const beforePause = app.database.prepare('SELECT COUNT(*) AS count FROM saves').get()!.count
     await page.waitForTimeout(40_000)

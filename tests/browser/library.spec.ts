@@ -10,6 +10,7 @@ import { createDataBackup, restoreDataBackup, verifyDataBackup } from '../../ser
 import { buildNesBatteryFixture } from '../fixtures/nes-battery.mjs'
 import { startPlayer } from './helpers/player'
 import { encodeGameSave } from '../../src/lib/game-save-format'
+import { saveIdentity } from '../../src/lib/domain'
 
 base('Library has portable deep links, URL filters, no duplicate demo, and console links rather than a second catalog', async ({ page }, info) => {
   const api: string[] = []
@@ -336,7 +337,8 @@ test('complete admin login/upload → guest play → ordinary account progress/s
     await player.getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
     const snapshot = encodeGameSave({ layout: 'nes-sram-v1', files: [{ key: 'sram', bytes: new Uint8Array(await battery(engine)) }] })
     const checksum = createHash('sha256').update(snapshot).digest('hex')
-    await expect.poll(() => site.app.database.prepare('SELECT checksum FROM game_saves WHERE game_id = ? AND user_id = ?').get(game.id, user.id)?.checksum).toBe(checksum)
+    const saveId = saveIdentity(game, 'fceumm')
+    await expect.poll(() => site.app.database.prepare('SELECT checksum FROM game_saves WHERE game_id = ? AND user_id = ?').get(saveId, user.id)?.checksum).toBe(checksum)
     const overlay = await states(player, engine)
     await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
     await expect(overlay).toContainText('Tersimpan di server')
@@ -393,7 +395,8 @@ test('uploaded game state and CPU-written progress survive metadata edits, serve
   const frame = await startPlayer(page)
   await increment(frame, 1)
   await page.getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
-  await expect.poll(() => site.app.database.prepare('SELECT game_id FROM game_saves').get()?.game_id).toBe(game.id)
+  // Catalog/history IDs and the existing content-based save identity differ.
+  await expect.poll(() => site.app.database.prepare('SELECT game_id FROM game_saves').get()?.game_id).toBe(saveIdentity(game, 'fceumm'))
   const overlay = await states(page, frame)
   await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
   await expect(overlay).toContainText('Tersimpan di server')
@@ -436,7 +439,7 @@ test('metadata-only backup restores accounts/saves but no ROM/BIOS; admin explic
   await increment(frame, 1)
   await page.getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
   const snapshot = encodeGameSave({ layout: 'nes-sram-v1', files: [{ key: 'sram', bytes: new Uint8Array(await battery(frame)) }] })
-  await expect.poll(() => site.app.database.prepare('SELECT checksum FROM game_saves WHERE game_id = ?').get(game.id)?.checksum).toBe(createHash('sha256').update(snapshot).digest('hex'))
+  await expect.poll(() => site.app.database.prepare('SELECT checksum FROM game_saves WHERE game_id = ?').get(saveIdentity(game, 'fceumm'))?.checksum).toBe(createHash('sha256').update(snapshot).digest('hex'))
   const saved = await states(page, frame)
   await saved.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
   await expect(saved).toContainText('Tersimpan di server')

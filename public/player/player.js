@@ -228,7 +228,9 @@
       window.EJS_language = 'en-US'
       window.EJS_disableAutoLang = false
       window.EJS_noAutoFocus = false
-      // Never persist a user's raw ROM/BIOS. Engine states remain separate.
+      // Keep EmulatorJS's ROM/BIOS database cache disabled. Server assets may
+      // still use the browser's revalidated HTTP cache; local files are not
+      // persisted by this feature. Engine save states remain separate.
       window.EJS_disableDatabases = true
       window.EJS_mainduluMemorySaves = memorySaves
       window.EJS_disableLocalStorage = memorySaves

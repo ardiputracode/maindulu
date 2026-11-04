@@ -116,9 +116,19 @@ Semua isi `public/` dapat diunduh pengunjung, **bukan penyimpanan privat**. BIOS
 
 ## Privasi dan progres
 
-ROM/BIOS lokal tidak dikirim ke server dan cache engine dinonaktifkan. LocalStorage hanya menyimpan pengaturan dan metadata. Progres tamu tersimpan terpisah di browser melalui engine; sesi akun memakai storage memori terisolasi, save state server, serta sinkronisasi progres pada core yang dicakup M6. Periksa konfirmasi server dan unduh cadangan bila gagal/core belum didukung; menutup tab bukan jaminan upload. File ROM/BIOS perlu dipilih ulang setelah sesi ditutup. Riwayat **bukan** save state. Mematikan riwayat tidak menghapus riwayat lama, favorit, atau save. Ekspor cadangan sebelum membersihkan data situs.
+ROM/BIOS lokal tidak dikirim ke server dan database cache ROM/BIOS EmulatorJS dinonaktifkan. LocalStorage hanya menyimpan pengaturan dan metadata. Progres tamu tersimpan terpisah di browser melalui engine; sesi akun memakai storage memori terisolasi, save state server, serta sinkronisasi progres pada core yang dicakup M6. Periksa konfirmasi server dan unduh cadangan bila gagal/core belum didukung; menutup tab bukan jaminan upload. File ROM/BIOS lokal perlu dipilih ulang setelah sesi ditutup. Riwayat **bukan** save state. Mematikan riwayat tidak menghapus riwayat lama, favorit, atau save. Ekspor cadangan sebelum membersihkan data situs.
 
 Akun lokal menyimpan username, hash password, hash kode pemulihan, dan hash sesi di SQLite privat. Password dikirim hanya ke API akun same-origin; ROM/BIOS yang dipilih untuk bermain lokal tetap tidak diunggah. Upload katalog hanya lewat operasi admin eksplisit; aset aktif dapat diunduh tamu meskipun storage berada di luar folder publik. Sesi login memakai cookie HttpOnly, bukan LocalStorage. Save state diunggah manual atau melalui Autosave opsional; progres dalam game disinkronkan otomatis pada sesi akun/core M6 yang dicakup. Login tidak mengimpor progres browser tamu; M7 membaca kandidat secara read-only hanya saat pengguna memilih impor. Byte state/progres/cadangan berada di folder data privat dan metadata di SQLite. Reset password/kode/admin mempertahankan ID serta kepemilikan save; reset password mencabut seluruh sesi. Simpan kode baru secara privat di luar browser; lihat [prosedur M4](doc/milestone-4-pemulihan-akun.md).
+
+### HTTP cache ROM/BIOS backend
+
+ROM/BIOS hasil upload backend (`/games/:id/rom/:filename` dan `/bios/:id/:filename`) boleh disimpan dalam **HTTP cache perangkat**, terpisah dari database cache EmulatorJS yang tetap dimatikan. Server memakai `Cache-Control: private, no-cache` dan ETag SHA-256 upload: setiap penggunaan ulang harus divalidasi ke server; konten yang belum berubah dapat dipakai tanpa mengirim ulang body penuh, termasuk setelah restart browser jika disk cache masih tersedia. Preflight HEAD player tetap memeriksa aset. Entri terhapus, file hilang/rusak, atau storage tidak aman ditolak, bukan dijawab 304.
+
+Ini **bukan penyimpanan ROM permanen, save/progres, atau mode offline**. Koneksi tetap diperlukan. Browser menentukan batas ukuran dan eviction, terutama ROM besar seperti PS1; cache dapat hanya berada di memori atau tidak disimpan sama sekali. Mode privat, pembersihan data, pergantian profil/origin, atau keterbatasan perangkat bisa memerlukan unduhan penuh lagi. File lokal yang dipilih pengguna tidak dipersistenkan oleh fitur ini. Kebijakan ini hanya mencakup endpoint upload backend, bukan demo/aset statis `public/games/`, frontend, atau engine. API akun/save/metadata, cover, redirect, dan error tetap `no-store`.
+
+`private` melarang shared cache, **bukan enkripsi atau pemisahan cache per akun aplikasi**; pengguna profil browser yang sama dapat mengakses data lokal tersebut. Delete server menolak sesi baru, tetapi tidak menghapus byte yang sudah diterima perangkat atau menghentikan sesi berjalan. ETag mengasumsikan berkas storage tidak diubah di luar aplikasi: hash tersimpan digunakan tanpa rehash saat request; pemeriksaan ukuran tidak mendeteksi perubahan konten berukuran sama.
+
+Reverse proxy harus mempertahankan ETag dan kebijakan origin: jangan mengganti header ROM/BIOS menjadi `no-store`, mengabaikan `private`, atau melayani cache tanpa validasi origin. Jika proxy mengubah representasi (misalnya kompresi), pastikan validator ETag tetap benar.
 
 ## Engine, sumber, dan kemandirian
 
@@ -184,6 +194,27 @@ npm run test:e2e:production
 npm run test:e2e:backend
 ```
 
-Tes browser menggunakan Microsoft Edge yang terpasang di Windows. Jika tidak tersedia, ubah `channel` di `playwright.config.ts` atau instal Chromium Playwright. Tes mencakup desktop/mobile, file lokal, BIOS plumbing lokal/server, riwayat/favorit/pengaturan, peluncuran demo server, round-trip save/load state, penutupan player, core yang hilang, serta cold-cache dengan semua request origin eksternal diblokir. BIOS sintetis pada tes hanya menguji jalur file, bukan kompatibilitas firmware proprietary. Screenshot hasil uji berada di `test-results/` (diabaikan Git). Build sebelum menjalankan `test:e2e:production` agar yang diuji benar-benar aset produksi terbaru.
+Tes browser menggunakan Microsoft Edge yang terpasang di Windows. Jika tidak tersedia, ubah `channel` di `playwright.config.ts` atau instal Chromium Playwright. Tes mencakup desktop/mobile, file lokal, BIOS plumbing lokal/server, riwayat/favorit/pengaturan, peluncuran demo server, round-trip save/load state, penutupan player, core yang hilang, serta cold-cache dengan semua request origin eksternal diblokir. BIOS sintetis pada tes hanya menguji jalur file, bukan kompatibilitas firmware proprietary. Screenshot hasil uji berada di `test-results/` (diabaikan Git). Build sebelum menjalankan `test:e2e:production` maupun `test:e2e:backend` agar yang diuji benar-benar frontend dan bridge terbaru.
+
+`tests/browser/catalog-cache.spec.ts` menguji cache ROM/BIOS backend tanpa request interception: tiga peluncuran engine nyata (awal, sesi kedua, restart proses browser) menggunakan profil persisten terisolasi dan origin yang sama. Lampiran Playwright `server-asset-transfers` mencatat validator, status, dan byte body dari respons server, bukan hanya status yang terlihat di JavaScript. Profil dibersihkan setelah browser ditutup.
+
+### Hasil verifikasi cache ROM/BIOS — 2026-11-04
+
+- `npm test`: **234 tes lulus**, tanpa gagal atau skip.
+- `npm run build`: **lulus**, sebelum suite browser backend.
+- `npm run test:e2e:backend`: **75 tes lulus**, tanpa gagal atau skip (8,6 menit).
+- Pemeriksaan TypeScript khusus `tests/browser/catalog-cache.spec.ts` juga lulus.
+
+Hasil Microsoft Edge headless di Windows, memakai ROM demo NES nyata dan BIOS sintetis (uji plumbing, bukan boot firmware proprietary):
+
+| Peluncuran | Status GET ROM/BIOS di server | Body ROM dikirim | Body BIOS dikirim |
+| --- | --- | --- | --- |
+| Pertama, profil kosong | 200 | 24.592 byte | 512 byte |
+| Sesi kedua, profil/origin sama | 304 | 0 byte | 0 byte |
+| Setelah browser ditutup/dibuka kembali | 304 | 0 byte | 0 byte |
+
+HEAD ikut memvalidasi dengan ETag tanpa merusak reuse GET; canvas engine aktif dan state nyata dapat diekspor pada ketiga peluncuran. Setelah delete game/BIOS, peluncuran baru ditolak, HEAD/GET nyata menghasilkan 404 dengan `no-store` tanpa ETag sukses. Bukti transfer disimpan pada `test-results/catalog-cache-*/server-asset-transfers.json` dan dilampirkan ke hasil Playwright. Ini bukan jaminan cache semua ukuran ROM, browser/perangkat, atau mode offline.
+
+Assertion regresi Library/progres/autosave lama diselaraskan dengan kontrak `saveIdentity` (`core-SHA256`) yang sudah ada, bukan ID katalog. Implementasi identitas save, skema database, dan bundle engine tidak diubah.
 
 Regresi HTTP LAN memakai alamat IPv4 non-loopback yang ditemukan otomatis, dengan emulasi layar/sentuhan ponsel. Tes memastikan origin benar-benar tidak aman (`isSecureContext === false`) dan API `subtle`/`randomUUID` memang tidak tersedia, kemudian menjalankan game lokal dan server. Tes ini dilewati bila tidak ada interface IPv4 jaringan. Unit test membandingkan hasil SHA-256 native/fallback agar identitas ROM lama tetap cocok. Penyimpanan browser tetap terpisah per origin: berpindah alamat IP, port, atau HTTP/HTTPS tidak otomatis memindahkan favorit/save.

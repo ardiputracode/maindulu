@@ -66,16 +66,23 @@ test('catalog HTTP uploads exact hashes, private DTOs and usable ROM/BIOS filena
     const detail = await c.app.inject(`/api/${kind}/${value.id}`)
     assert.deepEqual(detail.json().item, value)
     assert.doesNotMatch(detail.body, /storage_key|storageKey|created_by|createdBy|api_admin|private-data/)
-    assert.deepEqual((await c.app.inject(value.url)).rawPayload, rom)
+    const get = await c.app.inject(value.url)
+    assert.equal(get.statusCode, 200)
+    assert.deepEqual(get.rawPayload, rom)
+    assert.equal(get.headers.etag, `"${hash(rom)}"`)
+    assert.equal(get.headers['cache-control'], 'private, no-cache')
     const head = await c.app.inject({ method: 'HEAD', url: value.url })
     assert.equal(head.statusCode, 200)
     assert.equal(head.headers['content-length'], String(rom.length))
     assert.equal(head.body, '')
-    assert.equal(head.headers['cache-control'], 'no-store')
+    assert.equal(head.headers['cache-control'], 'private, no-cache')
+    assert.equal(head.headers.etag, get.headers.etag)
     assert.equal(head.headers['x-content-type-options'], 'nosniff')
   }
   const cover = await c.app.inject(game.cover)
   assert.equal(cover.headers['content-type'], 'image/png')
+  assert.equal(cover.headers['cache-control'], 'no-store')
+  assert.equal(cover.headers.etag, undefined)
   assert.deepEqual(cover.rawPayload, await png())
   const redirect = await c.app.inject(`/games/${game.id}/rom`)
   assert.equal(redirect.statusCode, 302)
@@ -91,18 +98,20 @@ test('asset GET/HEAD supports single, suffix, open and unsatisfiable ranges; mul
   const game = item(await c.upload('games', {}, [{ field: 'rom', name: 'fixture.nes', bytes: rom }, { field: 'cover', name: 'cover.png', bytes: cover }]))
   const bios = item(await c.upload('bios'))
   for (const [url, bytes] of [[game.url, rom], [bios.url, rom], [game.cover, cover]]) {
+    const cache = url === game.cover ? 'no-store' : 'private, no-cache'
     const full = await c.app.inject(url)
     assert.equal(full.statusCode, 200)
     assert.deepEqual(full.rawPayload, bytes)
     assert.equal(full.headers['accept-ranges'], 'bytes')
-    assert.equal(full.headers['cache-control'], 'no-store')
+    assert.equal(full.headers['cache-control'], cache)
     for (const [range, expected, start] of [['bytes=2-5', bytes.subarray(2, 6), 2], ['bytes=-5', bytes.subarray(-5), bytes.length - 5], ['bytes=5-', bytes.subarray(5), 5], ['bytes=0-9999', bytes, 0]]) {
       for (const method of ['GET', 'HEAD']) {
         const response = await c.app.inject({ method, url, headers: { range } })
         assert.equal(response.statusCode, 206, response.body)
         assert.equal(Number(response.headers['content-length']), expected.length)
         assert.equal(response.headers['content-range'], `bytes ${start}-${start + expected.length - 1}/${bytes.length}`)
-        assert.equal(response.headers['cache-control'], 'no-store')
+        assert.equal(response.headers['cache-control'], cache)
+        assert.equal(response.headers.etag, full.headers.etag)
         assert.deepEqual(response.rawPayload, method === 'HEAD' ? Buffer.alloc(0) : expected)
       }
     }
@@ -110,12 +119,164 @@ test('asset GET/HEAD supports single, suffix, open and unsatisfiable ranges; mul
       for (const method of ['GET', 'HEAD']) {
         const response = await c.app.inject({ method, url, headers: { range } })
         assert.equal(response.statusCode, 416)
+        assert.equal(response.headers['cache-control'], 'no-store')
+        assert.equal(response.headers.etag, undefined)
         assert.equal(response.headers['content-range'], `bytes */${bytes.length}`)
       }
     }
     for (const headers of [{ range: 'bytes=0-1,4-5' }, { range: 'nonsense' }, { range: 'bytes=1-2', 'if-range': 'old-validator' }]) {
-      assert.equal((await c.app.inject({ url, headers })).statusCode, 200)
+      const response = await c.app.inject({ url, headers })
+      assert.equal(response.statusCode, 200)
+      assert.deepEqual(response.rawPayload, bytes)
     }
+  }
+})
+
+test('ROM/BIOS conditional GET/HEAD parses complete ETag lists and precedes Range without leaking handles', async t => {
+  const c = await setup(t)
+  const etag = `"${hash(rom)}"`
+  const open = c.app.catalog.storage.open
+  const handles = []
+  c.app.catalog.storage.open = async (...args) => {
+    const file = await open(...args)
+    handles.push(file)
+    return file
+  }
+  for (const kind of ['games', 'bios']) {
+    const value = item(await c.upload(kind))
+    for (const method of ['GET', 'HEAD']) {
+      for (const condition of [etag, `W/${etag}`, `"other", W/${etag}, "last"`, `"comma,inside", ${etag}`, ` ,\t${etag},, `, '*', ' \t*\t ']) {
+        for (const range of [undefined, 'bytes=2-5', 'bytes=999-']) {
+          const response = await c.app.inject({ method, url: value.url, headers: { 'if-none-match': condition, ...(range ? { range } : {}) } })
+          assert.equal(response.statusCode, 304, `${method} ${condition} ${range}`)
+          assert.equal(response.body, '')
+          assert.equal(response.headers.etag, etag)
+          assert.equal(response.headers['cache-control'], 'private, no-cache')
+          assert.equal(response.headers['content-length'], undefined)
+          assert.equal(response.headers['content-range'], undefined)
+          assert.equal(handles.at(-1).fd, -1)
+        }
+      }
+      for (const condition of ['"other"', 'W/"other"', '', ',', 'garbage', etag.slice(0, -1), `w/${etag}`, `W/ ${etag}`, `${etag} junk`, `${etag}, garbage`, `garbage, ${etag}`, `*, ${etag}`, `${etag}, *`, `${etag} ${etag}`, `"bad\\"quote", ${etag}`]) {
+        const response = await c.app.inject({ method, url: value.url, headers: { 'if-none-match': condition } })
+        assert.equal(response.statusCode, 200, `${method} ${condition}`)
+        assert.equal(response.headers.etag, etag)
+        assert.equal(response.headers['content-length'], String(rom.length))
+        assert.deepEqual(response.rawPayload, method === 'HEAD' ? Buffer.alloc(0) : rom)
+        if (method === 'HEAD') assert.equal(handles.at(-1).fd, -1)
+      }
+      const partial = await c.app.inject({ method, url: value.url, headers: { 'if-none-match': '"other"', range: 'bytes=2-5' } })
+      assert.equal(partial.statusCode, 206)
+      assert.deepEqual(partial.rawPayload, method === 'HEAD' ? Buffer.alloc(0) : rom.subarray(2, 6))
+      // If-Range remains a full-response fallback, even when it names our tag.
+      const fallback = await c.app.inject({ method, url: value.url, headers: { 'if-range': etag, range: 'bytes=2-5' } })
+      assert.equal(fallback.statusCode, 200)
+      assert.equal(fallback.headers['content-range'], undefined)
+      assert.deepEqual(fallback.rawPayload, method === 'HEAD' ? Buffer.alloc(0) : rom)
+      const invalid = await c.app.inject({ method, url: value.url, headers: { range: 'bytes=999-' } })
+      assert.equal(invalid.statusCode, 416)
+      assert.equal(invalid.headers['cache-control'], 'no-store')
+      assert.equal(invalid.headers.etag, undefined)
+      assert.equal(handles.at(-1).fd, -1)
+    }
+  }
+})
+
+test('file validators survive metadata edits and differ for different ROM/BIOS content', async t => {
+  const c = await setup(t)
+  for (const kind of ['games', 'bios']) {
+    const first = item(await c.upload(kind))
+    const etag = (await c.app.inject(first.url)).headers.etag
+    const edited = await c.app.inject({ method: 'PATCH', url: `/api/admin/${kind}/${first.id}`, headers: c.headers, payload: { [kind === 'games' ? 'title' : 'name']: 'Edited', description: 'Metadata only' } })
+    assert.equal(edited.statusCode, 200)
+    assert.equal((await c.app.inject({ url: first.url, headers: { 'if-none-match': etag } })).statusCode, 304)
+    const bytes = Buffer.from('different synthetic file')
+    const second = item(await c.upload(kind, {}, [{ field: kind === 'games' ? 'rom' : 'bios', name: first.fileName, bytes }]))
+    const response = await c.app.inject({ url: second.url, headers: { 'if-none-match': etag } })
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.headers.etag, `"${hash(bytes)}"`)
+    assert.notEqual(response.headers.etag, etag)
+    assert.deepEqual(response.rawPayload, bytes)
+  }
+})
+
+test('matching validators cannot bypass deleted/missing/corrupt/unsafe ROM or BIOS checks', async t => {
+  for (const kind of ['games', 'bios']) for (const failure of ['deleted', 'missing', 'size', 'key', 'name', 'hardlink']) await t.test(`${kind} ${failure}`, async t => {
+    const c = await setup(t)
+    const value = item(await c.upload(kind))
+    const row = c.app.catalog.repository.get(kind, value.id)
+    const path = join(c.root, 'data', kind, row.storage_key)
+    const etag = `"${value.sha256}"`
+    if (failure === 'deleted') await c.remove(kind, value.id)
+    else if (failure === 'missing') await rm(path)
+    else if (failure === 'size') await writeFile(path, Buffer.from('truncated'))
+    else if (failure === 'key') c.app.database.prepare(`UPDATE ${kind} SET storage_key = ? WHERE id = ?`).run('../maindulu.sqlite', value.id)
+    else if (failure === 'name') c.app.database.prepare(`UPDATE ${kind} SET original_name = ? WHERE id = ?`).run('../private.bin', value.id)
+    else await link(path, join(c.root, 'linked-asset'))
+    for (const method of ['GET', 'HEAD']) for (const condition of [etag, '*']) {
+      const response = await c.app.inject({ method, url: value.url, headers: { 'if-none-match': condition, range: 'bytes=0-1' } })
+      assert.equal(response.statusCode, ['deleted', 'missing', 'name'].includes(failure) ? 404 : 503, response.body)
+      assert.equal(response.headers['cache-control'], 'no-store')
+      assert.equal(response.headers.etag, undefined)
+      assert.equal(response.headers['content-range'], undefined)
+    }
+  })
+})
+
+test('asset errors after preparing success headers clear validators and close handles', async t => {
+  const c = await setup(t)
+  const game = item(await c.upload())
+  const open = c.app.catalog.storage.open
+  let handle
+  c.app.catalog.storage.open = async (...args) => {
+    handle = await open(...args)
+    handle.createReadStream = () => { throw new Error('controlled stream setup failure') }
+    return handle
+  }
+  const response = await c.app.inject(game.url)
+  assert.equal(response.statusCode, 503)
+  assert.equal(response.headers['cache-control'], 'no-store')
+  assert.equal(response.headers.etag, undefined)
+  assert.match(response.headers['content-type'], /application\/json/)
+  assert.equal(Number(response.headers['content-length']), response.rawPayload.length)
+  assert.equal(handle.fd, -1)
+})
+
+test('asynchronous asset stream failures before the first byte cannot cache an error response', async t => {
+  const c = await setup(t)
+  const open = c.app.catalog.storage.open
+  let handle
+  for (const kind of ['games', 'bios']) {
+    const value = item(await c.upload(kind))
+    c.app.catalog.storage.open = async (...args) => {
+      handle = await open(...args)
+      const createReadStream = handle.createReadStream.bind(handle)
+      handle.createReadStream = options => {
+        const stream = createReadStream(options)
+        queueMicrotask(() => stream.destroy(new Error('controlled asynchronous read failure')))
+        return stream
+      }
+      return handle
+    }
+    const response = await c.app.inject({ url: value.url, headers: { range: 'bytes=2-5' } })
+    assert.equal(response.statusCode, 500)
+    assert.equal(response.headers['cache-control'], 'no-store')
+    assert.equal(response.headers.etag, undefined)
+    assert.equal(response.headers['content-range'], undefined)
+    assert.match(response.headers['content-type'], /application\/json/)
+    await eventually(() => handle.fd === -1)
+  }
+})
+
+test('conditional headers do not make covers, redirects, metadata, accounts, saves or static ROM cacheable', async t => {
+  const c = await setup(t)
+  const game = item(await c.upload('games', {}, [{ field: 'rom', name: 'fixture.nes', bytes: rom }, { field: 'cover', name: 'cover.png', bytes: await png() }]))
+  const bios = item(await c.upload('bios'))
+  // Static serving already supports validators; its no-store policy is unchanged.
+  for (const [url, status] of [[game.cover, 200], [`/games/${game.id}/rom`, 302], ['/api/games', 200], [`/api/games/${game.id}`, 200], ['/api/bios', 200], [`/api/bios/${bios.id}`, 200], ['/api/auth/csrf', 200], ['/api/auth/session', 200], ['/api/saves/', 200], ['/api/game-saves/', 200], ['/games/sample.chd', 304], ['/api/games/invalid', 404]]) {
+    const response = await c.app.inject({ url, headers: { ...c.headers, 'x-save-user': c.actor, 'if-none-match': '*' } })
+    assert.equal(response.statusCode, status, `${url}: ${response.body}`)
+    assert.equal(response.headers['cache-control'], 'no-store', url)
   }
 })
 
@@ -217,8 +378,10 @@ test('HTTP assets reject substituted symlink/junction directories without exposi
     try {
       await symlink(privateDir, folder, process.platform === 'win32' ? 'junction' : 'dir')
       for (const method of ['GET', 'HEAD']) {
-        const response = await c.app.inject({ method, url })
+        const response = await c.app.inject({ method, url, headers: { 'if-none-match': '*' } })
         assert.equal(response.statusCode, 503, url)
+        assert.equal(response.headers['cache-control'], 'no-store')
+        assert.equal(response.headers.etag, undefined)
         assert.doesNotMatch(response.body, /SSSS|private-save-fixture/)
       }
     } finally { await rm(folder, { force: true }); await rename(parked, folder) }
@@ -238,11 +401,31 @@ test('delete committed while an asset is opening blocks GET/HEAD and closes the 
       c.app.catalog.repository.delete(kind, c.actor, value.id)
       return handle
     }
-    const response = await c.app.inject({ method, url: value.url })
+    const response = await c.app.inject({ method, url: value.url, headers: { 'if-none-match': `"${value.sha256}"` } })
     assert.equal(response.statusCode, 404, response.body)
     assert.equal(response.headers['cache-control'], 'no-store')
+    assert.equal(response.headers.etag, undefined)
     assert.equal(handle.fd, -1)
     assert.equal((await c.app.inject(`/api/${kind}/${value.id}`)).statusCode, 404)
+  })
+})
+
+test('a replaced storage reference while opening cannot validate the old ROM/BIOS handle', async t => {
+  for (const kind of ['games', 'bios']) for (const method of ['GET', 'HEAD']) await t.test(`${kind} ${method}`, async t => {
+    const c = await setup(t)
+    const value = item(await c.upload(kind))
+    const open = c.app.catalog.storage.open
+    let handle
+    c.app.catalog.storage.open = async (...args) => {
+      handle = await open(...args)
+      c.app.database.prepare(`UPDATE ${kind} SET storage_key = ? WHERE id = ?`).run(randomUUID() + '.bin', value.id)
+      return handle
+    }
+    const response = await c.app.inject({ method, url: value.url, headers: { 'if-none-match': `"${value.sha256}"` } })
+    assert.equal(response.statusCode, 404)
+    assert.equal(response.headers['cache-control'], 'no-store')
+    assert.equal(response.headers.etag, undefined)
+    assert.equal(handle.fd, -1)
   })
 })
 
