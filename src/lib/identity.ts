@@ -9,6 +9,17 @@ function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
+// Streaming callers use the same portable implementation as local ROM identity.
+// No Web Crypto or full-file ArrayBuffer is required (including HTTP LAN).
+export function createIncrementalSha256() {
+  const hash = sha256.create()
+  return {
+    update: (bytes: Uint8Array) => { hash.update(bytes) },
+    digest: () => toHex(hash.digest()),
+    destroy: () => hash.destroy(),
+  }
+}
+
 // Both implementations produce the same SHA-256 so existing game/save IDs stay valid.
 // Web Crypto is unavailable on HTTP LAN origins, but hashing a local file need not be.
 export async function hashRom(file: Blob, provider: BrowserCrypto | undefined = globalThis.crypto): Promise<string> {
@@ -21,7 +32,7 @@ export async function hashRom(file: Blob, provider: BrowserCrypto | undefined = 
     }
   }
 
-  const hash = sha256.create()
+  const hash = createIncrementalSha256()
   try {
     for (let offset = 0; offset < file.size; offset += HASH_CHUNK_SIZE) {
       const buffer = await file.slice(offset, offset + HASH_CHUNK_SIZE).arrayBuffer()
@@ -29,7 +40,7 @@ export async function hashRom(file: Blob, provider: BrowserCrypto | undefined = 
       // Bound memory and give mobile browsers time to render between chunks.
       if (offset + HASH_CHUNK_SIZE < file.size) await new Promise<void>(resolve => setTimeout(resolve, 0))
     }
-    return toHex(hash.digest())
+    return hash.digest()
   } finally {
     hash.destroy()
   }

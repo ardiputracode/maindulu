@@ -1,5 +1,6 @@
 import { MAX_BIOS_SIZE, MAX_ROM_SIZE } from './domain.ts'
 import { catalogId } from './catalog.ts'
+import type { CatalogEntry } from './catalog.ts'
 
 export const ASSET_CHUNK_SIZE = 4 * 1024 * 1024
 export const DEFAULT_ASSET_BUDGET = 2 * 1024 * 1024 * 1024
@@ -48,6 +49,11 @@ export function requireAssetDescriptor(value: unknown): AssetDescriptor {
   const descriptor = readAssetDescriptor(value)
   if (!descriptor) throw new AssetCacheError('invalid', 'Descriptor cache ROM/BIOS tidak valid.')
   return descriptor
+}
+
+export function catalogAssetDescriptor(kind: AssetKind, entry: CatalogEntry): AssetDescriptor {
+  return requireAssetDescriptor({ kind, catalogId: entry.id, sha256: entry.sha256, size: entry.size,
+    fileName: entry.fileName, url: entry.url, consoleId: entry.consoleId, label: kind === 'rom' ? entry.title : entry.name })
 }
 
 export const assetKey = (value: AssetDescriptor): AssetKey => [value.kind, value.catalogId, value.sha256]

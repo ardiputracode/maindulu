@@ -7,6 +7,8 @@ import type { Bios, ConsoleInfo, Game } from '../lib/domain'
 import type { LaunchSession } from './Player'
 import type { BackendState } from '../lib/backend'
 import { catalogBios, catalogGame, catalogId, latestCatalogEntry, loadCatalog, mergeCatalog } from '../lib/catalog'
+import { catalogAssetDescriptor } from '../lib/asset-cache-policy'
+import type { AssetDescriptor } from '../lib/asset-cache-policy'
 
 export type SetupSelection = { game?: Game; consoleId?: string; file?: File }
 
@@ -96,10 +98,13 @@ export default function SetupDialog({ selection, consoles, builtinGames, biosLis
     operation.current = controller
     try {
       let game: Game
+      let serverRomDescriptor: AssetDescriptor | undefined, serverBiosDescriptor: AssetDescriptor | undefined
       if (serverGame) {
         if (!builtinGames.some(g => g.id === serverGame.id) && catalogId.test(serverGame.id)) {
           if (backend.status !== 'online' || !backend.health.capabilities.gameCatalog) throw new Error('Katalog game server belum dapat diperiksa. Periksa koneksi backend dan coba lagi.')
-          game = catalogGame(await latestCatalogEntry('games', serverGame.id, controller.signal))
+          const latest = await latestCatalogEntry('games', serverGame.id, controller.signal)
+          serverRomDescriptor = catalogAssetDescriptor('rom', latest)
+          game = catalogGame(latest)
           if (game.consoleId !== consoleId) throw new Error('Console game berubah. Buka ulang game dari Library.')
         } else game = serverGame
       }
@@ -112,11 +117,13 @@ export default function SetupDialog({ selection, consoles, builtinGames, biosLis
       let firmware = serverBios
       if (serverBios && !biosList.some(b => b.id === serverBios.id) && catalogId.test(serverBios.id)) {
         if (!dynamicBios) throw new Error('Katalog BIOS belum dapat diperiksa. Pilih BIOS lokal atau periksa backend.')
-        firmware = catalogBios(await latestCatalogEntry('bios', serverBios.id, controller.signal))
+        const latest = await latestCatalogEntry('bios', serverBios.id, controller.signal)
+        serverBiosDescriptor = catalogAssetDescriptor('bios', latest)
+        firmware = catalogBios(latest)
         if (firmware.consoleId !== consoleId) throw new Error('BIOS server tidak cocok dengan console yang dipilih.')
       }
       controller.signal.throwIfAborted()
-      const launched = await onLaunch({ id: createSessionId(), game, consoleInfo, rom, bios: biosSource === 'local' ? bios : undefined, biosUrl: firmware?.url, biosSha256: firmware?.sha256, saveId: saveIdentity(game, consoleInfo.core) })
+      const launched = await onLaunch({ id: createSessionId(), game, consoleInfo, rom, bios: biosSource === 'local' ? bios : undefined, biosUrl: firmware?.url, biosSha256: firmware?.sha256, serverRom: serverRomDescriptor, serverBios: serverBiosDescriptor, saveId: saveIdentity(game, consoleInfo.core) })
       if (launched === false) setBusy(false)
     } catch (e) { if (!controller.signal.aborted) { setError(e instanceof Error ? e.message : 'File tidak dapat dibaca. Coba pilih ulang file ROM.'); setBusy(false) } }
     finally { if (operation.current === controller) operation.current = null }

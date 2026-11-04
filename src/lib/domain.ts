@@ -10,7 +10,7 @@ export type Game = {
   license?: string; lastPlayed?: number; sha256?: string; size?: number; createdAt?: number;
 }
 
-export type Bios = { id: string; name: string; consoleId: string; url: string; sha256?: string; fileName?: string; description?: string; distributionRights?: string }
+export type Bios = { id: string; name: string; consoleId: string; url: string; sha256?: string; size?: number; fileName?: string; description?: string; distributionRights?: string }
 export type Settings = { volume: number; history: boolean; widescreen: boolean }
 export const DEFAULT_SETTINGS: Settings = { volume: 50, history: true, widescreen: false }
 export const MAX_ROM_SIZE = 768 * 1024 * 1024

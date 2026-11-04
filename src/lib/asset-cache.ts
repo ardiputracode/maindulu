@@ -1,5 +1,4 @@
-import { sha256 } from '@noble/hashes/sha2.js'
-import { createSessionId } from './identity.ts'
+import { createIncrementalSha256, createSessionId } from './identity.ts'
 import {
   ASSET_CHUNK_SIZE, ASSET_LEASE_MS, ASSET_SPACE_RESERVE, DEFAULT_ASSET_BUDGET, AssetCacheError,
   assetChunkCount, assetChunkSize, assetKey, assetKeyString, cacheStorageError, checkCacheAbort,
@@ -10,7 +9,6 @@ import type { AssetCacheSettings, AssetDescriptor, AssetKey } from './asset-cach
 export const ASSET_CACHE_DATABASE = 'maindulu-asset-cache'
 export const ASSET_CACHE_VERSION = 1
 const STORES = ['entries', 'chunks', 'staging', 'control']
-const hex = (bytes: Uint8Array) => Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
 const request = <T>(req: IDBRequest<T>) => new Promise<T>((resolve, reject) => {
   req.onsuccess = () => resolve(req.result)
   req.onerror = () => reject(req.error)
@@ -365,7 +363,7 @@ export class AssetCache {
     let entry: AssetCacheEntry | undefined
     let invalidGeneration: string | undefined
     let epoch = -1
-    const hash = sha256.create()
+    const hash = createIncrementalSha256()
     try {
       entry = await this.transact('pin', 'readwrite', async tx => {
         const control = await this.control(tx)
@@ -399,7 +397,7 @@ export class AssetCache {
         await new Promise<void>(resolve => setTimeout(resolve, 0))
       }
       checkCacheAbort(signal)
-      if (hex(hash.digest()) !== descriptor.sha256) throw new AssetCacheError('corrupt', 'SHA-256 cache perangkat tidak cocok.')
+      if (hash.digest() !== descriptor.sha256) throw new AssetCacheError('corrupt', 'SHA-256 cache perangkat tidak cocok.')
       // Check exact cardinality too: unexpected duplicate/out-of-range chunk
       // indices must not quietly become a valid hit.
       await this.transact('read-complete', 'readwrite', async tx => {
@@ -503,7 +501,7 @@ export class AssetCacheWriter {
   private cache: AssetCache
   private stage: Staging
   private signal?: AbortSignal
-  private hash = sha256.create()
+  private hash = createIncrementalSha256()
   private busy = false
   private finished = false
   private quotaRetried = false
@@ -566,7 +564,7 @@ export class AssetCacheWriter {
   async commit(): Promise<AssetCacheEntry> {
     this.enter()
     try {
-      const digest = hex(this.hash.digest())
+      const digest = this.hash.digest()
       const entry = await this.cache.publish(this.stage, digest, this.signal)
       this.finish()
       return entry

@@ -8,6 +8,10 @@ export type CatalogEntry = {
   title?: string; name?: string; license?: string; distributionRights?: string; cover?: string;
 }
 export type CatalogPage = { items: CatalogEntry[]; page: number; pageSize: number; total: number }
+export class CatalogRequestError extends Error {
+  readonly status: number
+  constructor(status: number, message: string) { super(message); this.name = 'CatalogRequestError'; this.status = status }
+}
 export const catalogId = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const integer = (v: unknown): v is number => Number.isSafeInteger(v) && Number(v) >= 0
@@ -34,9 +38,9 @@ export function readCatalogPage(value: unknown, kind: CatalogKind): CatalogPage 
 export async function catalogRequest(path: string, signal?: AbortSignal): Promise<unknown> {
   const timeout = AbortSignal.timeout(15000)
   try {
-    const response = await fetch(path, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout, cache: 'no-store', credentials: 'same-origin' })
-    if (response.status === 404) throw new Error('Game atau BIOS sudah dihapus atau tidak lagi tersedia. Pilih entri lain.')
-    if (!response.ok) throw new Error(`Katalog server belum dapat dimuat (HTTP ${response.status}). Coba lagi.`)
+    const response = await fetch(path, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout, cache: 'no-store', credentials: 'same-origin', mode: 'same-origin', redirect: 'error' })
+    if (response.status === 404 || response.status === 410) throw new CatalogRequestError(response.status, 'Game atau BIOS sudah dihapus atau tidak lagi tersedia. Pilih entri lain.')
+    if (!response.ok) throw new CatalogRequestError(response.status, `Katalog server belum dapat dimuat (HTTP ${response.status}). Coba lagi.`)
     if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Respons katalog bukan JSON. Periksa backend dan coba lagi.')
     try { return await response.json() }
     catch { throw new Error('Respons katalog rusak atau tidak lengkap. Coba muat ulang katalog.') }

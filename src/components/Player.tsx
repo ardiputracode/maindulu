@@ -15,8 +15,9 @@ import type { ServerGameSave } from '../lib/game-saves'
 import SaveTransfer from './SaveTransfer'
 import type { TransferRequest } from './SaveTransfer'
 import { createPortal } from 'react-dom'
+import type { AssetDescriptor } from '../lib/asset-cache-policy'
 
-export type LaunchSession = { id: string; game: Game; consoleInfo: ConsoleInfo; rom?: File; bios?: File; biosUrl?: string; biosSha256?: string; storageOwner?: string | null; gameSaves?: boolean; saveId?: string }
+export type LaunchSession = { id: string; game: Game; consoleInfo: ConsoleInfo; rom?: File; bios?: File; biosUrl?: string; biosSha256?: string; serverRom?: AssetDescriptor; serverBios?: AssetDescriptor; storageOwner?: string | null; gameSaves?: boolean; saveId?: string }
 
 export default function Player({ session, settings, favorite, onFavorite, onStart, onExit, onWidescreen, account, registerExitGuard, onRestart }: {
   session: LaunchSession; settings: Settings; favorite: boolean;

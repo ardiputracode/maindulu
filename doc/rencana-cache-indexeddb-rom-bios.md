@@ -1,6 +1,6 @@
 # Rencana Cache IndexedDB ROM/BIOS Backend
 
-Status: **M0 (spike) selesai pada 2026-11-04 dan M1 (storage/kebijakan) pada 2026-11-05; M2–M6 belum diimplementasikan**. Cache IndexedDB belum aktif pada aplikasi/deployment pengguna. Hasil aktual dan batas bukti ada di [laporan spike M0](milestone-0-cache-indexeddb-spike.md) dan [laporan storage M1](milestone-1-cache-indexeddb-storage.md). Checklist yang belum dicentang tetap rencana, bukan hasil tes.
+Status: **M0 (spike) selesai pada 2026-11-04; M1 (storage/kebijakan) dan M2 (resolver aset) selesai pada 2026-11-05; M3–M6 belum diimplementasikan**. Cache IndexedDB belum aktif pada aplikasi/deployment pengguna. Hasil aktual dan batas bukti ada di [laporan spike M0](milestone-0-cache-indexeddb-spike.md), [laporan storage M1](milestone-1-cache-indexeddb-storage.md), dan [laporan resolver M2](milestone-2-cache-indexeddb-resolver.md). Checklist yang belum dicentang tetap rencana, bukan hasil tes.
 
 Rencana ini melengkapi, bukan menghapus riwayat [implementasi HTTP cache](rencana-cache-rom-bios.md). HTTP cache tetap berguna, tetapi tidak dijadikan jaminan penyimpanan ROM besar. Perubahan runtime, bundle engine, dan pengujian dalam dokumen ini memerlukan implementasi terpisah.
 
@@ -95,23 +95,23 @@ Mengganti URL CHD menjadi `blob:` begitu saja tidak cukup. `getBaseFileName(true
 
 ### 3.4 Modul dan file yang direncanakan
 
-Modul storage/kebijakan dan tes M1 di bawah sudah tersedia; file integrasi M2–M6 yang belum dibuat tetap usulan. Helper `src/lib/engine-assets.ts` dan harness M0 sudah tersedia, tetapi belum terhubung ke player produksi.
+Modul storage/kebijakan M1 serta resolver/tes M2 di bawah sudah tersedia; file integrasi M3–M6 yang belum dibuat tetap usulan. Helper `src/lib/engine-assets.ts` dan harness M0 sudah tersedia, tetapi belum terhubung ke player produksi.
 
 | File | Tanggung jawab |
 | --- | --- |
 | `src/lib/asset-cache.ts` | **M1 tersedia:** skema IndexedDB, transaksi, baca/tulis chunk, manifest, clear epoch, statistik metadata |
 | `src/lib/asset-cache-policy.ts` | **M1 tersedia:** validasi descriptor, key, budget, LRU, hasil/error terstruktur; mudah diuji sebagai fungsi murni |
-| `src/lib/server-assets.ts` | HEAD segar, download tunggal, hashing, koordinasi cache dan AbortSignal |
-| `src/lib/identity.ts` | Reuse hashing inkremental; refactor secukupnya agar hashing stream/blob tidak menggandakan byte |
-| `src/lib/catalog.ts`, `src/lib/domain.ts` | Descriptor katalog tegas, termasuk ukuran BIOS yang saat ini belum ada pada tipe `Bios` |
-| `src/components/SetupDialog.tsx` | Meneruskan descriptor BIOS lengkap dari metadata terbaru |
+| `src/lib/server-assets.ts` | **M2 tersedia:** HEAD segar, download tunggal, hashing, koordinasi cache, AbortSignal dan single-flight |
+| `src/lib/identity.ts` | **M2 tersedia:** helper hashing inkremental bersama untuk local/network/storage tanpa buffer hash file utuh |
+| `src/lib/catalog.ts`, `src/lib/domain.ts` | **M2 tersedia:** status error HTTP katalog, validasi same-origin/no-redirect dan `Bios.size` opsional |
+| `src/components/SetupDialog.tsx` | **M2 tersedia:** descriptor ROM/BIOS backend lengkap dari metadata terbaru dalam sesi; belum dipakai resolver Player |
 | `src/components/Player.tsx` | Persiapan aset, status, pembatalan, fencing sesi, configure dan lifecycle |
 | `public/player/player.js` | Validasi payload baru, adapter aset sesi, preservasi nama dan pelepasan referensi |
 | `scripts/vendor-engine.mjs` | Tidak diubah untuk arsitektur native M0; perubahan berikutnya memerlukan evaluasi kompatibilitas ulang |
 | `public/vendor/emulatorjs/4.2.3/`, `public/player/builds.json`, `third_party/emulatorjs/README.md` | Pertahankan runtime/provenance engine; generator terpisah untuk helper bridge pada M3 bila diperlukan |
 | `src/components/AssetCacheSettings.tsx`, `src/App.tsx`, `src/styles.css` | Pengelola cache, status storage, pengaturan dan aksesibilitas |
 | `tests/asset-cache-policy.test.mjs`, `tests/browser/asset-cache-storage.spec.ts` | **M1 tersedia:** kebijakan serta transaksi/kegagalan/race storage browser nyata dengan dependency injection |
-| `tests/server-assets.test.mjs` | Rencana M2: validator origin dan orkestrasi resolver |
+| `tests/server-assets.test.mjs`, `tests/browser/server-assets.spec.ts` | **M2 tersedia:** validator origin, orkestrasi resolver, backend/IndexedDB nyata, fallback serta HTTP LAN |
 | `tests/browser/catalog-indexeddb-cache.spec.ts` | Browser nyata, backend nyata, restart, invalidasi, dan manajemen cache |
 | `tests/browser/asset-cache-spike.spec.ts`, `playwright.asset-cache-spike.config.ts` | Harness/prototipe test-only M0, termasuk 500 MiB; bukan storage produksi |
 | `tests/browser/catalog-indexeddb-large.spec.ts` | Suite besar integrasi produksi opt-in M5, terpisah dari spike dan suite cepat |
@@ -280,7 +280,7 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M0 — Spike integrasi engine, nama file, dan memori
 
-**Selesai dalam cakupan spike.** [Keputusan, pengukuran aktual, dan batas verifikasi](milestone-0-cache-indexeddb-spike.md). M0 bukan aktivasi cache produksi; hasil storage M1 dicatat terpisah di bawah dan integrasi M2–M6 tetap diperlukan.
+**Selesai dalam cakupan spike.** [Keputusan, pengukuran aktual, dan batas verifikasi](milestone-0-cache-indexeddb-spike.md). M0 bukan aktivasi cache produksi; hasil storage M1 dan resolver M2 dicatat terpisah di bawah dan integrasi M3–M6 tetap diperlukan.
 
 **Implementasi/spike**
 
@@ -305,7 +305,7 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M1 — Storage IndexedDB dan kebijakan cache
 
-**Selesai dalam cakupan storage mandiri.** [API, keputusan transaksi, hasil tes dan batas bukti](milestone-1-cache-indexeddb-storage.md). Belum diimpor Player/resolver, default storage tetap nonaktif sampai rollout.
+**Selesai dalam cakupan storage mandiri.** [API, keputusan transaksi, hasil tes dan batas bukti](milestone-1-cache-indexeddb-storage.md). Kini dipakai resolver mandiri M2, belum diimpor Player; default storage tetap nonaktif sampai rollout.
 
 **Implementasi**
 
@@ -325,30 +325,32 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 - [x] LRU hanya menghapus cache, menghormati pin/reservation, dan statistik tidak membaca payload.
 - [x] Buktikan transaksi riil di browser; fake IDB/in-memory adapter hanya pelengkap unit test dan tidak menjadi satu-satunya bukti.
 
-**Gate terpenuhi dalam cakupan M1:** invariants data dan kegagalan transaksi lulus pada storage browser nyata. Resolver/backend dan player tetap belum dihubungkan.
+**Gate terpenuhi dalam cakupan M1:** invariants data dan kegagalan transaksi lulus pada storage browser nyata. Integrasi resolver/backend dicatat pada M2; Player tetap belum dihubungkan.
 
 ### M2 — Resolver aset, validasi origin, dan hashing
 
+**Selesai dalam cakupan resolver mandiri.** [API, hasil aktual, dan batas bukti](milestone-2-cache-indexeddb-resolver.md). Verifikasi: 295 tes unit dan 109 tes backend lulus; production statis 54 lulus/60 skip. Belum dipanggil Player/bridge dan tidak mengaktifkan cache pengguna.
+
 **Implementasi**
 
-- [ ] Bentuk descriptor ROM/BIOS backend lengkap; tambahkan `Bios.size`/descriptor sesi tanpa mengubah kontrak manifest statis menjadi wajib hash.
-- [ ] Implementasikan fresh HEAD, pemilihan hit/miss, GET stream tunggal, hash inkremental, dan fallback write gagal.
-- [ ] Reuse/refactor hashing noble yang sudah tersedia untuk HTTP LAN; jangan menambahkan ketergantungan Web Crypto wajib.
-- [ ] Definisikan hasil resolver: descriptor, File/Blob, source `indexeddb`/`network`, persistence result, bytes transfer, dan warning terstruktur.
-- [ ] Terapkan AbortSignal, batas body, timeout koneksi/idle yang cocok file besar, serta single-flight tab.
+- [x] Bentuk descriptor ROM/BIOS backend lengkap; tambahkan `Bios.size`/descriptor sesi tanpa mengubah kontrak manifest statis menjadi wajib hash.
+- [x] Implementasikan fresh HEAD, pemilihan hit/miss, GET stream tunggal, hash inkremental, dan fallback write gagal.
+- [x] Reuse/refactor hashing noble yang sudah tersedia untuk HTTP LAN; jangan menambahkan ketergantungan Web Crypto wajib.
+- [x] Definisikan hasil resolver: descriptor, File/Blob, source `indexeddb`/`network`, persistence result, bytes transfer, dan warning terstruktur.
+- [x] Terapkan AbortSignal, batas body, timeout koneksi/idle yang cocok file besar, serta single-flight tab (satu instance resolver bersama; wiring Player M3).
 
 **Tes**
 
-- [ ] Cache hit tetap membuat HEAD origin segar lalu tidak membuat GET penuh.
-- [ ] Cache miss melakukan satu GET; hasil hash/body tepat dan entry siap setelah commit.
-- [ ] HEAD 404/410/503/timeout/HTML/ETag hilang/ukuran berubah tidak memakai cache sebagai bypass.
-- [ ] GET 206/304/redirect/HTML/ETag mismatch/truncated/oversized/hash mismatch tidak disimpan atau dijalankan.
-- [ ] Cache korup: invalidasi lalu satu download; server error sesudah invalidasi tidak menyebabkan loop.
-- [ ] Quota write gagal di tengah stream tetap menyelesaikan satu download untuk sesi tanpa mengklaim tersimpan.
-- [ ] Storage tidak didukung/budget tidak cukup tetap bisa menyiapkan aset valid, dengan warning; kegagalan server tetap fatal.
-- [ ] Refactor hash menghasilkan digest yang sama dengan `hashRom` dan Node crypto, termasuk pada HTTP non-secure context.
+- [x] Cache hit tetap membuat HEAD origin segar lalu tidak membuat GET penuh.
+- [x] Cache miss melakukan satu GET; hasil hash/body tepat dan entry siap setelah commit.
+- [x] HEAD 404/410/503/timeout/HTML/ETag hilang/ukuran berubah tidak memakai cache sebagai bypass.
+- [x] GET 206/304/redirect/HTML/ETag mismatch/truncated/oversized/hash mismatch tidak disimpan atau dijalankan.
+- [x] Cache korup: invalidasi lalu satu download; server error sesudah invalidasi tidak menyebabkan loop.
+- [x] Quota write gagal di tengah stream tetap menyelesaikan satu download untuk sesi tanpa mengklaim tersimpan.
+- [x] Storage tidak didukung/budget tidak cukup tetap bisa menyiapkan aset valid, dengan warning; kegagalan server tetap fatal.
+- [x] Refactor hash menghasilkan digest yang sama dengan `hashRom` dan Node crypto, termasuk pada HTTP non-secure context.
 
-**Gate:** bytes dan validator cocok end-to-end; fallback storage tidak menyamarkan error sumber.
+**Gate resolver M2 terpenuhi:** bytes dan validator cocok end-to-end pada backend/IndexedDB nyata; fallback storage tidak menyamarkan error sumber. Hasil regresi penuh dicatat terpisah pada laporan M2; reuse setelah restart proses browser/file besar tetap M5.
 
 ### M3 — Integrasi Player, bridge, dan regresi save
 
