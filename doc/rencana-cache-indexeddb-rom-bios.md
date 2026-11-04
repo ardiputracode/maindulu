@@ -1,6 +1,6 @@
 # Rencana Cache IndexedDB ROM/BIOS Backend
 
-Status: **M0 selesai pada 2026-11-04 dalam cakupan spike; M1–M6 belum diimplementasikan**. Cache IndexedDB belum aktif pada aplikasi/deployment pengguna. Hasil aktual dan batas bukti M0 ada di [laporan spike M0](milestone-0-cache-indexeddb-spike.md). Checklist yang belum dicentang tetap rencana, bukan hasil tes.
+Status: **M0 (spike) selesai pada 2026-11-04 dan M1 (storage/kebijakan) pada 2026-11-05; M2–M6 belum diimplementasikan**. Cache IndexedDB belum aktif pada aplikasi/deployment pengguna. Hasil aktual dan batas bukti ada di [laporan spike M0](milestone-0-cache-indexeddb-spike.md) dan [laporan storage M1](milestone-1-cache-indexeddb-storage.md). Checklist yang belum dicentang tetap rencana, bukan hasil tes.
 
 Rencana ini melengkapi, bukan menghapus riwayat [implementasi HTTP cache](rencana-cache-rom-bios.md). HTTP cache tetap berguna, tetapi tidak dijadikan jaminan penyimpanan ROM besar. Perubahan runtime, bundle engine, dan pengujian dalam dokumen ini memerlukan implementasi terpisah.
 
@@ -95,12 +95,12 @@ Mengganti URL CHD menjadi `blob:` begitu saja tidak cukup. `getBaseFileName(true
 
 ### 3.4 Modul dan file yang direncanakan
 
-Nama file baru di bawah merupakan usulan, bukan file yang sudah tersedia.
+Modul storage/kebijakan dan tes M1 di bawah sudah tersedia; file integrasi M2–M6 yang belum dibuat tetap usulan. Helper `src/lib/engine-assets.ts` dan harness M0 sudah tersedia, tetapi belum terhubung ke player produksi.
 
 | File | Tanggung jawab |
 | --- | --- |
-| `src/lib/asset-cache.ts` | Skema IndexedDB, transaksi, baca/tulis chunk, manifest, clear epoch, statistik metadata |
-| `src/lib/asset-cache-policy.ts` | Validasi descriptor, key, budget, LRU, hasil/error terstruktur; mudah diuji sebagai fungsi murni |
+| `src/lib/asset-cache.ts` | **M1 tersedia:** skema IndexedDB, transaksi, baca/tulis chunk, manifest, clear epoch, statistik metadata |
+| `src/lib/asset-cache-policy.ts` | **M1 tersedia:** validasi descriptor, key, budget, LRU, hasil/error terstruktur; mudah diuji sebagai fungsi murni |
 | `src/lib/server-assets.ts` | HEAD segar, download tunggal, hashing, koordinasi cache dan AbortSignal |
 | `src/lib/identity.ts` | Reuse hashing inkremental; refactor secukupnya agar hashing stream/blob tidak menggandakan byte |
 | `src/lib/catalog.ts`, `src/lib/domain.ts` | Descriptor katalog tegas, termasuk ukuran BIOS yang saat ini belum ada pada tipe `Bios` |
@@ -110,7 +110,8 @@ Nama file baru di bawah merupakan usulan, bukan file yang sudah tersedia.
 | `scripts/vendor-engine.mjs` | Tidak diubah untuk arsitektur native M0; perubahan berikutnya memerlukan evaluasi kompatibilitas ulang |
 | `public/vendor/emulatorjs/4.2.3/`, `public/player/builds.json`, `third_party/emulatorjs/README.md` | Pertahankan runtime/provenance engine; generator terpisah untuk helper bridge pada M3 bila diperlukan |
 | `src/components/AssetCacheSettings.tsx`, `src/App.tsx`, `src/styles.css` | Pengelola cache, status storage, pengaturan dan aksesibilitas |
-| `tests/asset-cache*.test.mjs`, `tests/server-assets.test.mjs` | Kebijakan, kegagalan, dan orkestrasi dengan dependency injection |
+| `tests/asset-cache-policy.test.mjs`, `tests/browser/asset-cache-storage.spec.ts` | **M1 tersedia:** kebijakan serta transaksi/kegagalan/race storage browser nyata dengan dependency injection |
+| `tests/server-assets.test.mjs` | Rencana M2: validator origin dan orkestrasi resolver |
 | `tests/browser/catalog-indexeddb-cache.spec.ts` | Browser nyata, backend nyata, restart, invalidasi, dan manajemen cache |
 | `tests/browser/asset-cache-spike.spec.ts`, `playwright.asset-cache-spike.config.ts` | Harness/prototipe test-only M0, termasuk 500 MiB; bukan storage produksi |
 | `tests/browser/catalog-indexeddb-large.spec.ts` | Suite besar integrasi produksi opt-in M5, terpisah dari spike dan suite cepat |
@@ -279,7 +280,7 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M0 — Spike integrasi engine, nama file, dan memori
 
-**Selesai dalam cakupan spike.** [Keputusan, pengukuran aktual, dan batas verifikasi](milestone-0-cache-indexeddb-spike.md). M0 bukan aktivasi cache produksi; M1–M6 tetap diperlukan.
+**Selesai dalam cakupan spike.** [Keputusan, pengukuran aktual, dan batas verifikasi](milestone-0-cache-indexeddb-spike.md). M0 bukan aktivasi cache produksi; hasil storage M1 dicatat terpisah di bawah dan integrasi M2–M6 tetap diperlukan.
 
 **Implementasi/spike**
 
@@ -304,25 +305,27 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M1 — Storage IndexedDB dan kebijakan cache
 
+**Selesai dalam cakupan storage mandiri.** [API, keputusan transaksi, hasil tes dan batas bukti](milestone-1-cache-indexeddb-storage.md). Belum diimpor Player/resolver, default storage tetap nonaktif sampai rollout.
+
 **Implementasi**
 
-- [ ] Buat schema, validator, key, metadata index, API storage terstruktur, serta dependency injection clock/IDB untuk tes.
-- [ ] Implementasikan staging chunk, reservation, transaction-complete commit, read/hash validation, dan orphan cleanup.
-- [ ] Implementasikan budget/LRU/pin, clear epoch, generation fencing, blocked/versionchange, serta fallback saat IDB tak tersedia.
-- [ ] Pisahkan error `unavailable`, `quota`, `corrupt`, `aborted`, `blocked`, dan `incompatible-version` dari error network/integritas.
+- [x] Buat schema, validator, key, metadata index, API storage terstruktur, serta dependency injection clock/IDB untuk tes.
+- [x] Implementasikan staging chunk, reservation, transaction-complete commit, read/hash validation, dan orphan cleanup.
+- [x] Implementasikan budget/LRU/pin, clear epoch, generation fencing, blocked/versionchange, serta fallback saat IDB tak tersedia (error terstruktur untuk pemanggil; fallback download adalah M2).
+- [x] Pisahkan error `unavailable`, `quota`, `corrupt`, `aborted`, `blocked`, dan `incompatible-version` dari error network/integritas.
 
 **Tes**
 
-- [ ] Key berbeda untuk ROM/BIOS, ID berbeda, dan hash berbeda; metadata label saja tidak mengubah identitas bytes.
-- [ ] Ukuran 0, negatif, noninteger, di atas batas, SHA tidak valid, URL unsafe, dan chunk count tidak konsisten ditolak.
-- [ ] Entry tidak terlihat sebelum commit; request success diikuti transaction abort tidak dilaporkan tersimpan.
-- [ ] Chunk hilang, berubah byte tetapi ukuran sama, duplikat index, dan Blob salah ukuran terdeteksi.
-- [ ] Abort/close/reopen mengabaikan staging; cleaner dapat berjalan ulang tanpa menghapus entry valid.
-- [ ] Clear saat write, delete saat publish, dua writer, lease takeover, dan late completion tidak menghidupkan kembali entry.
-- [ ] LRU hanya menghapus cache, menghormati pin/reservation, dan statistik tidak membaca payload.
-- [ ] Buktikan transaksi riil di browser; fake IDB/in-memory adapter hanya pelengkap unit test dan tidak menjadi satu-satunya bukti.
+- [x] Key berbeda untuk ROM/BIOS, ID berbeda, dan hash berbeda; metadata label saja tidak mengubah identitas bytes.
+- [x] Ukuran 0, negatif, noninteger, di atas batas, SHA tidak valid, URL unsafe, dan chunk count tidak konsisten ditolak.
+- [x] Entry tidak terlihat sebelum commit; request success diikuti transaction abort tidak dilaporkan tersimpan.
+- [x] Chunk hilang, berubah byte tetapi ukuran sama, duplikat index, dan Blob salah ukuran terdeteksi.
+- [x] Abort/close/reopen mengabaikan staging; cleaner dapat berjalan ulang tanpa menghapus entry valid.
+- [x] Clear saat write, delete saat publish, dua writer (termasuk dua tab nyata), lease takeover, dan late completion tidak menghidupkan kembali entry.
+- [x] LRU hanya menghapus cache, menghormati pin/reservation, dan statistik tidak membaca payload.
+- [x] Buktikan transaksi riil di browser; fake IDB/in-memory adapter hanya pelengkap unit test dan tidak menjadi satu-satunya bukti.
 
-**Gate:** invariants data dan kegagalan transaksi lulus sebelum menyambungkan player.
+**Gate terpenuhi dalam cakupan M1:** invariants data dan kegagalan transaksi lulus pada storage browser nyata. Resolver/backend dan player tetap belum dihubungkan.
 
 ### M2 — Resolver aset, validasi origin, dan hashing
 
