@@ -21,6 +21,7 @@
     "test:e2e": "playwright test",
     "test:e2e:production": "playwright test --config=playwright.production.config.ts",
     "test:e2e:backend": "playwright test --config=playwright.backend.config.ts",
+    "test:e2e:asset-cache:spike": "playwright test --config=playwright.asset-cache-spike.config.ts",
     "build:demo": "node scripts/build-demo.mjs",
     "vendor:engine": "node scripts/vendor-engine.mjs"
   },
