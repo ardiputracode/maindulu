@@ -49,7 +49,7 @@ Saat memperbarui backend, hentikan server dan buat backup akun/save/metadata den
 
 **Backup akun/save/metadata:** sinkronkan progres, tutup seluruh player, dan hentikan server/admin sebelum `npm run data:backup -- <folder-backup-baru>`. Periksa dengan `npm run data:verify -- <folder-backup>`, lalu simpan salinan di perangkat/lokasi lain. Pulihkan melalui `npm run data:restore -- <folder-backup> --to <folder-data-baru>`; tujuan harus belum ada, data lama tidak ditimpa, dan semua sesi hasil restore dicabut. Arahkan `MAIN_DULU_DATA_DIR` ke hasil restore, tinjau konfigurasi, lalu login ulang. ROM/BIOS/cover yang hilang ditampilkan pada admin; upload ulang byte yang sama pada console yang sama dan konfirmasi **Pulihkan ID lama** agar save tetap terhubung. Backup tidak terenkripsi dan tidak mencakup berkas aset katalog/aplikasi/progres tamu. Lihat [cakupan dan pemulihan metadata](doc/backup-metadata-katalog.md) serta [operasi M8](doc/milestone-8-backup-operasi.md).
 
-**M8 selesai untuk penggunaan lokal:** restore NES dibuktikan otomatis; pengguna mengonfirmasi progres PS1 terbaca setelah restore instalasi secara manual, tanpa klaim semua game/card/varian. HTTPS belum diimplementasikan atau diuji oleh pengguna. Sejak **0.3.1**, tersedia pengecualian HTTP akun untuk LAN tepercaya yang harus diaktifkan secara eksplisit; ini bukan HTTPS atau koneksi terenkripsi.
+**M8 selesai untuk penggunaan lokal:** restore NES dibuktikan otomatis; pengguna mengonfirmasi progres PS1 terbaca setelah restore instalasi secara manual, tanpa klaim semua game/card/varian. HTTPS belum diimplementasikan atau diuji oleh pengguna. Sejak **0.5.0**, tersedia pengecualian HTTP akun untuk LAN tepercaya yang harus diaktifkan secara eksplisit; ini bukan HTTPS atau koneksi terenkripsi.
 
 Overlay tersusun vertikal dan responsif; tutup dengan tombol **×** atau **Escape** saat tidak ada operasi manual berlangsung. Overlay dan pengelola tetap tersedia saat fullscreen sesi akun. Notifikasi autosave muncul singkat di pojok kanan atas player; **Autosave tersimpan** hanya muncul setelah konfirmasi server. Menu **Save States** di dalam gerigi disembunyikan untuk semua pengguna, tetapi tombol native Save State/Load State tamu dan pengaturan internal **System Save interval** tetap tidak diubah.
 
@@ -173,7 +173,7 @@ docker compose -f deploy/docker-compose.yml up --build
 
 Default porta host `7777`, dapat diubah lewat `MAIN_DULU_PORT`. Perilaku serving container sama persis dengan template `deploy/nginx.conf`; detail arsitektur dan verifikasi dituang di `deploy/README.md`.
 
-Compose di atas menyajikan frontend statis lewat Nginx, tanpa API akun. Untuk **backend Docker 0.3.1** (akun, state/progres server, volume privat), gunakan:
+Compose di atas menyajikan frontend statis lewat Nginx, tanpa API akun. Untuk **backend Docker 0.5.0** (akun, state/progres server, volume privat), gunakan:
 
 ```sh
 # Default hanya localhost

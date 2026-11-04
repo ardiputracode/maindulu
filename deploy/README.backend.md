@@ -1,4 +1,4 @@
-# Docker backend maindulu 0.3.1
+# Docker backend maindulu 0.5.0
 
 Frontend + API akun/save disajikan oleh **satu server Node.js 24**, bukan Nginx. SQLite, state, progres game, dan cadangan konflik disimpan pada named volume privat. Tidak perlu Node/npm atau database terpisah di host.
 
@@ -144,7 +144,7 @@ Nilai boolean hanya `true`/`false`. `MAIN_DULU_HOST=0.0.0.0`, port internal 7777
 
 **Katalog pengembangan:** API dan UI admin upload/edit/delete serta unduh publik tersedia. Setelah promosi role dan login admin, buka `/admin/games` atau `/admin/bios`; game aktif dapat ditemukan/dimainkan melalui `/library`, dan BIOS dinamis dipilih sesuai console. Refresh/deep link dilayani backend. ROM/BIOS aktif dapat diunduh tamu. **Backup format 2 hanya menyimpan akun/save/metadata**, bukan berkas ROM/BIOS/cover; katalog berisi data tidak lagi memblokir backup. Setelah restore bersih, upload ulang aset identik dan konfirmasi ID lama. Ini bukan backup koleksi lengkap dan bukan bukti verifikasi produksi/container/proxy. Panduan: [backup metadata](../doc/backup-metadata-katalog.md), [Library/player](../doc/milestone-5-library-player.md), [UI admin](../doc/milestone-4-ui-admin.md), dan [API katalog](../doc/milestone-3-api-katalog.md).
 
-Image `maindulu-backend:0.3.1` memakai production dependencies, user `node`, root filesystem read-only, `/tmp` tmpfs, dan healthcheck API. Modul bersama `src/lib/game-save-format.ts` ikut disalin ke runtime karena diimpor langsung oleh server.
+Image `maindulu-backend:0.5.0` memakai production dependencies, user `node`, root filesystem read-only, `/tmp` tmpfs, dan healthcheck API. Modul bersama `src/lib/game-save-format.ts` ikut disalin ke runtime karena diimpor langsung oleh server.
 
 ## 5. Data persisten dan backup offline
 
@@ -163,11 +163,11 @@ Untuk memindahkan instalasi `npm start` ke Docker: hentikan server lokal, buat/v
 
 **Jangan gunakan `down -v`, hapus volume, atau `docker volume prune` sebagai solusi error.** Rebuild/recreate container tidak menghapus data volume. Volume di disk server yang sama bukan backup terhadap kerusakan disk.
 
-Sebelum update: sinkronkan progres, unduh kandidat yang gagal/konflik, tutup semua player, lalu hentikan server dan CLI admin lain. Gunakan nama tujuan backup baru setiap kali. Contoh Linux, backup pra-update 0.3.1:
+Sebelum update: sinkronkan progres, unduh kandidat yang gagal/konflik, tutup semua player, lalu hentikan server dan CLI admin lain. Gunakan nama tujuan backup baru setiap kali. Contoh Linux, backup pra-update 0.5.0:
 
 ```sh
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml stop backend
-docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml run --rm --no-deps backend node scripts/data-backup.mjs backup /var/lib/maindulu/backup-before-0.3.1
+docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml run --rm --no-deps backend node scripts/data-backup.mjs backup /var/lib/maindulu/backup-before-0.5.0
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml run --rm --no-deps backend node scripts/data-backup.mjs verify /var/lib/maindulu/backup-before-0.3.1
 ```
 
@@ -178,7 +178,7 @@ Salin keluar dari volume melalui container backend yang masih ada dalam keadaan 
 ```sh
 mkdir -p /opt/maindulu-backups
 chmod 700 /opt/maindulu-backups
-docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml cp backend:/var/lib/maindulu/backup-before-0.3.1 /opt/maindulu-backups/backup-before-0.3.1
+docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml cp backend:/var/lib/maindulu/backup-before-0.5.0 /opt/maindulu-backups/backup-before-0.5.0
 ```
 
 Tujuan host tersebut juga harus belum ada. Simpan seluruh folder di perangkat lain secara privat. Backup tidak terenkripsi dan tidak mencakup berkas ROM/BIOS/cover, aplikasi/engine, env, atau progres tamu. Metadata katalog dan hubungan ID save tetap disimpan pada format 2. Jangan hanya menyalin SQLite aktif tanpa blob/WAL. Simpan kode aplikasi/engine dan konfigurasi yang sesuai secara terpisah.
@@ -188,13 +188,13 @@ Tujuan host tersebut juga harus belum ada. Simpan seluruh folder di perangkat la
 Dengan server tetap berhenti, restore backup di volume ke folder baru:
 
 ```sh
-docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml run --rm --no-deps backend node scripts/data-backup.mjs restore /var/lib/maindulu/backup-before-0.3.1 --to /var/lib/maindulu/data-restored-0.3.1
+docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml run --rm --no-deps backend node scripts/data-backup.mjs restore /var/lib/maindulu/backup-before-0.5.0 --to /var/lib/maindulu/data-restored-0.5.0
 ```
 
 Jika backup hanya ada di host, salin seluruh folder ke path baru dalam volume melalui container stopped menggunakan `docker compose ... cp`, lalu verifikasi sebelum restore. Periksa pemilik/izin salinan: `cp` ke container dapat menghasilkan file milik root, sedangkan CLI berjalan sebagai `node`. Folder/file backup harus dapat diakses user `node` dan parent harus dapat ditulis untuk sibling lock; jangan mengatasi masalah izin dengan membuka data privat ke semua pengguna. Restore menolak tujuan yang sudah ada, mencabut semua sesi pada hasil restore, dan tidak menimpa data lama. Tambahkan ke `.env.backend`:
 
 ```dotenv
-MAIN_DULU_CONTAINER_DATA_DIR=/var/lib/maindulu/data-restored-0.3.1
+MAIN_DULU_CONTAINER_DATA_DIR=/var/lib/maindulu/data-restored-0.5.0
 ```
 
 Lalu `up -d --force-recreate`, login ulang, dan uji save dengan ROM/core yang sama. Pada restore format 2 ke folder bersih, entri aktif ditampilkan admin sebagai **Berkas hilang** sampai upload ulang byte identik pada console yang sama dikonfirmasi memakai ID lama; cover dapat diunggah ulang lewat edit metadata. Password/kode pemulihan kembali ke waktu backup; konfigurasi manifest tidak diterapkan otomatis. Panduan: [pemulihan metadata tanpa ROM/BIOS](../doc/backup-metadata-katalog.md) dan [operasi M8](../doc/milestone-8-backup-operasi.md).
@@ -211,7 +211,7 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml ps
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml logs --tail=50 backend
 ```
 
-4. Periksa versi **0.3.1** di Pengaturan, login, save/progres dan pemulihannya. Rilis 0.3.1 tidak mengubah skema SQLite (**6**), engine (**4.2.3**), atau format save. Jangan paksa downgrade database aktif; rollback memakai backup ke folder baru.
+4. Periksa versi **0.5.0** di Pengaturan, login, save/progres dan pemulihannya. Rilis 0.3.1 tidak mengubah skema SQLite (**6**), engine (**4.2.3**), atau format save. Jangan paksa downgrade database aktif; rollback memakai backup ke folder baru.
 
 **Pengembangan setelah 0.3.1:** role admin dan katalog memakai skema **9**, tanpa mengubah format save/engine. CLI terbaru membuat backup **format 2** akun/save/metadata skema 9, tanpa berkas ROM/BIOS/cover dan tanpa syarat katalog kosong. Verify/restore format 1 skema 7/8/9 dengan katalog kosong tetap diterima. Format 2 memerlukan aplikasi baru; aplikasi lama menolaknya. Untuk skema 6 gunakan aplikasi lama, lalu migrasikan hasil restore memakai server baru. Jangan paksa downgrade atau ubah nomor skema/manifest manual.
 
@@ -310,7 +310,7 @@ Tidak perlu rebuild atau membuat database baru. Jangan menghapus volume, WAL/SHM
 ### Verifikasi pengembangan 0.3.1
 
 - `npm test`: **120 tes lulus**, termasuk opt-in HTTP, origin/CSRF/sesi, upload/download state/progres, contoh env, dan kontrak Docker runtime.
-- `npm run build`: lulus; versi UI diambil dari `package.json` (**0.3.1**).
+- `npm run build`: lulus; versi UI diambil dari `package.json` (**0.5.0**).
 - `npm run test:e2e:backend -- tests/browser/account.spec.ts`: **8 tes lulus**, termasuk daftar/login/logout/reload sesi di browser pada IP jaringan HTTP (`isSecureContext === false`) tanpa sertifikat.
 - Pemeriksaan TypeScript ketat `tests/browser/account.spec.ts`: lulus.
 - Docker CLI tidak tersedia pada lingkungan ini: build/runtime Compose, recreate volume di Linux/LXC, dan reverse proxy HTTPS **belum diuji lokal**. Tes browser di atas memakai server Node nyata pada Windows, bukan container Docker atau bukti konektivitas LAN instalasi pengguna.

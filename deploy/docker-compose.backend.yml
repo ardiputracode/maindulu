@@ -7,7 +7,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.backend
-    image: maindulu-backend:0.3.1
+    image: maindulu-backend:0.5.0
     init: true
     ports:
       - "${MAIN_DULU_BIND_ADDRESS:-127.0.0.1}:${MAIN_DULU_PORT:-7777}:7777"

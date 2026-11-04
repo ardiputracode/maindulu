@@ -7,7 +7,7 @@ Perubahan penting per rilis didokumentasikan di sini. Format mengikuti
 Selama pengembangan, tulis eksil baru di bagian **[Belum dirilis]**;
 saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
-## [Belum dirilis]
+## 0.5.0 — 2026-11-04
 
 ### Ditambahkan
 
