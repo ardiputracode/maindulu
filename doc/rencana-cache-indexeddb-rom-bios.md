@@ -1,6 +1,6 @@
 # Rencana Cache IndexedDB ROM/BIOS Backend
 
-Status: **M0 (spike) selesai pada 2026-11-04; M1 (storage/kebijakan), M2 (resolver aset), M3 (integrasi aset kecil/NES), dan M4 (pengelola cache/UX kegagalan) selesai pada 2026-11-05; M5–M6 belum diimplementasikan**. Default cache tetap nonaktif: pengguna dapat opt-in melalui Pengaturan M4, tetapi belum aktivasi default/rollout deployment. Hasil aktual dan batas bukti ada di [laporan spike M0](milestone-0-cache-indexeddb-spike.md), [laporan storage M1](milestone-1-cache-indexeddb-storage.md), [laporan resolver M2](milestone-2-cache-indexeddb-resolver.md), [laporan Player M3](milestone-3-cache-indexeddb-player.md), dan [laporan Pengaturan M4](milestone-4-cache-indexeddb-settings.md). Checklist yang belum dicentang tetap rencana, bukan hasil tes.
+Status: **M0 (spike) selesai pada 2026-11-04; M1 (storage/kebijakan), M2 (resolver aset), M3 (integrasi aset kecil/NES), M4 (pengelola cache/UX kegagalan), dan M5 (restart/LAN/file besar/race) selesai pada 2026-11-05; M6 belum diimplementasikan**. Default cache tetap nonaktif: pengguna dapat opt-in melalui Pengaturan M4, tetapi belum aktivasi default/rollout deployment. Hasil aktual dan batas bukti ada di [laporan spike M0](milestone-0-cache-indexeddb-spike.md), [laporan storage M1](milestone-1-cache-indexeddb-storage.md), [laporan resolver M2](milestone-2-cache-indexeddb-resolver.md), [laporan Player M3](milestone-3-cache-indexeddb-player.md), [laporan Pengaturan M4](milestone-4-cache-indexeddb-settings.md), dan [laporan verifikasi M5](milestone-5-cache-indexeddb-verification.md). Checklist yang belum dicentang tetap rencana, bukan hasil tes.
 
 Rencana ini melengkapi, bukan menghapus riwayat [implementasi HTTP cache](rencana-cache-rom-bios.md). HTTP cache tetap berguna, tetapi tidak dijadikan jaminan penyimpanan ROM besar. Perubahan runtime, bundle engine, dan pengujian dalam dokumen ini memerlukan implementasi terpisah.
 
@@ -95,7 +95,7 @@ Mengganti URL CHD menjadi `blob:` begitu saja tidak cukup. `getBaseFileName(true
 
 ### 3.4 Modul dan file yang direncanakan
 
-Modul storage/kebijakan M1, resolver M2, integrasi Player/bridge M3, serta pengelola cache M4 di bawah sudah tersedia. Suite besar M5 yang belum dibuat tetap usulan; default rollout belum aktif.
+Modul storage/kebijakan M1, resolver M2, integrasi Player/bridge M3, serta pengelola cache M4 di bawah sudah tersedia. Suite restart dan file besar M5 kini tersedia; hasil verifikasi dicatat di [laporan M5](milestone-5-cache-indexeddb-verification.md). Default rollout belum aktif.
 
 | File | Tanggung jawab |
 | --- | --- |
@@ -114,11 +114,13 @@ Modul storage/kebijakan M1, resolver M2, integrasi Player/bridge M3, serta penge
 | `src/lib/asset-cache-ui.ts`, `src/lib/asset-cache-events.ts` | **M4 tersedia:** label/progres/persistence, feature detection storage, notifikasi metadata antar-tab best-effort setelah commit |
 | `tests/asset-cache-policy.test.mjs`, `tests/browser/asset-cache-storage.spec.ts` | **M1 tersedia:** kebijakan serta transaksi/kegagalan/race storage browser nyata dengan dependency injection |
 | `tests/server-assets.test.mjs`, `tests/browser/server-assets.spec.ts` | **M2 tersedia:** validator origin, orkestrasi resolver, backend/IndexedDB nyata, fallback serta HTTP LAN |
-| `tests/player-assets.test.mjs`, `tests/browser/catalog-indexeddb-cache.spec.ts` | **M3/M4 tersedia:** kontrak payload/bundle, engine/backend/IDB nyata, miss/hit/reload dokumen, save lama, akun/logout, StrictMode, timer, kegagalan storage, clear saat game aktif dan UI HTTP LAN; restart proses/invalidasi lanjutan tetap M5 |
+| `tests/player-assets.test.mjs`, `tests/browser/catalog-indexeddb-cache.spec.ts` | **M3/M4 tersedia:** kontrak payload/bundle, engine/backend/IDB nyata, miss/hit/reload dokumen, save lama, akun/logout, StrictMode, timer, kegagalan storage, clear saat game aktif dan UI HTTP LAN; restart proses/invalidasi lanjutan dilengkapi pada M5 |
 | `tests/asset-cache-ui.test.mjs`, `tests/browser/asset-cache-settings.spec.ts` | **M4 tersedia:** status persistence/API opsional, pengaturan dan metadata, delete/clear, staging, eviction/antar-tab, kegagalan transaksi, versi lebih baru dan fokus/mobile |
 | `tests/browser/asset-cache-spike.spec.ts`, `playwright.asset-cache-spike.config.ts` | Harness/prototipe test-only M0, termasuk 500 MiB; bukan storage produksi |
-| `tests/browser/catalog-indexeddb-large.spec.ts` | Suite besar integrasi produksi opt-in M5, terpisah dari spike dan suite cepat |
-| `playwright.backend.config.ts`, konfigurasi/script suite besar | Registrasi testMatch eksplisit dan pembatasan resource |
+| `tests/browser/catalog-indexeddb-restart.spec.ts`, `tests/fixtures/asset-cache-production.ts`, `tests/browser/helpers/asset-cache-production.ts` | **M5 tersedia:** restart proses persistent, engine NES, HTTP cache nonaktif, HTTP LAN, batas chunk, race, invalidasi sumber, offline/5xx dan percobaan kuota aman |
+| `tests/browser/helpers/asset-transfers.ts`, `tests/asset-transfers.test.mjs` | **M5 tersedia:** pencatat transfer origin bersama, termasuk regresi HTTP cache historis dan koneksi terputus |
+| `tests/browser/catalog-indexeddb-large.spec.ts` | **M5 tersedia:** suite besar resolver/storage produksi opt-in, terpisah dari spike dan emulator playable |
+| `playwright.backend.config.ts`, `playwright.asset-cache-large.config.ts`, `package.json` | **M5 tersedia:** registrasi testMatch eksplisit, script suite besar satu worker/tanpa retry dan preflight resource |
 
 Tidak diperlukan endpoint backend baru pada rancangan awal. Metadata dan endpoint HEAD/GET sudah menyediakan hash serta ukuran; perubahan server hanya bila spike menemukan kebutuhan kontrak yang tidak dapat dipenuhi saat ini.
 
@@ -143,7 +145,7 @@ Dedup byte lintas ID katalog tidak termasuk versi pertama. Hal ini menyederhanak
 
 Tambahkan index untuk LRU, pencarian ID katalog, dan cleanup generation. Tampilan daftar/statistik membaca metadata `entries`, **bukan memuat semua Blob untuk menghitung ukuran**.
 
-Ukuran chunk 4 MiB lolos spike M0 sampai 500 MiB; pembuktian pipeline produksi tetap wajib pada M5. Buffer jaringan digabung/dipotong terukur; jangan menunggu satu transaksi berisi 500 MiB. Chunk bukan fitur resume: putus download tetap memerlukan GET baru pada percobaan berikutnya.
+Ukuran chunk 4 MiB lolos spike M0 dan pipeline produksi M5 sampai 500 MiB pada Edge/HTTP LAN yang dicatat. M5 menggabungkan packet dalam buffer maksimal 4 MiB dan menyerahkan snapshot IndexedDB terverifikasi sesudah commit untuk menghindari handle Blob jaringan besar yang tidak terbaca. Jangan menunggu satu transaksi berisi 500 MiB. Chunk bukan fitur resume: putus download tetap memerlukan GET baru pada percobaan berikutnya.
 
 ### 4.3 Atomisitas dan commit
 
@@ -283,7 +285,7 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M0 — Spike integrasi engine, nama file, dan memori
 
-**Selesai dalam cakupan spike.** [Keputusan, pengukuran aktual, dan batas verifikasi](milestone-0-cache-indexeddb-spike.md). M0 bukan aktivasi cache produksi; hasil storage M1, resolver M2, integrasi M3 dan pengelola M4 dicatat terpisah di bawah. M5–M6 tetap diperlukan sebelum rollout.
+**Selesai dalam cakupan spike.** [Keputusan, pengukuran aktual, dan batas verifikasi](milestone-0-cache-indexeddb-spike.md). M0 bukan aktivasi cache produksi; hasil storage M1, resolver M2, integrasi M3, pengelola M4 dan pembuktian M5 dicatat terpisah di bawah. M6 tetap diperlukan sebelum rollout.
 
 **Implementasi/spike**
 
@@ -405,30 +407,32 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M5 — Pembuktian restart, ROM besar, LAN, dan race
 
+**Selesai dalam cakupan Edge/Windows, engine NES dan transport sintetis besar.** [Implementasi, hasil aktual, diagnosis Blob Chromium dan batas bukti](milestone-5-cache-indexeddb-verification.md). Verifikasi akhir: **313 unit dan 151 backend lulus; production 66 lulus/90 skip; dua kasus simpan/restart besar dan satu kasus fallback kuota 500 MiB lulus dalam run terpisah**. Default tetap nonaktif; verifikasi deployment dan gameplay CHD legal adalah M6.
+
 **Implementasi fixture/instrumentasi**
 
-- [ ] Ekstrak/reuse pencatat transfer origin dari `tests/browser/catalog-cache.spec.ts` tanpa mengubah perilaku respons.
-- [ ] Buat fixture sintetis deterministik berukuran besar di direktori sementara, dengan hash yang diketahui; jangan commit ROM ratusan MB atau aset proprietary.
-- [ ] Pisahkan suite storage/transport sintetis dari suite emulator playable dan dari uji manual CHD legal.
-- [ ] Tambahkan suite besar opt-in satu worker dengan time/resource budget yang eksplisit; suite cepat tetap berjalan di default backend.
-- [ ] Buat origin HTTP LAN nyata (non-loopback), profil persistent terisolasi, dan pengumpulan hasil per fase.
+- [x] Ekstrak/reuse pencatat transfer origin dari `tests/browser/catalog-cache.spec.ts` tanpa mengubah perilaku respons.
+- [x] Buat fixture sintetis deterministik berukuran besar di direktori sementara, dengan hash yang diketahui; jangan commit ROM ratusan MB atau aset proprietary.
+- [x] Pisahkan suite storage/transport sintetis dari suite emulator playable dan dari uji manual CHD legal.
+- [x] Tambahkan suite besar opt-in satu worker dengan time/resource budget yang eksplisit; suite cepat tetap berjalan di default backend.
+- [x] Buat origin HTTP LAN nyata (non-loopback), profil persistent terisolasi, dan pengumpulan hasil per fase.
 
 **Tes wajib**
 
-- [ ] Browser/profile baru: download penuh, manifest/chunk terkomit, hash tepat, serta byte origin sesuai file.
-- [ ] Sesi kedua: HEAD origin sukses, cache IndexedDB hit, **GET ROM/BIOS origin = 0**, body aset origin = 0.
-- [ ] Tutup seluruh context/proses browser, buka profil sama pada origin/port sama: hasil reuse tetap berlaku.
-- [ ] Ulangi dengan HTTP cache dinonaktifkan/diisolasi pada skenario IndexedDB khusus; IndexedDB tetap ada. Hal ini membuktikan fitur baru, bukan bantuan HTTP cache.
-- [ ] Hapus hanya database cache aplikasi sementara HTTP cache dinonaktifkan: peluncuran berikutnya melakukan download penuh lagi.
-- [ ] Uji 24.592 byte, batas chunk -1/tepat/+1, beberapa chunk, **329.641.708 byte**, dan **500 MiB (524.288.000 byte)**. Tulis unit ukuran secara eksplisit; jangan menyamakan MB dan MiB.
-- [ ] Uji batas ROM 768 MiB dan BIOS 32 MiB pada helper/header; jika transfer penuh batas maksimum tidak dijalankan, catat sebagai belum diuji, bukan lulus implisit.
-- [ ] HTTP LAN tanpa `crypto.subtle`/Web Locks/persistence API tetap menyimpan dan membaca IndexedDB melalui fallback yang didukung.
-- [ ] Delete game/BIOS setelah cache terisi menolak sesi baru; file hilang/ukuran rusak/unsafe di origin juga tidak dibypass.
-- [ ] Offline, server down, dan 5xx tidak memulai game memakai cache; pemulihan server dapat memakai cache lama yang masih valid.
-- [ ] Dua tab download/clear/delete bersamaan, tab ditutup saat chunk write, dan late commit tidak menghasilkan entry parsial atau resurrection.
-- [ ] Simulasi quota deterministik melalui adapter dan minimal satu percobaan kegagalan storage browser nyata yang aman. Jika actual quota tidak dapat direproduksi stabil, laporkan batas itu.
+- [x] Browser/profile baru: download penuh, manifest/chunk terkomit, hash tepat, serta byte origin sesuai file.
+- [x] Sesi kedua: HEAD origin sukses, cache IndexedDB hit, **GET ROM/BIOS origin = 0**, body aset origin = 0.
+- [x] Tutup seluruh context/proses browser, buka profil sama pada origin/port sama: hasil reuse tetap berlaku.
+- [x] Ulangi dengan HTTP cache dinonaktifkan/diisolasi pada skenario IndexedDB khusus; IndexedDB tetap ada. Hal ini membuktikan fitur baru, bukan bantuan HTTP cache.
+- [x] Hapus hanya database cache aplikasi sementara HTTP cache dinonaktifkan: peluncuran berikutnya melakukan download penuh lagi.
+- [x] Uji 24.592 byte, batas chunk -1/tepat/+1, beberapa chunk, **329.641.708 byte**, dan **500 MiB (524.288.000 byte)**. Tulis unit ukuran secara eksplisit; jangan menyamakan MB dan MiB.
+- [x] Uji batas ROM 768 MiB dan BIOS 32 MiB pada helper/header; transfer penuh cache ROM 768 MiB/BIOS 32 MiB tidak dijalankan pada M5 dan tidak dihitung lulus implisit.
+- [x] HTTP LAN tanpa `crypto.subtle`/Web Locks/persistence API tetap menyimpan dan membaca IndexedDB melalui fallback yang didukung.
+- [x] Delete game/BIOS setelah cache terisi menolak sesi baru; file hilang/ukuran rusak/unsafe di origin juga tidak dibypass.
+- [x] Offline, server down, dan 5xx tidak memulai game memakai cache; pemulihan server dapat memakai cache lama yang masih valid.
+- [x] Dua tab download/clear/delete bersamaan, tab ditutup saat chunk write, dan late commit tidak menghasilkan entry parsial atau resurrection.
+- [x] Simulasi quota deterministik melalui adapter (termasuk 500 MiB) dan transaksi browser nyata yang diabort; percobaan kuota origin Chromium dilakukan secara aman. Actual quota exhaustion tidak tereproduksi dan tidak diklaim sebagai disk fisik penuh.
 
-**Gate:** cache besar terbukti tersimpan dan reused setelah restart dengan HTTP cache tidak membantu. Fixture sintetis tidak dihitung sebagai bukti gameplay PS1.
+**Gate M5 terpenuhi pada cakupan yang dicatat:** fixture 329.641.708 byte dan 500 MiB tersimpan dan reused setelah restart proses profil sama dengan HTTP cache mati, HEAD origin segar dan GET/body origin nol. Fallback kuota 500 MiB selesai dengan satu download tanpa manifest palsu. Fixture sintetis tidak dihitung sebagai bukti gameplay PS1, actual quota exhaustion tidak tereproduksi, dan rollout tetap M6.
 
 ### M6 — Dokumentasi, rollout, dan verifikasi deployment
 
@@ -506,13 +510,13 @@ Perintah terfokus M3 yang **sudah didaftarkan** pada `playwright.backend.config.
 npm run test:e2e:backend -- tests/browser/catalog-indexeddb-cache.spec.ts
 ```
 
-Usulan script terpisah untuk M5, **belum ada di package.json**:
+Script opt-in M5 yang **sudah ada di package.json**:
 
 ```text
 npm run test:e2e:asset-cache:large
 ```
 
-Script besar perlu konfigurasi backend/fixture yang eksplisit, satu worker, tidak retry download besar tanpa batas, serta preflight disk/memori. Tes tidak boleh memakai profil pribadi pengguna. Bersihkan fixture/profile setelah browser ditutup dan simpan bukti kegagalan sesuai kebijakan artefak.
+Script besar memakai backend/fixture eksplisit, satu worker, tanpa retry, timeout 10 menit per ukuran, dan preflight disk bebas >=6 GiB/RAM tersedia >=2 GiB. Profil pribadi tidak digunakan; fixture/profile dibersihkan setelah browser ditutup dan artefak disimpan ke output tes. Gunakan `--output` terpisah untuk suite lain agar output default tidak membersihkan artefak besar.
 
 ## 10. Kriteria Penerimaan Rilis
 

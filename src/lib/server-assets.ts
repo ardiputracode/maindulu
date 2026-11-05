@@ -166,10 +166,15 @@ async function prepare(value: AssetDescriptor, options: ServerAssetResolverOptio
     const get = networkScope(signal), hash = createIncrementalSha256()
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
     const chunks: Blob[] = []
-    let pending: Blob[] = [], pendingSize = 0
+    // Snapshot ONE bounded buffer per storage chunk, not a Blob per network
+    // packet. Keep the Blob dependency graph bounded regardless of network
+    // fragmentation, without allocating a whole-file ArrayBuffer.
+    const pending = new Uint8Array(Math.min(ASSET_CHUNK_SIZE, descriptor.size))
+    let pendingSize = 0
     const flush = async () => {
-      const blob = new Blob(pending, { type: 'application/octet-stream' })
-      pending = []; pendingSize = 0; chunks.push(blob)
+      // Blob snapshots this view synchronously, so the buffer can be reused.
+      const blob = new Blob([pending.subarray(0, pendingSize)], { type: 'application/octet-stream' })
+      pendingSize = 0; chunks.push(blob)
       if (writer) {
         try { await writer.append(blob); checkAbort(signal) }
         catch (error) { await stopWriting(error) }
@@ -196,7 +201,7 @@ async function prepare(value: AssetDescriptor, options: ServerAssetResolverOptio
         hash.update(bytes); receivedBytes += bytes.length
         for (let offset = 0; offset < bytes.length;) {
           const count = Math.min(ASSET_CHUNK_SIZE - pendingSize, bytes.length - offset)
-          pending.push(new Blob([bytes.subarray(offset, offset + count)])); pendingSize += count; offset += count
+          pending.set(bytes.subarray(offset, offset + count), pendingSize); pendingSize += count; offset += count
           if (pendingSize === ASSET_CHUNK_SIZE) await flush()
         }
         emit('downloading')
@@ -207,13 +212,27 @@ async function prepare(value: AssetDescriptor, options: ServerAssetResolverOptio
       }
       if (pendingSize) await flush()
       let persistence: PreparedServerAsset['persistence'] = 'not-stored'
+      let preparedBlob: Blob | undefined
       if (writer) {
         emit('saving')
         try { await writer.commit(); checkAbort(signal); writer = undefined; persistence = 'stored' }
         catch (error) { await stopWriting(error) }
+        if (persistence === 'stored') {
+          try {
+            // Large network Blob handles can become unreadable in Chromium
+            // while the committed generation is still intact. Obtain its
+            // file-backed snapshot through the normal verified/pinned read path
+            // instead of handing those original network handles to the engine.
+            const committed = await cache!.read(descriptor, signal)
+            checkAbort(signal)
+            if (!committed) throw new AssetCacheError('fenced', 'Cache berubah sesudah disimpan; aset sesi tidak disimpan.')
+            preparedBlob = committed.blob
+            chunks.length = 0
+          } catch (error) { warn(error); persistence = 'not-stored' }
+        }
       }
       emit('ready')
-      return { descriptor, blob: new Blob(chunks, { type: 'application/octet-stream' }), source: 'network', persistence, transferredBytes: receivedBytes, warnings }
+      return { descriptor, blob: preparedBlob ?? new Blob(chunks, { type: 'application/octet-stream' }), source: 'network', persistence, transferredBytes: receivedBytes, warnings }
     } finally {
       hash.destroy(); get.close()
       if (reader) { void reader.cancel().catch(() => {}); reader.releaseLock() }

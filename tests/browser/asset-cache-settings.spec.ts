@@ -143,6 +143,9 @@ test('M4 staging bytes are distinct from stored assets; UI clear fences a pendin
   await expect(panel(page).getByRole('listitem')).toHaveCount(0)
   await page.getByRole('button', { name: 'Hapus semua cache', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Ya, hapus cache' }).click()
+  // A click dispatch is not the async clear's transaction-complete boundary.
+  // Only try the late commit after the UI has acknowledged successful deletion.
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   expect(await page.evaluate(() => window.cacheSettingsTest.finishStage())).toBe('fenced')
   await expect(panel(page)).toContainText('0 persiapan · 0 B ditulis · 0 B direservasi')
 })

@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './tests/browser',
-  testIgnore: ['**/asset-cache-spike.spec.ts'],
+  testIgnore: ['**/asset-cache-spike.spec.ts', '**/catalog-indexeddb-large.spec.ts'],
   timeout: 90000,
   expect: { timeout: 15000 },
   fullyParallel: false,

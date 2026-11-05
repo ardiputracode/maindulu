@@ -23,13 +23,19 @@ function deferred() { let resolve; const promise = new Promise(done => { resolve
 function setup(t, f = fixture(), extra = {}) {
   const requests = [], events = []
   const state = { hit: null, committed: false, appends: [], aborted: 0, closed: 0, deleted: [], begins: 0 }
+  let snapshotTaken = false
   const writer = {
     append: async blob => { state.appends.push(blob) },
-    commit: async () => { state.committed = true },
+    commit: async () => { state.committed = true; snapshotTaken = false },
     abort: async () => { state.aborted++ },
   }
   const cache = {
-    read: async () => { events.push('read'); return state.hit },
+    read: async () => {
+      events.push('read')
+      if (state.hit) return state.hit
+      if (state.committed && !snapshotTaken) { snapshotTaken = true; return { blob: new Blob(state.appends) } }
+      return null
+    },
     begin: async () => { state.begins++; return writer },
     delete: async (...args) => { state.deleted.push(args) }, close: () => { state.closed++ },
   }
@@ -47,6 +53,48 @@ function setup(t, f = fixture(), extra = {}) {
   return { resolver, state, requests, events, writer, cache, f }
 }
 const code = expected => error => error instanceof ServerAssetError && error.code === expected
+
+test('M5 fragmented network packets produce one independent Blob per bounded storage chunk', async t => {
+  const f = fixture(new Uint8Array(ASSET_CHUNK_SIZE + 31).fill(37).fill(65, ASSET_CHUNK_SIZE)), NativeBlob = globalThis.Blob
+  const snapshots = []
+  globalThis.Blob = class extends NativeBlob {
+    constructor(parts, options) {
+      super(parts, options)
+      snapshots.push({ size: this.size, parts: parts.length })
+    }
+  }
+  t.after(() => { globalThis.Blob = NativeBlob })
+  const c = setup(t, f, { fetch: async (_url, options) => {
+    if (options.method === 'HEAD') return response(f, 'HEAD')
+    let offset = 0
+    return new Response(new ReadableStream({ pull(controller) {
+      if (offset === f.bytes.length) { controller.close(); return }
+      const end = Math.min(offset + 65521, f.bytes.length)
+      controller.enqueue(f.bytes.subarray(offset, end)); offset = end
+    } }), { headers: headers(f) })
+  } })
+  const result = await c.resolver.resolve(f.descriptor)
+  assert.equal(result.persistence, 'stored')
+  assert.deepEqual(new Uint8Array(await result.blob.arrayBuffer()), f.bytes)
+  assert.deepEqual(snapshots, [{ size: ASSET_CHUNK_SIZE, parts: 1 }, { size: 31, parts: 1 }, { size: f.bytes.length, parts: 2 }])
+  assert.equal(await c.state.appends[0].slice(0, 1).text(), '%') // Reusing the buffer did not mutate the earlier snapshot.
+})
+
+for (const [kind, maximum] of [['rom', 768 * 1024 * 1024], ['bios', 32 * 1024 * 1024]]) {
+  test(`M5 ${kind} maximum ${maximum} bytes accepts exact HEAD; rejects mismatched GET without allocating full file`, async t => {
+    const f = fixture(undefined, kind)
+    f.entry.size = maximum; f.descriptor.size = maximum
+    const requests = []
+    const c = setup(t, f, { fetch: async (_url, options) => {
+      requests.push(options.method)
+      return new Response(null, { headers: { 'content-length': String(options.method === 'HEAD' ? maximum : maximum + 1),
+        etag: `"${f.descriptor.sha256}"`, 'content-type': 'application/octet-stream' } })
+    } })
+    await assert.rejects(c.resolver.resolve(f.descriptor), code('validator'))
+    assert.deepEqual(requests, ['HEAD', 'GET'])
+    assert.equal(c.state.committed, false)
+  })
+}
 
 test('miss verifies one GET and reports stored only after commit settles; next launch is fresh', async t => {
   const c = setup(t), committed = deferred()
@@ -67,6 +115,29 @@ test('miss verifies one GET and reports stored only after commit settles; next l
   const hit = await c.resolver.resolve(c.f.descriptor)
   assert.equal(hit.source, 'indexeddb'); assert.equal(hit.persistence, 'reused'); assert.equal(hit.transferredBytes, 0)
   assert.deepEqual(c.requests, ['HEAD', 'GET', 'HEAD'])
+})
+
+test('M5 stored downloads hand off the verified committed snapshot, not old network Blob handles', async t => {
+  const c = setup(t), snapshot = new Blob([c.f.bytes])
+  let reads = 0
+  c.cache.read = async () => { reads++; return c.state.committed ? { blob: snapshot } : null }
+  const result = await c.resolver.resolve(c.f.descriptor)
+  assert.equal(result.blob, snapshot)
+  assert.equal(result.source, 'network'); assert.equal(result.persistence, 'stored')
+  assert.equal(reads, 2); assert.deepEqual(c.requests, ['HEAD', 'GET'])
+})
+
+for (const failure of ['deleted', 'aborted']) test(`M5 committed snapshot ${failure} before handoff warns without a second download`, async t => {
+  const c = setup(t)
+  c.cache.read = async () => {
+    if (c.state.committed && failure === 'aborted') throw new AssetCacheError('aborted', 'Snapshot transaction aborted')
+    return null
+  }
+  const result = await c.resolver.resolve(c.f.descriptor)
+  assert.equal(result.persistence, 'not-stored')
+  assert.equal(result.warnings[0].code, failure === 'deleted' ? 'fenced' : 'aborted')
+  assert.deepEqual(new Uint8Array(await result.blob.arrayBuffer()), c.f.bytes)
+  assert.deepEqual(c.requests, ['HEAD', 'GET'])
 })
 
 test('BIOS descriptor retains size, raw filename and independent namespace', async t => {

@@ -5,12 +5,10 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash, randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import type { OutgoingHttpHeaders } from 'node:http'
 import { createApp } from '../../server/app.mjs'
 import { setAccountRoleByAdmin } from '../../server/auth/mutations.mjs'
 import { startPlayer } from './helpers/player'
-
-type Transfer = { phase: string; url: string; method: string; condition?: string; status: number; bytes: number; etag?: string | number | string[]; cache?: string | number | string[] }
+import { observeAssetTransfers } from './helpers/asset-transfers'
 
 test('HTTP cache revalidates real ROM/BIOS across sessions and browser restart; deletion still blocks launch', async ({ browser }, info) => {
   test.skip(info.project.name !== 'node-backend', 'Cache katalog membutuhkan backend nyata.')
@@ -19,43 +17,10 @@ test('HTTP cache revalidates real ROM/BIOS across sessions and browser restart; 
   const folder = await mkdtemp(join(parent, 'catalog-http-cache-'))
   const app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data') } })
   const watched = new Set<string>()
-  const transfers: Transfer[] = []
   let phase = 'first-launch'
   // Observe Node's outgoing body writes, not JS-visible (cache-merged) statuses.
   // No routes, CDP cache toggles, or stream transforms: HTTP caching stays real.
-  app.server.prependListener('request', (request, response) => {
-    if (!watched.has(request.url!)) return
-    const requestPhase = phase
-    let bytes = 0
-    let sentHeaders: OutgoingHttpHeaders = {}
-    function count(chunk: unknown, encoding: unknown) {
-      if (request.method === 'HEAD' || response.statusCode === 304) return
-      if (typeof chunk === 'string') bytes += Buffer.byteLength(chunk, typeof encoding === 'string' ? encoding as BufferEncoding : undefined)
-      else if (chunk instanceof Uint8Array) bytes += chunk.byteLength
-    }
-    const write = response.write, end = response.end, writeHead = response.writeHead
-    // Fastify passes HEAD/304 headers directly to writeHead; getHeader alone
-    // only sees setHeader calls and would miss those otherwise valid headers.
-    response.writeHead = function (...args: unknown[]) {
-      sentHeaders = { ...this.getHeaders() }
-      const headers = typeof args[1] === 'string' ? args[2] : args[1]
-      if (Array.isArray(headers)) {
-        for (let i = 0; i < headers.length; i += 2) sentHeaders[String(headers[i]).toLowerCase()] = headers[i + 1]
-      } else if (headers && typeof headers === 'object') {
-        for (const [name, value] of Object.entries(headers)) sentHeaders[name.toLowerCase()] = value
-      }
-      return Reflect.apply(writeHead, this, args)
-    }
-    response.write = function (...args: unknown[]) {
-      count(args[0], args[1])
-      return Reflect.apply(write, this, args)
-    }
-    response.end = function (...args: unknown[]) {
-      count(args[0], args[1])
-      return Reflect.apply(end, this, args)
-    }
-    response.once('finish', () => transfers.push({ phase: requestPhase, url: request.url!, method: request.method!, condition: request.headers['if-none-match'], status: response.statusCode, bytes, etag: sentHeaders.etag, cache: sentHeaders['cache-control'] }))
-  })
+  const transfers = observeAssetTransfers(app.server, watched, () => phase)
   const address = await app.listen({ host: '127.0.0.1', port: 0 })
   const admin = await browser.newContext({ baseURL: address })
   let guest: BrowserContext | undefined
