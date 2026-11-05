@@ -1,4 +1,5 @@
 import { createIncrementalSha256, createSessionId } from './identity.ts'
+import { notifyAssetCacheChange } from './asset-cache-events.ts'
 import {
   ASSET_CHUNK_SIZE, ASSET_LEASE_MS, ASSET_SPACE_RESERVE, DEFAULT_ASSET_BUDGET, AssetCacheError,
   assetChunkCount, assetChunkSize, assetKey, assetKeyString, cacheStorageError, checkCacheAbort,
@@ -142,7 +143,13 @@ export class AssetCache {
       const abort = () => { failure = new AssetCacheError('aborted', 'Operasi cache dibatalkan.'); try { tx.abort() } catch { /* Complete. */ } }
       const finish = () => { this.active.delete(tx); signal?.removeEventListener('abort', abort) }
       signal?.addEventListener('abort', abort, { once: true })
-      tx.oncomplete = () => { finish(); resolve(result) }
+      tx.oncomplete = () => {
+        finish()
+        if (['settings', 'begin', 'commit', 'cancel', 'quota-cleanup', 'read-complete', 'invalidate', 'delete', 'clear', 'cleanup'].includes(operation)) {
+          notifyAssetCacheChange(this.db.name)
+        }
+        resolve(result)
+      }
       tx.onabort = () => { finish(); reject(cacheStorageError(failure ?? tx.error ?? new DOMException('Transaction aborted', 'AbortError'))) }
       // Keep the original request error (not merely the enclosing AbortError).
       tx.addEventListener('error', event => { failure ??= (event.target as IDBRequest).error })

@@ -36,7 +36,7 @@ test('favorite and settings survive refresh; history toggle is a real switch', a
   await page.getByRole('switch', { name: 'Simpan riwayat bermain' }).click()
   await page.reload()
   await expect(page.getByRole('slider')).toHaveValue('23')
-  await expect(page.getByRole('switch')).not.toBeChecked()
+  await expect(page.getByRole('switch', { name: 'Simpan riwayat bermain' })).not.toBeChecked()
 })
 
 test('local file validation, console detection, BIOS selection, and dialog keyboard close', async ({ page }) => {
@@ -150,7 +150,7 @@ test('local ROM and a local raw BIOS run without upload; disabled history stays 
   const writes: string[] = []
   page.on('request', request => { if (!['GET', 'HEAD'].includes(request.method())) writes.push(request.url()) })
   await page.goto('/pengaturan')
-  await page.getByRole('switch').click()
+  await page.getByRole('switch', { name: 'Simpan riwayat bermain' }).click()
   await page.getByRole('button', { name: 'Buka ROM', exact: true }).click()
   await page.locator('input[type=file]').first().setInputFiles({ name: 'kenanganku.nes', mimeType: 'application/octet-stream', buffer })
   await page.locator('#bios-choice').selectOption('local')

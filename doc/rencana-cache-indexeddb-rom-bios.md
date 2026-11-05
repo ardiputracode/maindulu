@@ -1,6 +1,6 @@
 # Rencana Cache IndexedDB ROM/BIOS Backend
 
-Status: **M0 (spike) selesai pada 2026-11-04; M1 (storage/kebijakan), M2 (resolver aset), dan M3 (integrasi aset kecil/NES) selesai pada 2026-11-05; M4–M6 belum diimplementasikan**. Player/bridge sudah terhubung dan regresi penuh lulus, tetapi default cache tetap nonaktif: belum rollout pada aplikasi/deployment pengguna. Hasil aktual dan batas bukti ada di [laporan spike M0](milestone-0-cache-indexeddb-spike.md), [laporan storage M1](milestone-1-cache-indexeddb-storage.md), [laporan resolver M2](milestone-2-cache-indexeddb-resolver.md), dan [laporan Player M3](milestone-3-cache-indexeddb-player.md). Checklist yang belum dicentang tetap rencana, bukan hasil tes.
+Status: **M0 (spike) selesai pada 2026-11-04; M1 (storage/kebijakan), M2 (resolver aset), M3 (integrasi aset kecil/NES), dan M4 (pengelola cache/UX kegagalan) selesai pada 2026-11-05; M5–M6 belum diimplementasikan**. Default cache tetap nonaktif: pengguna dapat opt-in melalui Pengaturan M4, tetapi belum aktivasi default/rollout deployment. Hasil aktual dan batas bukti ada di [laporan spike M0](milestone-0-cache-indexeddb-spike.md), [laporan storage M1](milestone-1-cache-indexeddb-storage.md), [laporan resolver M2](milestone-2-cache-indexeddb-resolver.md), [laporan Player M3](milestone-3-cache-indexeddb-player.md), dan [laporan Pengaturan M4](milestone-4-cache-indexeddb-settings.md). Checklist yang belum dicentang tetap rencana, bukan hasil tes.
 
 Rencana ini melengkapi, bukan menghapus riwayat [implementasi HTTP cache](rencana-cache-rom-bios.md). HTTP cache tetap berguna, tetapi tidak dijadikan jaminan penyimpanan ROM besar. Perubahan runtime, bundle engine, dan pengujian dalam dokumen ini memerlukan implementasi terpisah.
 
@@ -95,7 +95,7 @@ Mengganti URL CHD menjadi `blob:` begitu saja tidak cukup. `getBaseFileName(true
 
 ### 3.4 Modul dan file yang direncanakan
 
-Modul storage/kebijakan M1, resolver M2, dan integrasi Player/bridge M3 di bawah sudah tersedia. Pengelola cache M4 dan suite besar M5 yang belum dibuat tetap usulan; default rollout belum aktif.
+Modul storage/kebijakan M1, resolver M2, integrasi Player/bridge M3, serta pengelola cache M4 di bawah sudah tersedia. Suite besar M5 yang belum dibuat tetap usulan; default rollout belum aktif.
 
 | File | Tanggung jawab |
 | --- | --- |
@@ -110,10 +110,12 @@ Modul storage/kebijakan M1, resolver M2, dan integrasi Player/bridge M3 di bawah
 | `src/lib/player-bridge-assets.ts`, `public/player/player.js` | **M3 tersedia:** validasi payload bersama, adapter aset sesi, preservasi nama dan pelepasan referensi |
 | `scripts/vendor-engine.mjs` | Tidak diubah untuk arsitektur native M0; perubahan berikutnya memerlukan evaluasi kompatibilitas ulang |
 | `public/vendor/emulatorjs/4.2.3/`, `public/player/builds.json`, `third_party/emulatorjs/README.md` | Runtime/provenance engine tetap; `scripts/build-player-assets.mjs` menghasilkan helper aplikasi terpisah pada M3 |
-| `src/components/AssetCacheSettings.tsx`, `src/App.tsx`, `src/styles.css` | Pengelola cache, status storage, pengaturan dan aksesibilitas |
+| `src/components/AssetCacheSettings.tsx`, `src/App.tsx`, `src/styles.css` | **M4 tersedia:** pengelola cache, status storage, pengaturan dan aksesibilitas |
+| `src/lib/asset-cache-ui.ts`, `src/lib/asset-cache-events.ts` | **M4 tersedia:** label/progres/persistence, feature detection storage, notifikasi metadata antar-tab best-effort setelah commit |
 | `tests/asset-cache-policy.test.mjs`, `tests/browser/asset-cache-storage.spec.ts` | **M1 tersedia:** kebijakan serta transaksi/kegagalan/race storage browser nyata dengan dependency injection |
 | `tests/server-assets.test.mjs`, `tests/browser/server-assets.spec.ts` | **M2 tersedia:** validator origin, orkestrasi resolver, backend/IndexedDB nyata, fallback serta HTTP LAN |
-| `tests/player-assets.test.mjs`, `tests/browser/catalog-indexeddb-cache.spec.ts` | **M3 tersedia:** kontrak payload/bundle, engine/backend/IDB nyata, miss/hit/reload dokumen, save lama, akun/logout, StrictMode dan timer; restart proses/invalidasi lanjutan/manajemen cache tetap M4/M5 |
+| `tests/player-assets.test.mjs`, `tests/browser/catalog-indexeddb-cache.spec.ts` | **M3/M4 tersedia:** kontrak payload/bundle, engine/backend/IDB nyata, miss/hit/reload dokumen, save lama, akun/logout, StrictMode, timer, kegagalan storage, clear saat game aktif dan UI HTTP LAN; restart proses/invalidasi lanjutan tetap M5 |
+| `tests/asset-cache-ui.test.mjs`, `tests/browser/asset-cache-settings.spec.ts` | **M4 tersedia:** status persistence/API opsional, pengaturan dan metadata, delete/clear, staging, eviction/antar-tab, kegagalan transaksi, versi lebih baru dan fokus/mobile |
 | `tests/browser/asset-cache-spike.spec.ts`, `playwright.asset-cache-spike.config.ts` | Harness/prototipe test-only M0, termasuk 500 MiB; bukan storage produksi |
 | `tests/browser/catalog-indexeddb-large.spec.ts` | Suite besar integrasi produksi opt-in M5, terpisah dari spike dan suite cepat |
 | `playwright.backend.config.ts`, konfigurasi/script suite besar | Registrasi testMatch eksplisit dan pembatasan resource |
@@ -281,7 +283,7 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M0 — Spike integrasi engine, nama file, dan memori
 
-**Selesai dalam cakupan spike.** [Keputusan, pengukuran aktual, dan batas verifikasi](milestone-0-cache-indexeddb-spike.md). M0 bukan aktivasi cache produksi; hasil storage M1, resolver M2 dan integrasi M3 dicatat terpisah di bawah. M4–M6 tetap diperlukan sebelum rollout.
+**Selesai dalam cakupan spike.** [Keputusan, pengukuran aktual, dan batas verifikasi](milestone-0-cache-indexeddb-spike.md). M0 bukan aktivasi cache produksi; hasil storage M1, resolver M2, integrasi M3 dan pengelola M4 dicatat terpisah di bawah. M5–M6 tetap diperlukan sebelum rollout.
 
 **Implementasi/spike**
 
@@ -381,23 +383,25 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M4 — Pengelola cache dan pengalaman kegagalan
 
+**Selesai dalam cakupan pengelola cache dan UX kegagalan.** [Kontrak UI, hasil aktual dan batas bukti](milestone-4-cache-indexeddb-settings.md). Verifikasi akhir: **305 unit dan 138 backend lulus; production 66 lulus/77 skip**, termasuk 18 skenario khusus M4 dan HTTP LAN/engine NES nyata. Default tetap nonaktif; toggle Pengaturan memungkinkan opt-in eksplisit, bukan rollout default M6.
+
 **Implementasi**
 
-- [ ] Tambahkan status persiapan/progres dan pesan persistence yang tidak bercampur dengan status sinkronisasi save.
-- [ ] Tambahkan panel Pengaturan, toggle, budget, daftar metadata, hapus satu/semua, dan informasi origin/profil.
-- [ ] Tambahkan storage estimate/persistence request dengan feature detection dan penanganan penolakan/ketiadaan API.
-- [ ] Sinkronkan tampilan antar tab secara best-effort; transaksi database tetap sumber kebenaran.
+- [x] Tambahkan status persiapan/progres dan pesan persistence yang tidak bercampur dengan status sinkronisasi save.
+- [x] Tambahkan panel Pengaturan, toggle, budget, daftar metadata, hapus satu/semua, dan informasi origin/profil.
+- [x] Tambahkan storage estimate/persistence request dengan feature detection dan penanganan penolakan/ketiadaan API.
+- [x] Sinkronkan tampilan antar tab secara best-effort; transaksi database tetap sumber kebenaran.
 
 **Tes**
 
-- [ ] Setelah write abort UI tidak menampilkan tersimpan; cache hit menampilkan dipakai; storage penuh menampilkan tidak disimpan.
-- [ ] Daftar/statistik benar setelah restart, eviction, delete, clear, dan perubahan tab lain.
-- [ ] Menghapus cache tidak menghapus state/SRAM/progres/akun/riwayat; sesi yang sudah memegang Blob tetap berjalan.
-- [ ] Toggle off tidak menghapus data diam-diam dan tidak mengisi/memakai cache pada peluncuran selanjutnya.
-- [ ] Keyboard, fokus dialog, pembatalan, screen-reader label, dan viewport ponsel benar.
-- [ ] `estimate`/`persist` tidak ada, ditolak, atau throw tidak memblokir game, khususnya HTTP LAN.
+- [x] Setelah write abort UI tidak menampilkan tersimpan; cache hit menampilkan dipakai; storage penuh menampilkan tidak disimpan (quota/abort deterministik, bukan disk fisik penuh).
+- [x] Daftar/statistik benar setelah reload dokumen/buka ulang panel, eviction, delete, clear, dan perubahan tab lain. Restart seluruh proses browser tetap M5.
+- [x] Menghapus cache tidak menghapus state/SRAM/progres/akun/riwayat; sesi yang sudah memegang Blob tetap berjalan.
+- [x] Toggle off tidak menghapus data diam-diam dan tidak mengisi/memakai cache pada peluncuran selanjutnya.
+- [x] Keyboard, fokus dialog, pembatalan, screen-reader label, dan viewport ponsel benar pada tes otomatis; bukan audit manual screen reader/perangkat fisik.
+- [x] `estimate`/`persist` tidak ada, ditolak, atau throw tidak memblokir game; HTTP LAN non-loopback diuji pada UI/engine NES nyata.
 
-**Gate:** pengguna bisa mengetahui cache berhasil atau gagal dan dapat menghapus hanya data cache.
+**Gate M4 terpenuhi:** pengguna bisa mengetahui cache berhasil atau gagal dan dapat menghapus hanya data cache; save/progres dan sesi yang sudah memegang aset tetap utuh. Restart proses browser, file besar dan gameplay PS1 nyata bukan bukti M4 dan tetap M5/M6.
 
 ### M5 — Pembuktian restart, ROM besar, LAN, dan race
 

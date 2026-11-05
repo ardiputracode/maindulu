@@ -5,6 +5,7 @@ import { preparedRomFile } from './engine-assets.ts'
 import { validatePreparedAssets } from './player-bridge-assets.ts'
 import type { PreparedAssetPayload } from './player-bridge-assets.ts'
 import type { AssetDescriptor } from './asset-cache-policy.ts'
+import { cacheStorageError } from './asset-cache-policy.ts'
 import type { Game } from './domain.ts'
 
 // One resolver per tab. Subscriber signals own tasks, not this shared instance;
@@ -16,15 +17,18 @@ export async function preparePlayerAssets(session: {
   biosUrl?: string; biosSha256?: string; serverRom?: AssetDescriptor; serverBios?: AssetDescriptor;
 }, signal: AbortSignal, onProgress: (value: AssetPreparationProgress) => void) {
   const result: { preparedRom?: PreparedAssetPayload; preparedBios?: PreparedAssetPayload;
-    outcomes: Pick<PreparedServerAsset, 'descriptor' | 'source' | 'persistence' | 'warnings'>[] } = { outcomes: [] }
+    cacheNotice?: string; outcomes: Pick<PreparedServerAsset, 'descriptor' | 'source' | 'persistence' | 'warnings'>[] } = { outcomes: [] }
   signal.throwIfAborted()
   if (!session.serverRom && !session.serverBios) return result
   // Rollout stays off by default. Off retains the old URL/HTTP-cache path,
   // rather than accidentally enabling the network-only resolver pipeline.
   let enabled = false
-  const cache = await openAssetCache().catch(() => null)
-  try { if (cache) enabled = (await cache.settings(signal)).enabled }
-  catch { signal.throwIfAborted() }
+  let cache: Awaited<ReturnType<typeof openAssetCache>> | undefined
+  try { cache = await openAssetCache(); enabled = (await cache.settings(signal)).enabled }
+  catch (error) {
+    signal.throwIfAborted()
+    result.cacheNotice = `${cacheStorageError(error).message} ROM/BIOS dimuat melalui jalur biasa tanpa cache perangkat.`
+  }
   finally { cache?.close() }
   signal.throwIfAborted()
   if (!enabled) return result

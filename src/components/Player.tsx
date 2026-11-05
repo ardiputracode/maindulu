@@ -18,15 +18,7 @@ import { createPortal } from 'react-dom'
 import type { AssetDescriptor } from '../lib/asset-cache-policy'
 import { preparePlayerAssets } from '../lib/player-assets'
 import type { AssetPreparationProgress } from '../lib/server-assets'
-
-function assetPreparationStatus(value: AssetPreparationProgress): string {
-  const label = value.kind === 'rom' ? 'ROM' : 'BIOS'
-  if (value.phase === 'downloading') return `Mengunduh ${label}: ${(value.receivedBytes / 1048576).toFixed(2)} / ${(value.totalBytes / 1048576).toFixed(2)} MiB…`
-  if (value.phase === 'reading-cache') return `Membaca cache perangkat ${label}…`
-  if (value.phase === 'verifying') return `Memverifikasi ${label}…`
-  if (value.phase === 'saving') return `Menyimpan cache perangkat ${label}…`
-  return `Memeriksa ${label} server…`
-}
+import { assetPreparationStatus, assetPersistenceNotice } from '../lib/asset-cache-ui'
 
 export type LaunchSession = { id: string; game: Game; consoleInfo: ConsoleInfo; rom?: File; bios?: File; biosUrl?: string; biosSha256?: string; serverRom?: AssetDescriptor; serverBios?: AssetDescriptor; storageOwner?: string | null; gameSaves?: boolean; saveId?: string }
 
@@ -44,6 +36,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
   const [status, setStatus] = useState('Menyiapkan ruang bermain…')
   const [error, setError] = useState('')
   const [assetNotice, setAssetNotice] = useState('')
+  const [assetProgress, setAssetProgress] = useState<AssetPreparationProgress | null>(null)
   const [controls, setControls] = useState(false)
   const startCallback = useRef(onStart)
   startCallback.current = onStart
@@ -155,6 +148,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     liveRef.current = true
     setError('')
     setAssetNotice('')
+    setAssetProgress(null)
     setStatus('Menyiapkan ruang bermain…')
     const armTimeout = (message: string) => {
       clearTimeout(timeout)
@@ -165,11 +159,12 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
       clearTimeout(timeout)
       if (owner && !active.current) throw new Error('Sesi akun belum dapat dipastikan. Buka ulang permainan setelah login.')
       const assets = await preparePlayerAssets(session, controller.signal, value => {
-        if (!disposed && !controller.signal.aborted) setStatus(assetPreparationStatus(value))
+        if (!disposed && !controller.signal.aborted) { setStatus(assetPreparationStatus(value)); setAssetProgress(value.phase === 'ready' ? null : value) }
       })
       if (disposed || controller.signal.aborted) return
       if (owner && !active.current) throw new Error('Sesi akun berubah atau belum dapat dipastikan. Buka ulang permainan setelah login.')
-      setAssetNotice(assets.outcomes.map(value => `${value.descriptor.kind === 'rom' ? 'ROM' : 'BIOS'}: ${value.persistence === 'reused' ? 'Cache perangkat dipakai' : value.persistence === 'stored' ? 'Tersimpan di perangkat' : `Dimainkan tanpa disimpan${value.warnings[0] ? ': ' + value.warnings[0].message : ''}`}`).join(' · '))
+      setAssetProgress(null)
+      setAssetNotice([assets.cacheNotice, ...assets.outcomes.map(assetPersistenceNotice)].filter(Boolean).join(' · '))
       let initialProgress = null
       if (progressAvailable && owner && layout) {
         sync = new GameSaveSync(new GameSaveClient(owner), { gameId: session.saveId ?? saveIdentity(session.game, session.consoleInfo.core), consoleId: session.consoleInfo.id, core: session.consoleInfo.core, title: session.game.title }, async () => {
@@ -332,7 +327,11 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
         }} />, shell.current ?? document.body)}
     </div>
     {status && <p className="player-status" role="status"><LoaderCircle size={15} className="spin" />{status}</p>}
-    {assetNotice && !terminated && <p className="player-asset-notice" role="status">{assetNotice}</p>}
+    {assetProgress && !error && !terminated && <div className="player-asset-progress" role="region" aria-label="Persiapan aset ROM/BIOS">
+      {assetProgress.phase === 'downloading' && <progress aria-label={`Progres download ${assetProgress.kind.toUpperCase()}`} max={assetProgress.totalBytes} value={assetProgress.receivedBytes} />}
+      <button className="button secondary small" onClick={onExit}>Batalkan persiapan</button>
+    </div>}
+    {assetNotice && !terminated && <p className="player-asset-notice" role="status" aria-label="Status cache ROM/BIOS">{assetNotice}</p>}
     <div className="player-note"><ShieldCheck size={16} /><span>{session.game.source === 'local' ? 'File tetap di perangkatmu.' : 'Dimuat dari server maindulu.'} Semua core berjalan lokal di browser.</span></div>
     {stateError && <p className="notice" role="alert">{stateError}</p>}
     {progressAvailable && !(account.status === 'authenticated' && account.user?.id !== owner) && <section className="progress-sync" aria-label="Sinkronisasi progres game">

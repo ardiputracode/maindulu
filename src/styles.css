@@ -37,6 +37,29 @@
 .player-save-notice svg { flex-shrink: 0; }
 .player-save-notice--error { border-color: #8d6543; color: #f4d5af; }
 .player-asset-notice { margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.player-asset-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.player-asset-progress progress { flex: 1 1 180px; max-width: 100%; accent-color: var(--mint); }
+.asset-cache-settings { margin-top: 24px; }
+.asset-cache-body { padding: 0 24px 24px; font-size: 12px; line-height: 1.8; color: var(--muted); }
+.asset-cache-body > p, .asset-cache-storage p { margin: 12px 0; overflow-wrap: anywhere; }
+.asset-cache-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin: 20px 0 12px; }
+.asset-cache-toolbar label { display: flex; flex-direction: column; gap: 8px; color: var(--text); }
+.asset-cache-toolbar select { min-height: 44px; max-width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); color-scheme: dark; }
+.asset-cache-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+.asset-cache-stats div { padding: 14px; border: 1px solid var(--border); border-radius: 8px; }
+.asset-cache-stats dd { margin: 4px 0 0; color: var(--text); overflow-wrap: anywhere; }
+.asset-cache-list { list-style: none; padding: 0; margin: 0; }
+.asset-cache-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.asset-cache-list li > div { min-width: 0; overflow-wrap: anywhere; }
+.asset-cache-list h4 { margin: 0 0 4px; color: var(--text); font-size: 14px; }
+.asset-cache-list span { font-size: 11px; }
+.asset-cache-storage { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 20px; }
+.asset-cache-confirm { font-size: 13px; line-height: 1.9; overflow-wrap: anywhere; }
+@media (max-width: 520px) {
+  .asset-cache-body { padding: 0 16px 20px; }
+  .asset-cache-stats { grid-template-columns: 1fr; }
+  .asset-cache-list li { align-items: flex-start; flex-direction: column; }
+}
 .server-overlay > .server-state-dialog { width: 600px; max-width: 100%; max-height: calc(100dvh - 48px); padding: 24px; }
 .server-state-dialog .dialog-heading { margin-bottom: 18px; }
 .server-state-dialog .dialog-heading h2 { font-size: 24px; }

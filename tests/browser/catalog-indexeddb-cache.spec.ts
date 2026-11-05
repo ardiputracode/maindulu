@@ -3,7 +3,7 @@ import type { Page, FrameLocator } from '@playwright/test'
 import { build } from 'esbuild'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { tmpdir, networkInterfaces } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import type { DatabaseSync } from 'node:sqlite'
@@ -24,7 +24,7 @@ type Runtime = Window & { EJS_gameUrl?: unknown; EJS_biosUrl?: unknown; EJS_emul
     FS: { readdir: (path: string) => string[] } } } }
 declare global { interface Window { playerAssetTest: typeof Controls; strictPlayerTest: typeof Strict; m3SlowChunks?: number } }
 type Transfer = { url: string; method: string; status: number; bytes: number }
-let folder: string, address: string, bundle: string, strictBundle: string, app: Awaited<ReturnType<typeof createApp>>
+let folder: string, address: string, bundle: string, strictBundle: string, settingsBundle: string, app: Awaited<ReturnType<typeof createApp>>
 let game: CatalogEntry, other: CatalogEntry, bios: CatalogEntry
 const transfers: Transfer[] = []
 const rom = buildNesBatteryFixture(), firmware = Buffer.alloc(512, 0x29)
@@ -34,6 +34,8 @@ test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'node-backend') return
   bundle = (await build({ entryPoints: ['tests/fixtures/player-assets.ts'], bundle: true, write: false,
     format: 'iife', globalName: 'playerAssetTest', target: 'es2022', platform: 'browser' })).outputFiles[0].text
+  settingsBundle = (await build({ entryPoints: ['tests/fixtures/asset-cache-settings.ts'], bundle: true, write: false,
+    format: 'iife', globalName: 'cacheSettingsTest', target: 'es2022', platform: 'browser' })).outputFiles[0].text
   strictBundle = (await build({ entryPoints: ['tests/fixtures/player-strict.tsx'], bundle: true, write: false,
     format: 'iife', globalName: 'strictPlayerTest', target: 'es2022', platform: 'browser', jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"development"' } })).outputFiles[0].text
@@ -61,7 +63,10 @@ test.beforeAll(async ({}, info) => {
     response.end = function (...args: unknown[]) { count(args[0], args[1]); return Reflect.apply(end, this, args) }
     response.once('finish', () => transfers.push({ url: request.url!, method: request.method!, status: response.statusCode, bytes }))
   })
-  address = await app.listen({ host: '127.0.0.1', port: 0 })
+  await app.listen({ host: '0.0.0.0', port: 0 })
+  const bound = app.server.address()
+  if (!bound || typeof bound === 'string') throw Error('Missing server port')
+  address = `http://127.0.0.1:${bound.port}`
 })
 test.afterAll(async () => {
   await app?.close()
@@ -432,4 +437,147 @@ test('M3 transfer with continuing bytes exceeds 90 seconds without the handshake
   await expect(page.frameLocator('iframe').getByRole('button', { name: 'Mulai bermain', exact: true })).toBeVisible()
   await expect(page.locator('.player-error')).toHaveCount(0)
   await expect(page.locator('.player-asset-notice')).toContainText('Tersimpan di perangkat')
+})
+
+for (const mode of ['abort', 'quota'] as const) {
+  test(`M4 Player ${mode} writes show not-stored, play real NES with exactly one download`, async ({ page }) => {
+    await open(page)
+    await page.addScriptTag({ content: settingsBundle })
+    await page.evaluate(mode => window.cacheSettingsTest.failNextWrite(mode), mode)
+    const since = transfers.length
+    const frame = await launch(page)
+    expect((await snapshot(frame)).state.length).toBeGreaterThan(1000)
+    const notice = page.getByRole('status', { name: 'Status cache ROM/BIOS' })
+    await expect(notice).toContainText('Dimainkan tanpa disimpan')
+    await expect(notice).toContainText(mode === 'abort' ? 'dibatalkan' : 'penuh')
+    await expect(notice).not.toContainText('Tersimpan di perangkat')
+    expect(transfers.slice(since).filter(v => v.method === 'GET')).toEqual([{ url: game.url, method: 'GET', status: 200, bytes: game.size }])
+    const stats = await page.evaluate(() => window.playerAssetTest.stats())
+    expect(stats.count).toBe(0); expect(stats.stagingCount).toBe(0)
+  })
+}
+
+test('M4 clear via settings in another tab leaves live NES, SRAM, state, account and history intact', async ({ page, context }) => {
+  const account = await register(page)
+  await open(page)
+  const frame = await launch(page)
+  await increment(frame, 1)
+  await page.getByRole('region', { name: 'Sinkronisasi progres game' }).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
+  await expect(page.getByRole('region', { name: 'Sinkronisasi progres game' })).toContainText('dikonfirmasi server')
+  const overlay = await states(page, frame)
+  await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
+  await expect(overlay).toContainText('Tersimpan di server')
+  await overlay.getByRole('button', { name: 'Tutup dialog', exact: true }).click()
+  const db = app.getDecorator<DatabaseSync>('database')
+  const savedState = db.prepare('SELECT checksum FROM saves WHERE user_id = ? AND game_id = ?').get(account.user.id, `fceumm-${game.sha256}`)
+  const savedProgress = db.prepare('SELECT checksum FROM game_saves WHERE user_id = ? AND game_id = ?').get(account.user.id, `fceumm-${game.sha256}`)
+  expect(savedState).toBeTruthy(); expect(savedProgress).toBeTruthy()
+  const before = await snapshot(frame)
+  const history = await page.evaluate(() => localStorage.getItem('maindulu.history.v1'))
+  const otherTab = await context.newPage()
+  await otherTab.goto(address + '/pengaturan')
+  await expect(otherTab.getByRole('region', { name: 'Cache ROM dan BIOS backend' })).toContainText('1 aset')
+  await otherTab.getByRole('button', { name: 'Hapus semua cache', exact: true }).click()
+  await otherTab.getByRole('dialog').getByRole('button', { name: 'Ya, hapus cache' }).click()
+  await expect(otherTab.getByRole('region', { name: 'Cache ROM dan BIOS backend' })).toContainText('0 B · 0 aset')
+  await expect(otherTab.getByRole('button', { name: `Akun ${account.name}`, exact: true })).toBeVisible()
+  await otherTab.close()
+  await page.bringToFront()
+  const after = await snapshot(frame)
+  expect(after.progress).toEqual(before.progress)
+  expect(after.state.length).toBeGreaterThan(1000)
+  expect(after.path).toBe(before.path)
+  expect(await page.evaluate(() => localStorage.getItem('maindulu.history.v1'))).toBe(history)
+  expect(db.prepare('SELECT checksum FROM saves WHERE user_id = ? AND game_id = ?').get(account.user.id, `fceumm-${game.sha256}`)).toEqual(savedState)
+  expect(db.prepare('SELECT checksum FROM game_saves WHERE user_id = ? AND game_id = ?').get(account.user.id, `fceumm-${game.sha256}`)).toEqual(savedProgress)
+  await exit(page)
+  // Disable through the real UI: subsequent launches use the URL path and do
+  // not fill the now-empty cache, while server SRAM still restores normally.
+  await page.goto(address + '/pengaturan')
+  const toggle = page.getByRole('switch', { name: 'Gunakan cache ROM/BIOS backend' })
+  await expect(toggle).toBeChecked(); await toggle.click(); await expect(toggle).not.toBeChecked()
+  const next = await launch(page)
+  expect((await snapshot(next)).progress[2]).toBe(1)
+  await expect(page.locator('.player-asset-notice')).toHaveCount(0)
+  await page.addScriptTag({ content: bundle })
+  expect((await page.evaluate(() => window.playerAssetTest.stats())).count).toBe(0)
+})
+
+test('M4 explicit preparation cancellation leaves no writer and retry creates a new session', async ({ page }) => {
+  await open(page)
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  await page.route('**' + game.url, async route => {
+    if (route.request().method() !== 'GET') return route.continue()
+    await held; await route.continue().catch(() => {})
+  })
+  await select(page)
+  await page.getByRole('button', { name: 'Main sekarang', exact: true }).click()
+  const preparation = page.getByRole('region', { name: 'Persiapan aset ROM/BIOS' })
+  await expect(preparation.getByRole('progressbar', { name: 'Progres download ROM' })).toBeVisible()
+  await preparation.getByRole('button', { name: 'Batalkan persiapan' }).click()
+  await expect(page.locator('iframe')).toHaveCount(0)
+  release(); await page.unroute('**' + game.url)
+  await expect.poll(async () => (await page.evaluate(() => window.playerAssetTest.stats())).stagingCount).toBe(0)
+  await launch(page)
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Tersimpan di perangkat')
+})
+
+test('M4 real NES cache works without storage estimate/persistence or BroadcastChannel APIs', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'storage', { value: undefined })
+    Object.defineProperty(window, 'BroadcastChannel', { value: undefined })
+  })
+  await open(page)
+  await launch(page)
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Tersimpan di perangkat')
+  await exit(page)
+  const since = transfers.length
+  await launch(page)
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Cache perangkat dipakai')
+  expect(transfers.slice(since).filter(v => v.method === 'GET')).toHaveLength(0)
+})
+
+test('M4 cache settings unavailable warns visibly but healthy NES still plays via legacy path', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(window, 'indexedDB', { value: undefined }))
+  await open(page, false)
+  const frame = await launch(page)
+  expect((await snapshot(frame)).state.length).toBeGreaterThan(1000)
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('tanpa cache perangkat')
+})
+
+test('M4 HTTP LAN settings opt-in and real NES miss/hit work without secure-context storage APIs', async ({ page }, info) => {
+  const lan = Object.values(networkInterfaces()).flat().find(value => value?.family === 'IPv4' && !value.internal)
+  test.skip(!lan, 'Tidak ada interface IPv4 LAN untuk origin non-loopback.')
+  const origin = address.replace('127.0.0.1', lan!.address)
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Network.enable'); await cdp.send('Network.setCacheDisabled', { cacheDisabled: true })
+  await page.goto(origin + '/pengaturan')
+  const capabilities = await page.evaluate(() => ({ secure: isSecureContext, subtle: !!crypto.subtle,
+    estimate: typeof navigator.storage?.estimate, persist: typeof navigator.storage?.persist }))
+  expect(capabilities.secure).toBe(false); expect(capabilities.subtle).toBe(false)
+  await expect(page.getByRole('region', { name: 'Cache ROM dan BIOS backend' })).toContainText('Estimasi ruang browser tidak tersedia')
+  const toggle = page.getByRole('switch', { name: 'Gunakan cache ROM/BIOS backend' })
+  await expect(toggle).toBeEnabled(); await toggle.click(); await expect(toggle).toBeChecked()
+  async function launchGuest() {
+    // This fixture deliberately does not opt HTTP network accounts in. Preserve
+    // the real application's explicit confirmation instead of bypassing auth.
+    const accept = async (dialog: import('@playwright/test').Dialog) => {
+      expect(dialog.message()).toContain('Mulai sebagai tamu dengan save browser?')
+      await dialog.accept()
+    }
+    page.on('dialog', accept)
+    try { return await launch(page) } finally { page.off('dialog', accept) }
+  }
+  await launchGuest()
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Tersimpan di perangkat')
+  await exit(page)
+  const since = transfers.length
+  await launchGuest()
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Cache perangkat dipakai')
+  expect(transfers.slice(since)).toEqual([{ url: game.url, method: 'HEAD', status: 200, bytes: 0 }])
+  await exit(page)
+  await page.goto(origin + '/pengaturan')
+  await expect(page.getByRole('region', { name: 'Cache ROM dan BIOS backend' })).toContainText('24.02 KiB · 1 aset')
+  await info.attach('lan-storage-capabilities.json', { body: JSON.stringify({ origin, ...capabilities }), contentType: 'application/json' })
 })

@@ -179,6 +179,7 @@ async function prepare(value: AssetDescriptor, options: ServerAssetResolverOptio
       checkAbort(signal)
     }
     try {
+      emit('downloading')
       const response = await get.wait(fetcher(url, { method: 'GET', cache: 'no-store', credentials: 'same-origin', mode: 'same-origin', redirect: 'error', signal: get.signal }), connectionMs)
       try { validateResponse(response, url, descriptor) }
       catch (error) { void response.body?.cancel().catch(() => {}); throw error }
@@ -186,7 +187,6 @@ async function prepare(value: AssetDescriptor, options: ServerAssetResolverOptio
         throw new ServerAssetError('unsupported-stream', 'Browser tidak mendukung download streaming aset. Gunakan browser yang lebih baru.')
       }
       reader = response.body.getReader()
-      emit('downloading')
       for (;;) {
         const { value: bytes, done } = await get.wait(reader.read(), idleMs)
         checkAbort(signal)
