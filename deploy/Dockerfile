@@ -1,4 +1,4 @@
-# Image ini membangun aplikasi statis maindulu (npm run build = tsc + vite build)
+# Image ini membangun aplikasi statis (npm run build = helper player + tsc + Vite)
 # lalu menyajikan hasilnya dengan Nginx tanpa backend.
 
 # --- tahap build: dependensi + build Vite ------------------------------------
@@ -15,6 +15,7 @@ RUN npm ci
 COPY index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json ./
 COPY src ./src
 COPY public ./public
+COPY scripts/build-player-assets.mjs ./scripts/
 
 RUN npm run build
 

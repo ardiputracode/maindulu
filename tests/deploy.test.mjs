@@ -66,7 +66,7 @@ test('Docker context is deny-by-default with narrow source exceptions, not a bla
   const exceptions = rules.filter(s => s.startsWith('!'))
   assert.deepEqual(exceptions, [
     '!package.json', '!package-lock.json', '!index.html', '!vite.config.ts', '!tsconfig.json', '!tsconfig.app.json', '!tsconfig.node.json',
-    '!src/', '!src/**', '!public/', '!public/**', '!server/', '!server/*.mjs', '!server/auth/', '!server/auth/*.mjs', '!server/catalog/', '!server/catalog/*.mjs', '!scripts/', '!scripts/reset-account.mjs', '!scripts/set-account-role.mjs', '!scripts/data-backup.mjs', '!scripts/recover-catalog.mjs',
+    '!src/', '!src/**', '!public/', '!public/**', '!server/', '!server/*.mjs', '!server/auth/', '!server/auth/*.mjs', '!server/catalog/', '!server/catalog/*.mjs', '!scripts/', '!scripts/reset-account.mjs', '!scripts/set-account-role.mjs', '!scripts/data-backup.mjs', '!scripts/recover-catalog.mjs', '!scripts/build-player-assets.mjs',
     '!deploy/', '!deploy/Dockerfile', '!deploy/Dockerfile.backend', '!deploy/nginx.docker.conf', '!deploy/healthcheck.mjs',
   ])
   // Re-exclude children after admitting a parent directory; otherwise a negated
@@ -75,6 +75,14 @@ test('Docker context is deny-by-default with narrow source exceptions, not a bla
   for (const rule of ['**/.env', '**/.env.*', '**/*.sqlite', '**/*.sqlite-*', '**/*.maindulu-lock', '**/*.partial-*', '**/node_modules', '**/.git']) assert.ok(rules.indexOf(rule) > rules.lastIndexOf(exceptions.at(-1)), rule)
   // These tests assert configuration contracts, not Docker's actual matcher or
   // image behavior. The daemon build/runtime checklist remains necessary.
+})
+
+test('both image builds include the explicit application-helper generator before building frontend', async () => {
+  for (const file of ['deploy/Dockerfile', 'deploy/Dockerfile.backend']) {
+    const source = await text(file)
+    assert.ok(source.indexOf('COPY scripts/build-player-assets.mjs ./scripts/') < source.indexOf('RUN npm run build'))
+    assert.match(source, /COPY scripts\/build-player-assets\.mjs \.\/scripts\//)
+  }
 })
 
 test('container healthcheck validates backend identity/capabilities and fails safely on HTML, outage or malformed JSON', () => {

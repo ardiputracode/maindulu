@@ -1,6 +1,6 @@
 # Rencana Cache IndexedDB ROM/BIOS Backend
 
-Status: **M0 (spike) selesai pada 2026-11-04; M1 (storage/kebijakan) dan M2 (resolver aset) selesai pada 2026-11-05; M3–M6 belum diimplementasikan**. Cache IndexedDB belum aktif pada aplikasi/deployment pengguna. Hasil aktual dan batas bukti ada di [laporan spike M0](milestone-0-cache-indexeddb-spike.md), [laporan storage M1](milestone-1-cache-indexeddb-storage.md), dan [laporan resolver M2](milestone-2-cache-indexeddb-resolver.md). Checklist yang belum dicentang tetap rencana, bukan hasil tes.
+Status: **M0 (spike) selesai pada 2026-11-04; M1 (storage/kebijakan), M2 (resolver aset), dan M3 (integrasi aset kecil/NES) selesai pada 2026-11-05; M4–M6 belum diimplementasikan**. Player/bridge sudah terhubung dan regresi penuh lulus, tetapi default cache tetap nonaktif: belum rollout pada aplikasi/deployment pengguna. Hasil aktual dan batas bukti ada di [laporan spike M0](milestone-0-cache-indexeddb-spike.md), [laporan storage M1](milestone-1-cache-indexeddb-storage.md), [laporan resolver M2](milestone-2-cache-indexeddb-resolver.md), dan [laporan Player M3](milestone-3-cache-indexeddb-player.md). Checklist yang belum dicentang tetap rencana, bukan hasil tes.
 
 Rencana ini melengkapi, bukan menghapus riwayat [implementasi HTTP cache](rencana-cache-rom-bios.md). HTTP cache tetap berguna, tetapi tidak dijadikan jaminan penyimpanan ROM besar. Perubahan runtime, bundle engine, dan pengujian dalam dokumen ini memerlukan implementasi terpisah.
 
@@ -89,13 +89,13 @@ Mengganti URL CHD menjadi `blob:` begitu saja tidak cukup. `getBaseFileName(true
 - `EJS_gameName`, `saveIdentity`, ID game, nama filesystem, dan path progres tidak diganti dengan key cache atau UUID blob.
 - `config.rom`/`config.bios` lokal dan aset backend prepared harus dibedakan secara eksplisit. File backend yang dikirim lewat message tidak boleh membuat game dianggap lokal atau mengganti identitas game menjadi nama File.
 - Lepaskan buffer memoized pada akhir konsumsi/start, kegagalan, dan teardown; revoke URL BIOS pada teardown. Engine tetap membutuhkan memori ArrayBuffer/FS, sehingga penghematan ini bukan jaminan perangkat kecil mampu menjalankan ROM besar.
-- Helper ada di `src/lib/engine-assets.ts`, belum dipasang pada bridge produksi. Pada M3 sediakan bundle helper bridge yang reproducible sebelum build frontend menyalin aset player; jangan mengubah bundle engine hanya untuk memuat helper aplikasi.
+- Helper `src/lib/engine-assets.ts` kini dipasang pada bridge produksi melalui `src/lib/player-bridge-assets.ts` dan bundle `public/player/asset-helpers.js`. Generator M3 berjalan sebelum build frontend menyalin aset player; bundle engine tidak diubah untuk memuat helper aplikasi.
 
 **Kompatibilitas build:** tidak ada perubahan `scripts/vendor-engine.mjs`, loader/vendor runtime, core, provenance engine, atau `public/player/builds.json` pada M0. Fingerprint aktual diverifikasi dengan hash bundle; SRAM dan state dari boot URL lama dipulihkan lewat boot input prepared pada engine yang sama. Tidak ada migrasi/allowlist kompatibilitas atau pelemahan pemeriksaan metadata. Jika milestone berikutnya memerlukan patch engine, keputusan ini harus dibuka ulang karena `runtimeBuild` dapat berubah dan memblokir pemulihan lama.
 
 ### 3.4 Modul dan file yang direncanakan
 
-Modul storage/kebijakan M1 serta resolver/tes M2 di bawah sudah tersedia; file integrasi M3–M6 yang belum dibuat tetap usulan. Helper `src/lib/engine-assets.ts` dan harness M0 sudah tersedia, tetapi belum terhubung ke player produksi.
+Modul storage/kebijakan M1, resolver M2, dan integrasi Player/bridge M3 di bawah sudah tersedia. Pengelola cache M4 dan suite besar M5 yang belum dibuat tetap usulan; default rollout belum aktif.
 
 | File | Tanggung jawab |
 | --- | --- |
@@ -104,15 +104,16 @@ Modul storage/kebijakan M1 serta resolver/tes M2 di bawah sudah tersedia; file i
 | `src/lib/server-assets.ts` | **M2 tersedia:** HEAD segar, download tunggal, hashing, koordinasi cache, AbortSignal dan single-flight |
 | `src/lib/identity.ts` | **M2 tersedia:** helper hashing inkremental bersama untuk local/network/storage tanpa buffer hash file utuh |
 | `src/lib/catalog.ts`, `src/lib/domain.ts` | **M2 tersedia:** status error HTTP katalog, validasi same-origin/no-redirect dan `Bios.size` opsional |
-| `src/components/SetupDialog.tsx` | **M2 tersedia:** descriptor ROM/BIOS backend lengkap dari metadata terbaru dalam sesi; belum dipakai resolver Player |
-| `src/components/Player.tsx` | Persiapan aset, status, pembatalan, fencing sesi, configure dan lifecycle |
-| `public/player/player.js` | Validasi payload baru, adapter aset sesi, preservasi nama dan pelepasan referensi |
+| `src/components/SetupDialog.tsx` | **M2 tersedia:** descriptor ROM/BIOS backend lengkap dari metadata terbaru dalam sesi; dipakai resolver Player pada M3 |
+| `src/lib/player-assets.ts` | **M3 tersedia:** penghubung settings DB, satu resolver bersama per tab, persiapan aset berurutan dan cancellation subscriber |
+| `src/components/Player.tsx` | **M3 tersedia:** persiapan aset, status dasar, pembatalan, fencing sesi, configure, fase timeout dan lifecycle |
+| `src/lib/player-bridge-assets.ts`, `public/player/player.js` | **M3 tersedia:** validasi payload bersama, adapter aset sesi, preservasi nama dan pelepasan referensi |
 | `scripts/vendor-engine.mjs` | Tidak diubah untuk arsitektur native M0; perubahan berikutnya memerlukan evaluasi kompatibilitas ulang |
-| `public/vendor/emulatorjs/4.2.3/`, `public/player/builds.json`, `third_party/emulatorjs/README.md` | Pertahankan runtime/provenance engine; generator terpisah untuk helper bridge pada M3 bila diperlukan |
+| `public/vendor/emulatorjs/4.2.3/`, `public/player/builds.json`, `third_party/emulatorjs/README.md` | Runtime/provenance engine tetap; `scripts/build-player-assets.mjs` menghasilkan helper aplikasi terpisah pada M3 |
 | `src/components/AssetCacheSettings.tsx`, `src/App.tsx`, `src/styles.css` | Pengelola cache, status storage, pengaturan dan aksesibilitas |
 | `tests/asset-cache-policy.test.mjs`, `tests/browser/asset-cache-storage.spec.ts` | **M1 tersedia:** kebijakan serta transaksi/kegagalan/race storage browser nyata dengan dependency injection |
 | `tests/server-assets.test.mjs`, `tests/browser/server-assets.spec.ts` | **M2 tersedia:** validator origin, orkestrasi resolver, backend/IndexedDB nyata, fallback serta HTTP LAN |
-| `tests/browser/catalog-indexeddb-cache.spec.ts` | Browser nyata, backend nyata, restart, invalidasi, dan manajemen cache |
+| `tests/player-assets.test.mjs`, `tests/browser/catalog-indexeddb-cache.spec.ts` | **M3 tersedia:** kontrak payload/bundle, engine/backend/IDB nyata, miss/hit/reload dokumen, save lama, akun/logout, StrictMode dan timer; restart proses/invalidasi lanjutan/manajemen cache tetap M4/M5 |
 | `tests/browser/asset-cache-spike.spec.ts`, `playwright.asset-cache-spike.config.ts` | Harness/prototipe test-only M0, termasuk 500 MiB; bukan storage produksi |
 | `tests/browser/catalog-indexeddb-large.spec.ts` | Suite besar integrasi produksi opt-in M5, terpisah dari spike dan suite cepat |
 | `playwright.backend.config.ts`, konfigurasi/script suite besar | Registrasi testMatch eksplisit dan pembatasan resource |
@@ -280,7 +281,7 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M0 — Spike integrasi engine, nama file, dan memori
 
-**Selesai dalam cakupan spike.** [Keputusan, pengukuran aktual, dan batas verifikasi](milestone-0-cache-indexeddb-spike.md). M0 bukan aktivasi cache produksi; hasil storage M1 dan resolver M2 dicatat terpisah di bawah dan integrasi M3–M6 tetap diperlukan.
+**Selesai dalam cakupan spike.** [Keputusan, pengukuran aktual, dan batas verifikasi](milestone-0-cache-indexeddb-spike.md). M0 bukan aktivasi cache produksi; hasil storage M1, resolver M2 dan integrasi M3 dicatat terpisah di bawah. M4–M6 tetap diperlukan sebelum rollout.
 
 **Implementasi/spike**
 
@@ -305,7 +306,7 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M1 — Storage IndexedDB dan kebijakan cache
 
-**Selesai dalam cakupan storage mandiri.** [API, keputusan transaksi, hasil tes dan batas bukti](milestone-1-cache-indexeddb-storage.md). Kini dipakai resolver mandiri M2, belum diimpor Player; default storage tetap nonaktif sampai rollout.
+**Selesai dalam cakupan storage mandiri.** [API, keputusan transaksi, hasil tes dan batas bukti](milestone-1-cache-indexeddb-storage.md). Kini dipakai resolver M2 dan Player M3; default storage tetap nonaktif sampai rollout. M3 menambahkan regresi/fix concurrent abort sebelum close tanpa mengubah schema.
 
 **Implementasi**
 
@@ -329,7 +330,7 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M2 — Resolver aset, validasi origin, dan hashing
 
-**Selesai dalam cakupan resolver mandiri.** [API, hasil aktual, dan batas bukti](milestone-2-cache-indexeddb-resolver.md). Verifikasi: 295 tes unit dan 109 tes backend lulus; production statis 54 lulus/60 skip. Belum dipanggil Player/bridge dan tidak mengaktifkan cache pengguna.
+**Selesai dalam cakupan resolver mandiri.** [API, hasil aktual, dan batas bukti](milestone-2-cache-indexeddb-resolver.md). Verifikasi historis M2: 295 tes unit dan 109 tes backend lulus; production statis 54 lulus/60 skip. Pada penyelesaian M2 belum dipanggil Player; kini integrasinya tersedia pada M3 dengan default cache tetap nonaktif.
 
 **Implementasi**
 
@@ -354,27 +355,29 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M3 — Integrasi Player, bridge, dan regresi save
 
+**Selesai dalam cakupan integrasi aset kecil/NES.** [Kontrak integrasi, hasil aktual, race abort/fullscreen dan batas bukti](milestone-3-cache-indexeddb-player.md). Verifikasi: **301 unit dan 120 backend lulus; production 55 lulus/70 skip**. Bukti otomatis engine menggunakan NES; PS1 nyata/file besar/restart proses browser belum diuji ulang pada pipeline produksi.
+
 **Implementasi**
 
-- [ ] Hubungkan resolver ke lifecycle Player dan descriptor terbaru SetupDialog; pertahankan ID/hash sesi untuk save.
-- [ ] Tambahkan payload descriptor/File/Blob yang dibatasi dan adapter terpilih dari M0; validasi pada kedua sisi message.
-- [ ] Bundel helper bridge aplikasi secara reproducible; pertahankan engine/fingerprint M0. Jika patch engine ternyata dibutuhkan, buka ulang gate kompatibilitas sebelum regenerasi output/provenance resmi.
-- [ ] Ganti timeout tunggal 90 detik dengan fase terpisah: ready/configure, transfer dengan idle timeout + cancel, dan engine start. Progres download tidak boleh diartikan sebagai engine hang; timer harus dibersihkan saat ganti fase/keluar.
-- [ ] Pertahankan tombol start manual, state overlay, autosave, import/export, fullscreen, dan pengisolasian sesi akun.
-- [ ] Release reference File/Blob, listeners, request, connection milik sesi, dan object URL jika ada pada cleanup.
+- [x] Hubungkan resolver ke lifecycle Player dan descriptor terbaru SetupDialog; pertahankan ID/hash sesi untuk save.
+- [x] Tambahkan payload descriptor/File/Blob yang dibatasi dan adapter terpilih dari M0; validasi pada kedua sisi message.
+- [x] Bundel helper bridge aplikasi secara reproducible; pertahankan engine/fingerprint M0. Tidak diperlukan patch/regenerasi engine atau perluasan kompatibilitas.
+- [x] Ganti timeout tunggal 90 detik dengan fase terpisah: ready/configure, transfer dengan idle timeout + cancel, dan engine start. Progres download tidak dianggap engine hang; timer dibersihkan saat ganti fase/keluar.
+- [x] Pertahankan tombol start manual, state overlay, autosave, import/export, fullscreen, dan pengisolasian sesi akun.
+- [x] Release reference File/Blob, listeners, request, connection milik sesi, dan object URL jika ada pada cleanup.
 
 **Tes**
 
-- [ ] Engine nyata NES menghasilkan canvas aktif dan state dapat diekspor pada miss/hit/restart.
-- [ ] Nama ROM/BIOS filesystem dan save/progress key tidak berubah; fixture nama sama/ukuran sama/hash berbeda tidak tertukar.
-- [ ] ROM lokal + BIOS server, ROM server + BIOS lokal, keduanya server, dan tanpa BIOS tetap benar; file lokal tidak masuk DB cache.
-- [ ] Akun/tamu, logout/pergantian akun saat persiapan, autosave, state restore, SRAM NES, dan jalur PS1 yang sudah didukung tidak bocor/regresi.
-- [ ] Uji pemulihan fixture dari build sebelum fitur cache, termasuk penolakan terkontrol untuk build/core yang memang tidak kompatibel. Jangan memperluas allowlist kompatibilitas ke perubahan runtime lain tanpa verifikasi.
-- [ ] Unmount/StrictMode/retry lambat tidak configure sesi yang sudah mati dan tidak meninggalkan writer aktif.
-- [ ] Wrong origin/source/session/descriptor atau Blob terlalu besar ditolak; request engine/core/save tidak masuk adapter.
-- [ ] Cache dimatikan memberi perilaku lama, termasuk game bawaan dan manifest tanpa hash.
+- [x] Engine nyata NES menghasilkan canvas aktif dan state dapat diekspor pada miss/hit/restart sesi/dokumen; restart seluruh proses browser tetap M5.
+- [x] Nama ROM/BIOS filesystem dan save/progress key tidak berubah; fixture nama sama/ukuran sama/hash berbeda tidak tertukar.
+- [x] ROM lokal + BIOS server, ROM server + BIOS lokal, keduanya server, dan tanpa BIOS tetap benar; file lokal tidak masuk DB cache.
+- [x] Akun/tamu, logout saat persiapan, regresi pergantian akun, autosave, state restore dan SRAM NES lulus. Jalur PS1 hanya kontrak metode/nama/path sintetis dan envelope unit; gameplay/memcard PS1 nyata belum diuji ulang dan tetap memerlukan verifikasi M5/M6.
+- [x] Fixture SRAM/state dari boot URL pada build engine lama yang tidak berubah dipulihkan ke prepared; runtime/core tidak kompatibel tetap ditahan. Bukan menjalankan image release lama; allowlist kompatibilitas tidak diperluas.
+- [x] Unmount/StrictMode/retry lambat tidak configure sesi yang sudah mati dan tidak meninggalkan writer aktif.
+- [x] Wrong origin/source/session/descriptor atau Blob terlalu besar ditolak; adapter terbatas pada input aset sesi, tidak mengubah network engine/core/save secara global.
+- [x] Cache dimatikan memberi perilaku lama, termasuk game bawaan dan manifest tanpa hash.
 
-**Gate:** fitur dapat dipakai dengan aman pada aset kecil tanpa mengubah save dan tanpa download ROM kedua oleh engine.
+**Gate M3 terpenuhi dalam cakupan aset kecil/NES:** integrasi memakai hasil resolver tanpa mengubah save dan tanpa download ROM kedua oleh engine. Default masih nonaktif; gate ini bukan bukti rollout, restart proses browser, ROM besar atau gameplay PS1 nyata.
 
 ### M4 — Pengelola cache dan pengalaman kegagalan
 
@@ -493,7 +496,7 @@ npm run test:e2e:production
 
 Build harus dilakukan sebelum suite backend/production agar frontend/bridge terbaru dipakai. Suite production statis dipakai untuk regresi lokal/demo, bukan bukti fitur katalog upload tersedia pada hosting statis.
 
-Perintah terfokus yang **direncanakan**, baru valid setelah file didaftarkan pada `playwright.backend.config.ts`:
+Perintah terfokus M3 yang **sudah didaftarkan** pada `playwright.backend.config.ts`:
 
 ```text
 npm run test:e2e:backend -- tests/browser/catalog-indexeddb-cache.spec.ts

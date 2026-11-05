@@ -36,6 +36,7 @@
 .player-save-notice { position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); z-index: 5; display: flex; align-items: center; gap: 7px; max-width: calc(100% - 24px); padding: 8px 11px; border: 1px solid #43624c; border-radius: 8px; background: #102017ed; color: #c9ebd3; box-shadow: 0 3px 12px #0004; font-size: 12px; line-height: 1.5; pointer-events: none; }
 .player-save-notice svg { flex-shrink: 0; }
 .player-save-notice--error { border-color: #8d6543; color: #f4d5af; }
+.player-asset-notice { margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
 .server-overlay > .server-state-dialog { width: 600px; max-width: 100%; max-height: calc(100dvh - 48px); padding: 24px; }
 .server-state-dialog .dialog-heading { margin-bottom: 18px; }
 .server-state-dialog .dialog-heading h2 { font-size: 24px; }

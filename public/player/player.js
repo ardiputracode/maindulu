@@ -3,6 +3,22 @@
   let sessionId = null
   let configured = false
   const urls = []
+  const lifecycle = new AbortController()
+  let disposed = false
+  let romInput = null
+  let assetConfig = null
+  function releaseAssets() {
+    romInput?.release(); romInput = null
+    if (window.EJS_emulator?.config?.gameUrl instanceof File) window.EJS_emulator.config.gameUrl = undefined
+    window.EJS_gameUrl = undefined
+    window.EJS_biosUrl = undefined
+    if (assetConfig) {
+      assetConfig.preparedRom = undefined; assetConfig.preparedBios = undefined
+      assetConfig.rom = undefined; assetConfig.bios = undefined
+      assetConfig.initialProgress = null
+    }
+    for (const url of urls.splice(0)) URL.revokeObjectURL(url)
+  }
   let widescreenWanted = false
   let widescreenState = false
   let widescreenObserver = null
@@ -54,7 +70,7 @@
   const send = (type, extra = {}) => parent.postMessage({ channel: 'maindulu:player', type, sessionId, ...extra }, location.origin)
   // An engine abort may emit later generic errors/rejections. Preserve the
   // actionable restore failure instead of replacing it with that fallout.
-  const fail = message => send('error', { message: progressBootError || message })
+  const fail = message => { releaseAssets(); if (!disposed) send('error', { message: progressBootError || message }) }
   const localUrl = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') && !/[\u0000-\u0020]/.test(value)
 
   function hideNativeStateSettings() {
@@ -111,7 +127,7 @@
   const allowedCores = ['fceumm', 'snes9x', 'gambatte', 'mgba', 'genesis_plus_gx', 'pcsx_rearmed']
   function blobUrl(blob) { const url = URL.createObjectURL(blob); urls.push(url); return url }
   async function checkServerAsset(url, label) {
-    const response = await fetch(url, { method: 'HEAD' })
+    const response = await fetch(url, { method: 'HEAD', signal: lifecycle.signal })
     if (!response.ok) throw new Error(`${label} server tidak ditemukan atau tidak bisa dibaca (HTTP ${response.status}). Periksa manifest dan berkasnya.`)
     if ((response.headers.get('content-type') || '').includes('text/html')) throw new Error(`${label} server mengembalikan halaman HTML, bukan file game/firmware. Periksa path dan konfigurasi hosting.`)
     if (response.headers.get('content-length') === '0') throw new Error(`${label} server kosong. Pilih berkas lain.`)
@@ -197,26 +213,36 @@
   window.addEventListener('message', async event => {
     if (event.origin !== location.origin || event.source !== parent || event.data?.channel !== 'maindulu:host' || event.data.type !== 'configure' || configured) return
     const config = event.data
-    if (typeof config.sessionId !== 'string' || !allowedCores.includes(config.core) || !config.game || typeof config.game.id !== 'string') return
+    if (disposed || typeof config.sessionId !== 'string' || !/^[a-f0-9-]{36}$/.test(config.sessionId) || !allowedCores.includes(config.core) || !config.game || typeof config.game.id !== 'string') return
     sessionId = config.sessionId; configured = true
+    assetConfig = config
     try {
+      MainduluAssets.validatePreparedAssets(config)
+      if (config.rom !== undefined && (!(config.rom instanceof File) || !config.rom.size || config.rom.size > 768 * 1024 * 1024)) throw new Error('ROM lokal tidak valid.')
+      if (config.bios !== undefined && (!(config.bios instanceof File) || !config.bios.size || config.bios.size > 32 * 1024 * 1024)) throw new Error('BIOS lokal tidak valid.')
       memorySaves = config.memorySaves === true
       progressEnabled = memorySaves && config.gameSaves === true && ['fceumm', 'pcsx_rearmed'].includes(config.core)
       progressLayout = config.core === 'fceumm' ? 'nes-sram-v1' : 'ps1-active-memcard-v1'
       if (progressEnabled && config.initialProgress !== null && (!(config.initialProgress?.bytes instanceof Uint8Array) || !config.initialProgress.bytes.length || config.initialProgress.bytes.length > 8 * 1024 * 1024 || config.initialProgress.metadata?.layout !== progressLayout)) throw new Error('Pemulihan progres awal tidak valid.')
       if (memorySaves) {
-        const response = await fetch('/player/builds.json', { cache: 'no-store' })
+        const response = await fetch('/player/builds.json', { cache: 'no-store', signal: lifecycle.signal })
         if (!response.ok) throw new Error('Metadata build engine tidak tersedia.')
         builds = await response.json()
       }
       if (!(config.rom instanceof Blob) && !localUrl(config.game.url)) throw new Error('Sumber ROM tidak valid. Pilih ROM kembali.')
       if (config.biosUrl && !localUrl(config.biosUrl)) throw new Error('Sumber BIOS server tidak valid.')
-      if (!(config.rom instanceof Blob)) await checkServerAsset(config.game.url, 'ROM')
-      if (config.biosUrl) await checkServerAsset(config.biosUrl, 'BIOS')
+      if (!(config.rom instanceof Blob) && !config.preparedRom) await checkServerAsset(config.game.url, 'ROM')
+      if (config.biosUrl && !config.preparedBios) await checkServerAsset(config.biosUrl, 'BIOS')
+      if (disposed) return
       window.EJS_player = '#game'
       window.EJS_core = config.core
-      window.EJS_gameUrl = config.rom instanceof Blob ? blobUrl(config.rom) : config.game.url
-      window.EJS_biosUrl = config.bios instanceof File ? blobUrl(await biosArchive(config.bios)) : config.biosUrl || ''
+      if (config.preparedRom) romInput = MainduluAssets.engineRomInput(config.preparedRom.file)
+      window.EJS_gameUrl = romInput ? romInput.file : config.rom instanceof Blob ? blobUrl(config.rom) : config.game.url
+      const biosBlob = config.preparedBios ? await MainduluAssets.preparedBiosBlob(config.preparedBios.file, config.preparedBios.descriptor.url)
+        : config.bios instanceof File ? await biosArchive(config.bios) : null
+      if (disposed) { releaseAssets(); return }
+      window.EJS_biosUrl = biosBlob ? blobUrl(biosBlob) : config.biosUrl || ''
+      config.preparedRom = undefined; config.preparedBios = undefined; config.rom = undefined; config.bios = undefined
       window.EJS_gameName = config.saveId || `${config.core}-${config.game?.sha256 || config.game.id}`
       window.EJS_pathtodata = '/vendor/emulatorjs/4.2.3/data/'
       window.EJS_color = '#a9ecc3'
@@ -228,9 +254,8 @@
       window.EJS_language = 'en-US'
       window.EJS_disableAutoLang = false
       window.EJS_noAutoFocus = false
-      // Keep EmulatorJS's ROM/BIOS database cache disabled. Server assets may
-      // still use the browser's revalidated HTTP cache; local files are not
-      // persisted by this feature. Engine save states remain separate.
+      // The application owns the prepared-asset cache. Legacy URL assets keep
+      // HTTP caching; local files and engine save states remain separate.
       window.EJS_disableDatabases = true
       window.EJS_mainduluMemorySaves = memorySaves
       window.EJS_disableLocalStorage = memorySaves
@@ -282,7 +307,12 @@
         const emulator = window.EJS_emulator
         hostFullscreen = memorySaves || !emulator.elements.parent.requestFullscreen || !document.fullscreenEnabled
         if (hostFullscreen) {
-          emulator.toggleFullscreen = fullscreen => send('fullscreen-request', { fullscreen: fullscreen === true })
+          emulator.toggleFullscreen = fullscreen => {
+            // Escape can arrive before the async host acknowledgment. Track the
+            // pending intent too, so a quick enter → Escape cannot get stuck.
+            hostFullscreenActive = fullscreen === true
+            send('fullscreen-request', { fullscreen: hostFullscreenActive })
+          }
           syncHostFullscreen(false) // The engine hides both buttons if its API is absent.
         }
         const startButton = document.querySelector('.ejs_start_button')
@@ -299,6 +329,7 @@
         window.EJS_emulator.startGameError = message => { fail(progressBootError || String(message)); return original(message) }
       }
       window.EJS_onGameStart = () => {
+        releaseAssets()
         // The engine rebuilds its settings menu when the core starts.
         hideNativeStateSettings()
         gameStarted = true
@@ -345,6 +376,6 @@
     if (/wake\s?lock/i.test(message)) { event.preventDefault(); return }
     fail(message || 'File atau core tidak dapat dimuat. Periksa format dan kelengkapan berkas.')
   })
-  window.addEventListener('pagehide', () => { for (const url of urls) URL.revokeObjectURL(url) })
+  window.addEventListener('pagehide', () => { disposed = true; lifecycle.abort(); releaseAssets(); assetConfig = null; widescreenObserver?.disconnect() })
   send('ready')
 })()

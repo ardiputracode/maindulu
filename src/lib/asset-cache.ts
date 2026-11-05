@@ -211,6 +211,10 @@ export class AssetCache {
     return live
   }
 
+  async settings(signal?: AbortSignal): Promise<AssetCacheSettings> {
+    return this.transact('settings-read', 'readonly', async tx => ({ ...(await this.control(tx)).settings }), signal)
+  }
+
   async stats(signal?: AbortSignal): Promise<AssetCacheStats> {
     return this.transact('stats', 'readonly', async tx => {
       const control = await this.control(tx)
@@ -504,6 +508,7 @@ export class AssetCacheWriter {
   private hash = createIncrementalSha256()
   private busy = false
   private finished = false
+  private aborting?: Promise<void>
   private quotaRetried = false
   private abortListener: () => void
 
@@ -573,8 +578,12 @@ export class AssetCacheWriter {
   }
 
   async abort(): Promise<void> {
+    // The signal listener can already be cancelling when resolver.finally also
+    // calls abort(). Both must await transaction completion before closing DB.
+    if (this.aborting) return this.aborting
     if (this.finished) return
     this.finish()
-    await this.cache.cancelWriter(this.stage)
+    this.aborting = this.cache.cancelWriter(this.stage)
+    await this.aborting
   }
 }

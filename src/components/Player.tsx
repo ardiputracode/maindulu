@@ -16,6 +16,17 @@ import SaveTransfer from './SaveTransfer'
 import type { TransferRequest } from './SaveTransfer'
 import { createPortal } from 'react-dom'
 import type { AssetDescriptor } from '../lib/asset-cache-policy'
+import { preparePlayerAssets } from '../lib/player-assets'
+import type { AssetPreparationProgress } from '../lib/server-assets'
+
+function assetPreparationStatus(value: AssetPreparationProgress): string {
+  const label = value.kind === 'rom' ? 'ROM' : 'BIOS'
+  if (value.phase === 'downloading') return `Mengunduh ${label}: ${(value.receivedBytes / 1048576).toFixed(2)} / ${(value.totalBytes / 1048576).toFixed(2)} MiB…`
+  if (value.phase === 'reading-cache') return `Membaca cache perangkat ${label}…`
+  if (value.phase === 'verifying') return `Memverifikasi ${label}…`
+  if (value.phase === 'saving') return `Menyimpan cache perangkat ${label}…`
+  return `Memeriksa ${label} server…`
+}
 
 export type LaunchSession = { id: string; game: Game; consoleInfo: ConsoleInfo; rom?: File; bios?: File; biosUrl?: string; biosSha256?: string; serverRom?: AssetDescriptor; serverBios?: AssetDescriptor; storageOwner?: string | null; gameSaves?: boolean; saveId?: string }
 
@@ -32,6 +43,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
   const started = useRef(false)
   const [status, setStatus] = useState('Menyiapkan ruang bermain…')
   const [error, setError] = useState('')
+  const [assetNotice, setAssetNotice] = useState('')
   const [controls, setControls] = useState(false)
   const startCallback = useRef(onStart)
   startCallback.current = onStart
@@ -134,13 +146,30 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
   }, [progressAvailable, registerExitGuard, session.id, modalOpen, transfer, preparingTransfer])
 
   useEffect(() => {
+    if (terminated) return
     let configured = false
     let disposed = false
+    const controller = new AbortController()
     let sync: GameSaveSync | null = null
-    let timeout: ReturnType<typeof setTimeout>
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    liveRef.current = true
     setError('')
+    setAssetNotice('')
     setStatus('Menyiapkan ruang bermain…')
+    const armTimeout = (message: string) => {
+      clearTimeout(timeout)
+      timeout = setTimeout(() => { controller.abort(); setStatus(''); setError(message) }, 90000)
+    }
     async function configure() {
+      // The resolver has connection/idle timers, not a total 90s download cap.
+      clearTimeout(timeout)
+      if (owner && !active.current) throw new Error('Sesi akun belum dapat dipastikan. Buka ulang permainan setelah login.')
+      const assets = await preparePlayerAssets(session, controller.signal, value => {
+        if (!disposed && !controller.signal.aborted) setStatus(assetPreparationStatus(value))
+      })
+      if (disposed || controller.signal.aborted) return
+      if (owner && !active.current) throw new Error('Sesi akun berubah atau belum dapat dipastikan. Buka ulang permainan setelah login.')
+      setAssetNotice(assets.outcomes.map(value => `${value.descriptor.kind === 'rom' ? 'ROM' : 'BIOS'}: ${value.persistence === 'reused' ? 'Cache perangkat dipakai' : value.persistence === 'stored' ? 'Tersimpan di perangkat' : `Dimainkan tanpa disimpan${value.warnings[0] ? ': ' + value.warnings[0].message : ''}`}`).join(' · '))
       let initialProgress = null
       if (progressAvailable && owner && layout) {
         sync = new GameSaveSync(new GameSaveClient(owner), { gameId: session.saveId ?? saveIdentity(session.game, session.consoleInfo.core), consoleId: session.consoleInfo.id, core: session.consoleInfo.core, title: session.game.title }, async () => {
@@ -155,9 +184,11 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
         const initial = await sync.prepare()
         if (initial.bytes) initialProgress = { bytes: decodeGameSave(initial.bytes).files[0].bytes, metadata: initial.metadata }
       }
-      if (disposed || owner && !active.current) return
-      frame.current?.contentWindow?.postMessage({ channel: 'maindulu:host', type: 'configure', sessionId: session.id, game: session.game, core: session.consoleInfo.core, rom: session.rom, bios: session.bios, biosUrl: session.biosUrl, volume: settings.volume / 100, widescreen: settings.widescreen === true, memorySaves: !!owner, gameSaves: progressAvailable, initialProgress }, location.origin)
+      if (disposed || controller.signal.aborted) return
+      if (owner && !active.current) throw new Error('Sesi akun berubah atau belum dapat dipastikan. Buka ulang permainan setelah login.')
+      frame.current?.contentWindow?.postMessage({ channel: 'maindulu:host', type: 'configure', sessionId: session.id, game: session.game, core: session.consoleInfo.core, consoleId: session.consoleInfo.id, rom: session.rom, bios: session.bios, biosUrl: session.biosUrl, biosSha256: session.biosSha256, preparedRom: assets.preparedRom, preparedBios: assets.preparedBios, volume: settings.volume / 100, widescreen: settings.widescreen === true, memorySaves: !!owner, gameSaves: progressAvailable, initialProgress }, location.origin)
       setStatus('Memuat engine dan core lokal…')
+      armTimeout('Engine belum siap. Periksa kelengkapan aset engine, lalu buka game kembali.')
     }
     const syncFullscreen = () => {
       frame.current?.contentWindow?.postMessage({ channel: 'maindulu:host', type: 'fullscreen-state', sessionId: session.id, fullscreen: pseudoFullscreenRef.current || !!shell.current && document.fullscreenElement === shell.current }, location.origin)
@@ -187,10 +218,10 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     }
     const escapePseudoFullscreen = (event: KeyboardEvent) => { if (event.key === 'Escape' && pseudoFullscreenRef.current) setFallbackFullscreen(false) }
     function receive(event: MessageEvent) {
-      if (event.origin !== location.origin || event.source !== frame.current?.contentWindow || event.data?.channel !== 'maindulu:player') return
+      if (disposed || controller.signal.aborted || event.origin !== location.origin || event.source !== frame.current?.contentWindow || event.data?.channel !== 'maindulu:player') return
       if (event.data.type === 'ready' && !configured) {
         configured = true
-        void configure().catch(e => { if (!disposed) { clearTimeout(timeout); setStatus(''); setError(e instanceof Error ? e.message : 'Pengambilan progres awal gagal. Game tidak dimulai.') } })
+        void configure().catch(e => { if (!disposed && !controller.signal.aborted) { clearTimeout(timeout); controller.abort(); setStatus(''); setError(e instanceof Error ? e.message : 'Persiapan game gagal. Buka ulang permainan.') } })
       }
       if (event.data.sessionId !== session.id) return
       // Fullscreen the shared player shell, not the iframe alone: React save
@@ -233,7 +264,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
       if (event.data.type === 'loaded') { clearTimeout(timeout); setStatus('Engine siap. Klik “Mulai bermain” di layar.'); syncFullscreen() }
       if (event.data.type === 'starting') {
         setStatus('Memuat ROM dan core dari server maindulu…')
-        timeout = setTimeout(() => { setStatus(''); setError('Pemuatan terlalu lama. Periksa ROM/BIOS dan koneksi ke server maindulu, lalu coba lagi.') }, 90000)
+        armTimeout('Pemuatan core terlalu lama. Periksa ROM/BIOS, lalu buka game kembali.')
       }
       if (event.data.type === 'error') { clearTimeout(timeout); setStatus(''); setError(String(event.data.message || 'Engine tidak dapat dimuat.')) }
       if (event.data.type === 'progress-error') setProgress({ status: 'failed', message: String(event.data.message || 'Layout progres tidak didukung.'), pending: false })
@@ -246,18 +277,22 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     window.addEventListener('message', receive)
     document.addEventListener('fullscreenchange', syncFullscreen)
     document.addEventListener('keydown', escapePseudoFullscreen)
-    timeout = setTimeout(() => { setStatus(''); setError('Player belum siap. Periksa koneksi ke server maindulu dan kelengkapan aset engine, lalu buka game kembali.') }, 90000)
+    armTimeout('Player belum siap. Periksa koneksi ke server maindulu dan kelengkapan aset engine, lalu buka game kembali.')
     const warn = (e: BeforeUnloadEvent) => { if (started.current) e.preventDefault() }
     window.addEventListener('beforeunload', warn)
     return () => {
-      disposed = true; sync?.close(); progressSync.current = null
+      disposed = true; controller.abort()
+      // Logout may retain a downloadable pending snapshot. A real account
+      // switch already clears it in the ownership effect above.
+      sync?.close(!owner || active.current)
+      if (!owner || active.current) progressSync.current = null
       clearTimeout(timeout); window.removeEventListener('message', receive); window.removeEventListener('beforeunload', warn); document.removeEventListener('fullscreenchange', syncFullscreen); document.removeEventListener('keydown', escapePseudoFullscreen); liveRef.current = false
       for (const request of requests.current.values()) { clearTimeout(request.timer); request.reject(new Error('Sesi player ditutup.')) }
       requests.current.clear()
     }
     // The initial volume is frozen for this session; changing settings affects the next session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, progressRetry])
+  }, [session, progressRetry, terminated])
 
   function exit() { onExit() }
   async function openTransfer(request: TransferRequest) {
@@ -297,6 +332,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
         }} />, shell.current ?? document.body)}
     </div>
     {status && <p className="player-status" role="status"><LoaderCircle size={15} className="spin" />{status}</p>}
+    {assetNotice && !terminated && <p className="player-asset-notice" role="status">{assetNotice}</p>}
     <div className="player-note"><ShieldCheck size={16} /><span>{session.game.source === 'local' ? 'File tetap di perangkatmu.' : 'Dimuat dari server maindulu.'} Semua core berjalan lokal di browser.</span></div>
     {stateError && <p className="notice" role="alert">{stateError}</p>}
     {progressAvailable && !(account.status === 'authenticated' && account.user?.id !== owner) && <section className="progress-sync" aria-label="Sinkronisasi progres game">

@@ -298,6 +298,24 @@ test('AbortSignal cleans staging; close/reopen never exposes abandoned staging a
   expect(result.chunks).toBe(0)
 })
 
+test('concurrent signal/explicit abort waits for cancellation commit before connection close', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { fresh, descriptor, openAssetCache, name, payloadCount } = window.cacheTest
+    const cache = await fresh(), controller = new AbortController()
+    const writer = await cache.begin(descriptor(), controller.signal)
+    await writer.append(new Blob([new Uint8Array([1, 2, 3])]))
+    controller.abort() // Starts asynchronous cancellation from the signal listener.
+    await Promise.all([writer.abort(), writer.abort()])
+    cache.close() // Must not abort the cancellation transaction still in flight.
+    const reopened = await openAssetCache({ name })
+    try {
+      const stats = await reopened.stats()
+      return { stages: stats.stagingCount, reserved: stats.reservedBytes, count: stats.count, chunks: await payloadCount() }
+    } finally { reopened.close() }
+  })
+  expect(result).toEqual({ stages: 0, reserved: 0, count: 0, chunks: 0 })
+})
+
 test('LRU respects an active assembly pin and metadata statistics never read chunk payloads', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const { fresh, descriptor, write, code } = window.cacheTest
