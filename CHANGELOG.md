@@ -7,6 +7,13 @@ Perubahan penting per rilis didokumentasikan di sini. Format mengikuti
 Selama pengembangan, tulis eksil baru di bagian **[Belum dirilis]**;
 saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
+## [Belum dirilis]
+
+### Ditambahkan
+
+- Cache IndexedDB ROM/BIOS upload backend opt-in, storage chunk atomik, fresh validation/hash, resolver/adapter Player tanpa perubahan engine, pengelola cache dan UX kegagalan. Bukti M0–M5 mencakup Edge/Windows/NES, restart browser dan transport sintetis sampai 500 MiB dengan HTTP cache nonaktif; bukan gameplay CHD atau semua perangkat. [Rencana dan laporan](doc/rencana-cache-indexeddb-rom-bios.md).
+- M6: panduan pengguna/deployment, inspeksi IndexedDB dan rollback tanpa menghapus save; kill switch frontend build-time `VITE_ASSET_CACHE_DISABLED=true`, termasuk build arg kedua image/Compose. Pilihan pengguna dan pengelola hapus tetap dipertahankan. Verifikasi proses backend baru, origin terpisah, serta build darurat tersedia pada suite deployment. Default tetap nonaktif sampai gate Docker/HTTPS dan gameplay CHD legal terpenuhi; [hasil aktual/batas M6](doc/milestone-6-cache-indexeddb-rollout.md).
+
 ## 0.5.0 — 2026-11-04
 
 ### Ditambahkan

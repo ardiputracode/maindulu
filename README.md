@@ -105,7 +105,7 @@ Semua isi `public/` dapat diunduh pengunjung, **bukan penyimpanan privat**. BIOS
 
 ## Format dan batas MVP
 
-- ROM maksimal 768 MB; BIOS maksimal 32 MB. RAM perangkat/browser tetap menjadi batas nyata.
+- ROM maksimal **768 MiB (805.306.368 byte)**; BIOS maksimal **32 MiB (33.554.432 byte)**. RAM perangkat/browser tetap menjadi batas nyata.
 - ZIP/7z/RAR diproses engine; satu arsip harus berisi satu game, bukan koleksi.
 - CUE/BIN multi-file: kemas CUE dan semua BIN dalam satu ZIP, pertahankan nama dan struktur.
 - Game lokal diidentifikasi melalui SHA-256 isi ROM dan console. HTTPS/localhost memakai Web Crypto jika tersedia; HTTP jaringan memakai fallback lokal dengan hasil identik, sehingga ID favorit/save tetap cocok. File besar di-hash bertahap untuk membatasi penggunaan memori.
@@ -131,6 +131,19 @@ Ini **bukan penyimpanan ROM permanen, save/progres, atau mode offline**. Koneksi
 Reverse proxy harus mempertahankan ETag dan kebijakan origin: jangan mengganti header ROM/BIOS menjadi `no-store`, mengabaikan `private`, atau melayani cache tanpa validasi origin. Jika proxy mengubah representasi (misalnya kompresi), pastikan validator ETag tetap benar.
 
 Desain, checklist selesai, bukti pengujian, dan rollback: [cache ROM/BIOS server](doc/rencana-cache-rom-bios.md). Kontrak endpoint terkini tersedia di [panduan API katalog](doc/milestone-3-api-katalog.md#kontrak-http).
+
+### Cache IndexedDB ROM/BIOS backend
+
+Cache perangkat tersedia melalui **Pengaturan → Cache ROM/BIOS perangkat → Gunakan cache ROM/BIOS backend**. Saat ini **opt-in, default nonaktif**: verifikasi Docker/HTTPS dan gameplay CHD legal untuk rollout default masih terbuka. Setelah diaktifkan, frontend otomatis menangani ROM/BIOS upload backend dengan metadata lengkap; tidak perlu Redis, volume cache Docker, atau `.env` cache baru. File lokal, demo/manifest statis, cover, dan engine tidak ikut disimpan.
+
+- Setiap peluncuran tetap memeriksa katalog dan HEAD server. Cache hit terverifikasi memakai IndexedDB tanpa GET ROM/BIOS; cache miss mengunduh sekali, memverifikasi ukuran/SHA-256, lalu mencoba menyimpan. Jalur ini memakai fetch `no-store`, **tanpa mengubah** header HTTP cache backend di atas. Cache nonaktif memakai jalur URL/HTTP cache lama.
+- Status **Tersimpan di perangkat** hanya setelah commit berhasil; **Cache perangkat dipakai** berarti bytes lokal terverifikasi; **Dimainkan tanpa disimpan** berarti sesi tetap dapat dimainkan tetapi reuse belum dijamin. Error sumber/integritas tetap menolak boot; cache bukan mode offline.
+- Pengaturan menampilkan metadata aset, aktivitas sementara, budget awal **2 GiB**, dan opsi hapus satu/semua dengan konfirmasi. Menghapus cache **tidak menghapus state, SRAM/memcard, progres server, akun, favorit, atau riwayat**. Mematikan toggle tidak menghapus bytes lama.
+- Mendukung HTTP LAN tanpa `crypto.subtle`, Web Locks, atau persistence API. Kuota/RAM, eviction, mode privat, serta profil/origin (skema + host + port) tetap membatasi. Cache tidak terenkripsi, dibagi seluruh akun pada origin/profil yang sama, dan tidak dihapus saat logout; bukan penyimpanan permanen.
+
+Inspeksi Chromium/Edge: **DevTools → Application → IndexedDB → `maindulu-asset-cache`**. `entries` hanya manifest committed; `chunks` berisi potongan byte, sedangkan `staging`/reservation bukan aset siap pakai. Keberadaan nama DB saja bukan bukti ROM berhasil disimpan. Jangan memilih **Clear site data** untuk menghapus cache saja karena save tamu dan sesi akun dapat ikut hilang.
+
+Bukti M5: Edge/Windows, engine NES, serta transport sintetis **329.641.708 byte** dan **500 MiB** reused setelah restart proses browser dengan HTTP cache mati. Ini bukan bukti gameplay CHD/semua perangkat. [Panduan operasi, rollback, dan gate rollout M6](doc/milestone-6-cache-indexeddb-rollout.md); [hasil M5](doc/milestone-5-cache-indexeddb-verification.md); [rencana lengkap](doc/rencana-cache-indexeddb-rom-bios.md).
 
 ## Engine, sumber, dan kemandirian
 

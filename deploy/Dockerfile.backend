@@ -7,6 +7,7 @@ COPY index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.jso
 COPY src ./src
 COPY public ./public
 COPY scripts/build-player-assets.mjs ./scripts/
+ARG VITE_ASSET_CACHE_DISABLED=false
 RUN npm run build
 
 FROM node:24-alpine AS production-dependencies

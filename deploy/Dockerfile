@@ -17,6 +17,7 @@ COPY src ./src
 COPY public ./public
 COPY scripts/build-player-assets.mjs ./scripts/
 
+ARG VITE_ASSET_CACHE_DISABLED=false
 RUN npm run build
 
 # --- tahap runtime: Nginx melayani dist/ secara statis ------------------------

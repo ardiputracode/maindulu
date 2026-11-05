@@ -67,7 +67,7 @@ Buka **http://192.168.2.251:7777** dari PC/HP lain. Tidak perlu Nginx, sertifika
 - `MAIN_DULU_PUBLIC_ORIGIN` harus sama dengan URL browser: skema, hostname/IP, dan port. Tanpa path/query/kredensial. Dengan origin LAN, API akun lewat `localhost` yang berbeda akan ditolak; healthcheck `/api/health` tetap bekerja.
 - Mengganti IP/port berarti memperbarui origin dan URL browser sekaligus. Data akun/save server tetap pada volume, tetapi storage tamu terpisah per origin.
 - Mengaktifkan flag HTTP **tanpa origin eksplisit** membuat startup gagal. Flag default tetap `false`; HTTPS tetap memakai cookie `Secure` walaupun flag keliru dibiarkan `true`.
-- Setelah mengubah env, gunakan `up -d --force-recreate`, bukan hanya `restart`. Tidak perlu build ulang untuk perubahan environment.
+- Setelah mengubah env runtime backend, gunakan `up -d --force-recreate`, bukan hanya `restart`. Tidak perlu build ulang untuk perubahan runtime ini; opsi frontend **build-time** pada bagian cache di bawah berbeda dan memerlukan rebuild.
 
 ### C. Beralih ke HTTPS nanti
 
@@ -91,6 +91,29 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -
 ```
 
 Variabel `https://...` saja **tidak** mengaktifkan TLS pada server Node. Compose ini tidak memasang proxy/sertifikat. HTTP LAN bukan pengganti HTTPS untuk deployment publik.
+
+### Cache perangkat ROM/BIOS (IndexedDB)
+
+Fitur ini berjalan **di frontend/profil browser**, bukan cache pada server. Tidak perlu Redis, volume cache Docker, atau `.env` baru untuk pemakaian normal. Aktifkan melalui **Pengaturan → Cache ROM/BIOS perangkat**; default masih nonaktif selama gate rollout Docker/HTTPS/CHD legal belum terpenuhi. Hanya upload backend dengan descriptor lengkap yang eligible; file lokal/demo/engine tidak ikut disimpan.
+
+Server tetap diperiksa pada setiap peluncuran. Hit IndexedDB terverifikasi tidak membuat GET aset; miss melakukan satu download/verifikasi dan baru menyatakan **Tersimpan di perangkat** setelah commit. Fetch pipeline IndexedDB memakai `no-store`; ini **bukan** instruksi mengubah header backend/proxy `private, no-cache` di atas. Gagal kuota/storage dapat dimainkan tanpa disimpan, tetapi error sumber/hash tidak dibypass.
+
+IndexedDB bekerja pada HTTP LAN tepercaya tanpa persistence API; budget awal 2 GiB bukan jaminan kuota/RAM. Penyimpanan dibagi semua akun dalam origin/profil, tidak terenkripsi/permanen/offline, dan logout tidak menghapusnya. Rebuild/restart/recreate backend tidak memindahkan DB browser. Domain/IP, port, skema, atau profil baru memakai storage lain; volume Docker tetap menyimpan aset sumber/save server seperti biasa.
+
+Gunakan daftar/hapus satu/semua di Pengaturan untuk menghapus **hanya** cache, bukan save/progres. DevTools: **Application → IndexedDB → `maindulu-asset-cache`**; hanya `entries` committed yang siap, bukan `chunks`/`staging` tersendiri. Jangan membersihkan seluruh data origin sebagai prosedur rutin.
+
+Proxy wajib mempertahankan strong ETag SHA-256 dan Content-Length untuk respons file penuh, HEAD segar, serta 404/410/5xx asli. Jangan mengganti error dengan HTML, memakai static alias ke volume data, atau menyajikan cache tanpa pemeriksaan origin. Untuk jalur ini sebaiknya tidak mengompresi/mengubah representasi ROM/BIOS; perubahan harus diuji terhadap validator dan bytes aktual. Akun/save tetap mengikuti kebijakan privat/no-store masing-masing.
+
+Rem darurat opsional **build-time**: `VITE_ASSET_CACHE_DISABLED=true`. Compose meneruskannya hanya sebagai build argument, bukan runtime environment backend. Contoh dengan env-file yang sama seperti deployment:
+
+```sh
+docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml build --build-arg VITE_ASSET_CACHE_DISABLED=true backend
+docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -d --no-build backend
+```
+
+Build ini mengabaikan penggunaan/pengisian cache walaupun preferensi lama aktif, menampilkan alasannya, dan tetap menyediakan daftar/hapus. Tidak menghapus DB atau mengubah preferensi. Untuk memulihkan, build dengan `--build-arg VITE_ASSET_CACHE_DISABLED=false`, lalu `up -d --no-build`; pilihan pengguna sebelumnya kembali berlaku. Mengubah env runtime atau `restart` saja **tidak** mengganti frontend yang telah dibundel. Tidak perlu menambah variabel ini ke `.env.backend` normal. Tutup sesi player, lalu reload halaman setelah deployment.
+
+[Runbook dan matriks verifikasi M6](../doc/milestone-6-cache-indexeddb-rollout.md) membedakan hasil Node/LAN dari Docker/Linux/HTTPS yang belum dibuktikan. Uji transport sintetis 500 MiB bukan bukti gameplay CHD, firmware asli, atau semua perangkat.
 
 ## 3. Build, mulai, berhenti, dan log
 

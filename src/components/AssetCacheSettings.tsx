@@ -5,6 +5,7 @@ import type { AssetCache, AssetCacheEntry, AssetCacheStats } from '../lib/asset-
 import { subscribeAssetCacheChanges } from '../lib/asset-cache-events'
 import { formatAssetBytes, readBrowserStorage, requestPersistentStorage } from '../lib/asset-cache-ui'
 import type { BrowserStorageInfo } from '../lib/asset-cache-ui'
+import { ASSET_CACHE_DISABLED, ASSET_CACHE_DISABLED_NOTICE } from '../lib/asset-cache-rollout'
 import Dialog from './Dialog'
 
 type Confirmation = { type: 'entry'; entry: AssetCacheEntry } | { type: 'clear' } | { type: 'budget'; budget: number }
@@ -117,12 +118,13 @@ export default function AssetCacheSettings() {
 
   return <section className="settings-panel asset-cache-settings" aria-label="Cache ROM dan BIOS backend" aria-busy={busy}>
     <div className="setting-row"><div className="setting-symbol"><HardDrive size={22} /></div><div className="setting-description"><h2>Cache ROM/BIOS perangkat</h2><p>Simpan aset upload katalog backend agar tidak perlu diunduh ulang. Server tetap diperiksa setiap peluncuran; ini bukan mode offline.</p><p>Fitur belum aktif secara default selama pengujian rilis. File ROM/BIOS lokal dan game demo tidak ikut disimpan.</p></div>
-      <button className={`toggle ${stats?.settings.enabled ? 'on' : ''}`} role="switch" aria-checked={stats?.settings.enabled ?? false} aria-label="Gunakan cache ROM/BIOS backend" disabled={busy || !stats} onClick={() => void mutate(async (cache, signal) => {
+      <button className={`toggle ${!ASSET_CACHE_DISABLED && stats?.settings.enabled ? 'on' : ''}`} role="switch" aria-checked={!ASSET_CACHE_DISABLED && (stats?.settings.enabled ?? false)} aria-label="Gunakan cache ROM/BIOS backend" disabled={ASSET_CACHE_DISABLED || busy || !stats} onClick={() => void mutate(async (cache, signal) => {
         const current = await cache.settings(signal)
         await cache.setSettings({ ...current, enabled: !current.enabled }, signal)
       }, 'Pengaturan cache diperbarui. Berlaku untuk peluncuran berikutnya.')}><span /></button>
     </div>
     <div className="asset-cache-body">
+      {ASSET_CACHE_DISABLED && <p role="status">{ASSET_CACHE_DISABLED_NOTICE} Pilihan penggunaan sebelumnya tetap disimpan. Pengelolaan dan penghapusan cache tetap tersedia.</p>}
       <p>Cache dibagikan semua akun pada origin <code>{location.origin}</code> di profil browser ini, tidak terenkripsi, dan tidak dihapus saat logout. Mematikan cache tidak menghapus data lama. Kuota, eviction browser, atau penghapusan data situs dapat menghilangkannya.</p>
       <div className="asset-cache-toolbar"><label htmlFor="asset-cache-budget">Budget cache aplikasi<select id="asset-cache-budget" disabled={busy || !stats} value={stats?.settings.budget ?? 2147483648} onChange={e => changeBudget(Number(e.target.value))}>
         {[...new Set([...budgets, ...(stats ? [stats.settings.budget] : [])])].sort((a, b) => a - b).map(budget => <option key={budget} value={budget}>{formatAssetBytes(budget)}</option>)}

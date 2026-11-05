@@ -10,6 +10,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args:
+        VITE_ASSET_CACHE_DISABLED: "${VITE_ASSET_CACHE_DISABLED:-false}"
     image: maindulu-web:latest
     container_name: maindulu-web
     ports:

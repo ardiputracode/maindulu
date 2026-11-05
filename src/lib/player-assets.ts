@@ -7,6 +7,7 @@ import type { PreparedAssetPayload } from './player-bridge-assets.ts'
 import type { AssetDescriptor } from './asset-cache-policy.ts'
 import { cacheStorageError } from './asset-cache-policy.ts'
 import type { Game } from './domain.ts'
+import { ASSET_CACHE_DISABLED, ASSET_CACHE_DISABLED_NOTICE } from './asset-cache-rollout.ts'
 
 // One resolver per tab. Subscriber signals own tasks, not this shared instance;
 // StrictMode cleanup must never close a resolver used by the next mount.
@@ -20,7 +21,9 @@ export async function preparePlayerAssets(session: {
     cacheNotice?: string; outcomes: Pick<PreparedServerAsset, 'descriptor' | 'source' | 'persistence' | 'warnings'>[] } = { outcomes: [] }
   signal.throwIfAborted()
   if (!session.serverRom && !session.serverBios) return result
-  // Rollout stays off by default. Off retains the old URL/HTTP-cache path,
+  if (ASSET_CACHE_DISABLED) { result.cacheNotice = ASSET_CACHE_DISABLED_NOTICE; return result }
+  // The profile preference stays off by default pending deployment/manual gates.
+  // Off retains the old URL/HTTP-cache path,
   // rather than accidentally enabling the network-only resolver pipeline.
   let enabled = false
   let cache: Awaited<ReturnType<typeof openAssetCache>> | undefined

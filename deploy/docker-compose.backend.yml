@@ -7,6 +7,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.backend
+      args:
+        VITE_ASSET_CACHE_DISABLED: "${VITE_ASSET_CACHE_DISABLED:-false}"
     image: maindulu-backend:0.5.0
     init: true
     ports:

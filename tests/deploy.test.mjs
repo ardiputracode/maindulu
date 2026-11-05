@@ -85,6 +85,17 @@ test('both image builds include the explicit application-helper generator before
   }
 })
 
+test('cache emergency brake is a frontend build argument, not a backend runtime or volume policy', async () => {
+  for (const name of ['', '.backend']) {
+    const dockerfile = await text(`deploy/Dockerfile${name}`)
+    assert.match(dockerfile, /ARG VITE_ASSET_CACHE_DISABLED=false\r?\nRUN npm run build/)
+    assert.doesNotMatch(dockerfile.split('RUN npm run build')[1], /VITE_ASSET_CACHE_DISABLED/)
+    const compose = await text(`deploy/docker-compose${name}.yml`)
+    assert.ok(compose.includes('VITE_ASSET_CACHE_DISABLED: "${VITE_ASSET_CACHE_DISABLED:-false}"'))
+    assert.doesNotMatch(compose, /- VITE_ASSET_CACHE_DISABLED|redis|asset-cache:\//)
+  }
+})
+
 test('container healthcheck validates backend identity/capabilities and fails safely on HTML, outage or malformed JSON', () => {
   const health = new URL('../deploy/healthcheck.mjs', import.meta.url).href
   const healthy = { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true } }
