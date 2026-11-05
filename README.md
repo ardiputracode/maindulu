@@ -134,7 +134,7 @@ Desain, checklist selesai, bukti pengujian, dan rollback: [cache ROM/BIOS server
 
 ### Cache IndexedDB ROM/BIOS backend
 
-Cache perangkat tersedia melalui **Pengaturan → Cache ROM/BIOS perangkat → Gunakan cache ROM/BIOS backend**. Saat ini **opt-in, default nonaktif**: verifikasi Docker/HTTPS dan gameplay CHD legal untuk rollout default masih terbuka. Setelah diaktifkan, frontend otomatis menangani ROM/BIOS upload backend dengan metadata lengkap; tidak perlu Redis, volume cache Docker, atau `.env` cache baru. File lokal, demo/manifest statis, cover, dan engine tidak ikut disimpan.
+Cache perangkat tersedia melalui **Pengaturan → Cache ROM/BIOS perangkat → Gunakan cache ROM/BIOS backend**. **Default aktif** untuk profil/database baru (M6 rollout). Pengguna dapat menonaktifkan melalui Pengaturan. Setelah diaktifkan, frontend otomatis menangani ROM/BIOS upload backend dengan metadata lengkap; tidak perlu Redis, volume cache Docker, atau `.env` cache baru. File lokal, demo/manifest statis, cover, dan engine tidak ikut disimpan.
 
 - Setiap peluncuran tetap memeriksa katalog dan HEAD server. Cache hit terverifikasi memakai IndexedDB tanpa GET ROM/BIOS; cache miss mengunduh sekali, memverifikasi ukuran/SHA-256, lalu mencoba menyimpan. Jalur ini memakai fetch `no-store`, **tanpa mengubah** header HTTP cache backend di atas. Cache nonaktif memakai jalur URL/HTTP cache lama.
 - Status **Tersimpan di perangkat** hanya setelah commit berhasil; **Cache perangkat dipakai** berarti bytes lokal terverifikasi; **Dimainkan tanpa disimpan** berarti sesi tetap dapat dimainkan tetapi reuse belum dijamin. Error sumber/integritas tetap menolak boot; cache bukan mode offline.

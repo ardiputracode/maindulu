@@ -78,7 +78,7 @@ export async function openAssetCache(options: AssetCacheOptions = {}): Promise<A
       staging.createIndex('heartbeat', 'heartbeatAt')
       staging.createIndex('catalog', ['descriptor.kind', 'descriptor.catalogId'])
       database.createObjectStore('control').put({ epoch: 0,
-        settings: { enabled: false, budget: DEFAULT_ASSET_BUDGET }, pins: {} } satisfies Control, 'state')
+        settings: { enabled: true, budget: DEFAULT_ASSET_BUDGET }, pins: {} } satisfies Control, 'state')
     }
     opening.onblocked = () => {
       abandoned = true

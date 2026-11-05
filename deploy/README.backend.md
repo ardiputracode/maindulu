@@ -94,7 +94,7 @@ Variabel `https://...` saja **tidak** mengaktifkan TLS pada server Node. Compose
 
 ### Cache perangkat ROM/BIOS (IndexedDB)
 
-Fitur ini berjalan **di frontend/profil browser**, bukan cache pada server. Tidak perlu Redis, volume cache Docker, atau `.env` baru untuk pemakaian normal. Aktifkan melalui **Pengaturan → Cache ROM/BIOS perangkat**; default masih nonaktif selama gate rollout Docker/HTTPS/CHD legal belum terpenuhi. Hanya upload backend dengan descriptor lengkap yang eligible; file lokal/demo/engine tidak ikut disimpan.
+Fitur ini berjalan **di frontend/profil browser**, bukan cache pada server. Tidak perlu Redis, volume cache Docker, atau `.env` baru untuk pemakaian normal. **Default aktif** untuk database/profil baru (M6 rollout). Pengguna dapat menonaktifkan melalui **Pengaturan → Cache ROM/BIOS perangkat**. Hanya upload backend dengan descriptor lengkap yang eligible; file lokal/demo/engine tidak ikut disimpan.
 
 Server tetap diperiksa pada setiap peluncuran. Hit IndexedDB terverifikasi tidak membuat GET aset; miss melakukan satu download/verifikasi dan baru menyatakan **Tersimpan di perangkat** setelah commit. Fetch pipeline IndexedDB memakai `no-store`; ini **bukan** instruksi mengubah header backend/proxy `private, no-cache` di atas. Gagal kuota/storage dapat dimainkan tanpa disimpan, tetapi error sumber/hash tidak dibypass.
 

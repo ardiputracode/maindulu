@@ -22,9 +22,8 @@ export async function preparePlayerAssets(session: {
   signal.throwIfAborted()
   if (!session.serverRom && !session.serverBios) return result
   if (ASSET_CACHE_DISABLED) { result.cacheNotice = ASSET_CACHE_DISABLED_NOTICE; return result }
-  // The profile preference stays off by default pending deployment/manual gates.
-  // Off retains the old URL/HTTP-cache path,
-  // rather than accidentally enabling the network-only resolver pipeline.
+  // Default cache now enabled for new databases (M6 rollout).
+  // Legacy databases keep their user preference (enabled: false).
   let enabled = false
   let cache: Awaited<ReturnType<typeof openAssetCache>> | undefined
   try { cache = await openAssetCache(); enabled = (await cache.settings(signal)).enabled }
