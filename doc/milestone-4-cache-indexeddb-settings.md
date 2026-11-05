@@ -1,5 +1,7 @@
 # M4 — Pengelola Cache dan Pengalaman Kegagalan
 
+> Catatan historis: hasil dan batas di bawah merekam penutupan M4, bukan status rollout terbaru. [M6](milestone-6-cache-indexeddb-rollout.md) kini selesai untuk cakupan lokal/HTTP LAN; default aktif hanya untuk DB baru, Docker/CHD dikonfirmasi manual pengguna, dan HTTPS ditunda (bukan lulus). Preferensi DB lama tetap dihormati.
+
 Lanjutan [rencana cache IndexedDB ROM/BIOS](rencana-cache-indexeddb-rom-bios.md) dan [integrasi Player M3](milestone-3-cache-indexeddb-player.md).
 
 Status: **selesai pada 2026-11-05 dalam cakupan pengelola cache/UX kegagalan**, termasuk regresi penuh. **Default tetap nonaktif**. Pengguna dapat memilih opt-in melalui Pengaturan; ini bukan aktivasi default/rollout M6 atau pembuktian file besar M5.

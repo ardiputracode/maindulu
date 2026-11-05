@@ -1,5 +1,7 @@
 # M1 — Storage IndexedDB dan Kebijakan Cache
 
+> Catatan historis: hasil dan batas di bawah merekam penutupan M1, bukan status rollout terbaru. [M6](milestone-6-cache-indexeddb-rollout.md) kini selesai untuk cakupan lokal/HTTP LAN; default aktif hanya untuk DB baru, Docker/CHD dikonfirmasi manual pengguna, dan HTTPS ditunda (bukan lulus). Preferensi DB lama tetap dihormati.
+
 Status: **selesai pada 2026-11-05 dalam cakupan storage mandiri**. Lanjutan [rencana IndexedDB ROM/BIOS](rencana-cache-indexeddb-rom-bios.md) dan [spike M0](milestone-0-cache-indexeddb-spike.md).
 
 **Belum mengaktifkan cache pada aplikasi pengguna.** Player, resolver backend, protokol bridge, dan UI tidak diubah. M2–M6 tetap diperlukan; hasil storage ini bukan bukti reuse katalog backend setelah restart browser atau gameplay ROM besar.

@@ -1,5 +1,7 @@
 # M2 — Resolver Aset, Validasi Origin, dan Hashing
 
+> Catatan historis: hasil dan batas di bawah merekam penutupan M2, bukan status rollout terbaru. [M6](milestone-6-cache-indexeddb-rollout.md) kini selesai untuk cakupan lokal/HTTP LAN; default aktif hanya untuk DB baru, Docker/CHD dikonfirmasi manual pengguna, dan HTTPS ditunda (bukan lulus). Preferensi DB lama tetap dihormati.
+
 Status: **selesai pada 2026-11-05 dalam cakupan resolver mandiri**. Lanjutan [rencana IndexedDB ROM/BIOS](rencana-cache-indexeddb-rom-bios.md) dan [storage M1](milestone-1-cache-indexeddb-storage.md).
 
 **Cache belum diaktifkan pada aplikasi pengguna.** Setup menyiapkan descriptor sesi, tetapi Player belum memanggil resolver dan bridge tetap memakai alur URL lama. Integrasi engine adalah M3; UI/pengelola cache M4; pembuktian restart browser/file besar M5; rollout M6.

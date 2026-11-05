@@ -6,7 +6,7 @@ Dokumen ini menyimpan desain awal, checklist yang sudah diselesaikan, hasil aktu
 
 ## Tujuan
 
-> **Lanjutan IndexedDB (2026-11-05):** [rencana baru](rencana-cache-indexeddb-rom-bios.md), [bukti restart/file besar M5](milestone-5-cache-indexeddb-verification.md), dan [operasi/rollout M6](milestone-6-cache-indexeddb-rollout.md). Cache HTTP dalam dokumen ini tetap berlaku untuk jalur URL lama; IndexedDB adalah pipeline frontend opt-in terpisah. Hasil historis di bawah tidak diubah menjadi klaim pengujian IndexedDB atau deployment baru.
+> **Lanjutan IndexedDB (2026-11-05):** [rencana baru](rencana-cache-indexeddb-rom-bios.md), [bukti restart/file besar M5](milestone-5-cache-indexeddb-verification.md), dan [operasi/rollout M6](milestone-6-cache-indexeddb-rollout.md). Cache HTTP dalam dokumen ini tetap berlaku untuk jalur URL lama; IndexedDB adalah pipeline frontend terpisah, default aktif untuk database/profil baru dan tetap mengikuti preferensi lama. M6 cache ditutup untuk cakupan lokal/HTTP LAN dengan konfirmasi manual Docker/CHD pengguna; HTTPS dilewati/ditunda, bukan dinyatakan lulus. Hasil historis di bawah tidak diubah menjadi klaim pengujian IndexedDB atau deployment baru.
 
 Mengurangi unduhan ulang ROM/BIOS ketika pengguna memulai sesi baru, termasuk setelah menutup dan membuka kembali browser. Browser menyimpan respons HTTP, memvalidasinya ke server, lalu menggunakan salinan lokal jika konten belum berubah.
 

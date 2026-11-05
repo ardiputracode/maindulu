@@ -94,7 +94,7 @@ Variabel `https://...` saja **tidak** mengaktifkan TLS pada server Node. Compose
 
 ### Cache perangkat ROM/BIOS (IndexedDB)
 
-Fitur ini berjalan **di frontend/profil browser**, bukan cache pada server. Tidak perlu Redis, volume cache Docker, atau `.env` baru untuk pemakaian normal. **Default aktif** untuk database/profil baru (M6 rollout). Pengguna dapat menonaktifkan melalui **Pengaturan → Cache ROM/BIOS perangkat**. Hanya upload backend dengan descriptor lengkap yang eligible; file lokal/demo/engine tidak ikut disimpan.
+Fitur ini berjalan **di frontend/profil browser**, bukan cache pada server. Tidak perlu Redis, volume cache Docker, atau `.env` baru untuk pemakaian normal. **Default aktif** untuk database/profil baru (M6 rollout); database lama mempertahankan preferensinya, termasuk yang nonaktif. Pengguna dapat mengaktifkan/menonaktifkan melalui **Pengaturan → Cache ROM/BIOS perangkat**. Hanya upload backend dengan descriptor lengkap yang eligible; file lokal/demo/engine tidak ikut disimpan.
 
 Server tetap diperiksa pada setiap peluncuran. Hit IndexedDB terverifikasi tidak membuat GET aset; miss melakukan satu download/verifikasi dan baru menyatakan **Tersimpan di perangkat** setelah commit. Fetch pipeline IndexedDB memakai `no-store`; ini **bukan** instruksi mengubah header backend/proxy `private, no-cache` di atas. Gagal kuota/storage dapat dimainkan tanpa disimpan, tetapi error sumber/hash tidak dibypass.
 
@@ -113,7 +113,9 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -
 
 Build ini mengabaikan penggunaan/pengisian cache walaupun preferensi lama aktif, menampilkan alasannya, dan tetap menyediakan daftar/hapus. Tidak menghapus DB atau mengubah preferensi. Untuk memulihkan, build dengan `--build-arg VITE_ASSET_CACHE_DISABLED=false`, lalu `up -d --no-build`; pilihan pengguna sebelumnya kembali berlaku. Mengubah env runtime atau `restart` saja **tidak** mengganti frontend yang telah dibundel. Tidak perlu menambah variabel ini ke `.env.backend` normal. Tutup sesi player, lalu reload halaman setelah deployment.
 
-[Runbook dan matriks verifikasi M6](../doc/milestone-6-cache-indexeddb-rollout.md) membedakan hasil Node/LAN dari Docker/Linux/HTTPS yang belum dibuktikan. Uji transport sintetis 500 MiB bukan bukti gameplay CHD, firmware asli, atau semua perangkat.
+**M6 cache selesai untuk penggunaan lokal/HTTP LAN.** [Runbook dan matriks verifikasi M6](../doc/milestone-6-cache-indexeddb-rollout.md) memisahkan bukti otomatis Node/LAN dari konfirmasi pengguna bahwa Docker backend sudah diuji di mesin lain dan skenario manual CHD besar legal beserta progres lama lulus. Rincian lingkungan/log manual belum dilampirkan; tidak ada klaim seluruh distro Linux, game, firmware, atau perangkat. Uji sintetis 500 MiB tetap bukti transport, bukan gameplay CHD.
+
+HTTPS reverse proxy **dilewati/ditunda atas keputusan pengguna** karena belum diperlukan, bukan dinyatakan lulus. Uji TLS/proxy dan kontrak header/error di atas tetap diperlukan sebelum cakupan HTTPS/deployment publik digunakan. Kebijakan keamanan akun tidak berubah; HTTP hanya untuk LAN tepercaya, bukan internet.
 
 ## 3. Build, mulai, berhenti, dan log
 
@@ -337,3 +339,5 @@ Tidak perlu rebuild atau membuat database baru. Jangan menghapus volume, WAL/SHM
 - `npm run test:e2e:backend -- tests/browser/account.spec.ts`: **8 tes lulus**, termasuk daftar/login/logout/reload sesi di browser pada IP jaringan HTTP (`isSecureContext === false`) tanpa sertifikat.
 - Pemeriksaan TypeScript ketat `tests/browser/account.spec.ts`: lulus.
 - Docker CLI tidak tersedia pada lingkungan ini: build/runtime Compose, recreate volume di Linux/LXC, dan reverse proxy HTTPS **belum diuji lokal**. Tes browser di atas memakai server Node nyata pada Windows, bukan container Docker atau bukti konektivitas LAN instalasi pengguna.
+
+Catatan lanjutan 2026-11-05: batas pada hasil pengembangan 0.3.1 di atas bersifat historis. Untuk rollout cache IndexedDB M6, pengguna mengonfirmasi Docker backend sudah diuji di mesin lain; HTTPS ditunda di luar cakupan lokal. Ini tidak mengubah angka tes lama atau membuktikan setiap skenario Linux/LXC/recreate volume. Lihat [hasil dan batas M6 cache](../doc/milestone-6-cache-indexeddb-rollout.md).

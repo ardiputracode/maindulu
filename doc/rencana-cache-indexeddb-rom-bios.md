@@ -1,6 +1,6 @@
 # Rencana Cache IndexedDB ROM/BIOS Backend
 
-Status: **M0 (spike) selesai pada 2026-11-04; M1 (storage/kebijakan), M2 (resolver aset), M3 (integrasi aset kecil/NES), M4 (pengelola cache/UX kegagalan), dan M5 (restart/LAN/file besar/race) selesai pada 2026-11-05; M6 diimplementasikan sebagian untuk dokumentasi, rem darurat build-time, verifikasi proses Node/HTTP LAN, dan Docker CLI**. Default cache kini **aktif** untuk database/profil baru (M6 rollout). Gate HTTPS reverse proxy dan gameplay CHD legal masih terbuka. Hasil aktual dan batas bukti ada di [laporan spike M0](milestone-0-cache-indexeddb-spike.md), [laporan storage M1](milestone-1-cache-indexeddb-storage.md), [laporan resolver M2](milestone-2-cache-indexeddb-resolver.md), [laporan Player M3](milestone-3-cache-indexeddb-player.md), [laporan Pengaturan M4](milestone-4-cache-indexeddb-settings.md), [laporan verifikasi M5](milestone-5-cache-indexeddb-verification.md), dan [laporan/runbook M6](milestone-6-cache-indexeddb-rollout.md). Checklist yang belum dicentang tetap rencana, bukan hasil tes.
+Status: **M0 selesai pada 2026-11-04; M1–M6 selesai pada 2026-11-05 dalam cakupan masing-masing, dengan penutupan M6 untuk penggunaan lokal/HTTP LAN**. Default cache **aktif hanya untuk database/profil baru**; preferensi database lama tetap dihormati. Pengguna mengonfirmasi Docker backend sudah diuji di mesin lain dan seluruh skenario manual CHD besar legal, cold/warm/restart browser, gameplay aktif serta pemulihan progres lama lulus. **HTTPS reverse proxy dilewati/ditunda atas keputusan pengguna karena belum diperlukan**, bukan dinyatakan lulus atau penghalang penutupan lokal. Hasil aktual dan batas bukti ada di [laporan spike M0](milestone-0-cache-indexeddb-spike.md), [laporan storage M1](milestone-1-cache-indexeddb-storage.md), [laporan resolver M2](milestone-2-cache-indexeddb-resolver.md), [laporan Player M3](milestone-3-cache-indexeddb-player.md), [laporan Pengaturan M4](milestone-4-cache-indexeddb-settings.md), [laporan verifikasi M5](milestone-5-cache-indexeddb-verification.md), dan [laporan/runbook M6](milestone-6-cache-indexeddb-rollout.md). Konfirmasi manual tidak menggantikan log/matriks otomatis; rincian lingkungan Docker/CHD yang belum diberikan tetap dicatat sebagai keterbatasan. Tidak ada klaim kesiapan deployment publik atau semua perangkat/game.
 
 Rencana ini melengkapi, bukan menghapus riwayat [implementasi HTTP cache](rencana-cache-rom-bios.md). HTTP cache tetap berguna, tetapi tidak dijadikan jaminan penyimpanan ROM besar. Perubahan runtime, bundle engine, dan pengujian dalam dokumen ini memerlukan implementasi terpisah.
 
@@ -95,7 +95,7 @@ Mengganti URL CHD menjadi `blob:` begitu saja tidak cukup. `getBaseFileName(true
 
 ### 3.4 Modul dan file yang direncanakan
 
-Modul storage/kebijakan M1, resolver M2, integrasi Player/bridge M3, serta pengelola cache M4 di bawah sudah tersedia. Suite restart dan file besar M5 kini tersedia; hasil verifikasi dicatat di [laporan M5](milestone-5-cache-indexeddb-verification.md). Default rollout belum aktif.
+Modul storage/kebijakan M1, resolver M2, integrasi Player/bridge M3, serta pengelola cache M4 di bawah sudah tersedia. Suite restart dan file besar M5 tersedia; hasil verifikasi dicatat di [laporan M5](milestone-5-cache-indexeddb-verification.md). Rollout M6 aktif untuk database/profil baru, tanpa migrasi paksa preferensi lama; cakupan penerimaan dan penundaan HTTPS dicatat di [laporan M6](milestone-6-cache-indexeddb-rollout.md).
 
 | File | Tanggung jawab |
 | --- | --- |
@@ -121,7 +121,7 @@ Modul storage/kebijakan M1, resolver M2, integrasi Player/bridge M3, serta penge
 | `tests/browser/helpers/asset-transfers.ts`, `tests/asset-transfers.test.mjs` | **M5 tersedia:** pencatat transfer origin bersama, termasuk regresi HTTP cache historis dan koneksi terputus |
 | `tests/browser/catalog-indexeddb-large.spec.ts` | **M5 tersedia:** suite besar resolver/storage produksi opt-in, terpisah dari spike dan emulator playable |
 | `playwright.backend.config.ts`, `playwright.asset-cache-large.config.ts`, `package.json` | **M5 tersedia:** registrasi testMatch eksplisit, script suite besar satu worker/tanpa retry dan preflight resource |
-| `src/lib/asset-cache-rollout.ts`, `vite.config.ts`, kedua Dockerfile/Compose | **M6 tersedia:** override build-time penggunaan cache tanpa menimpa preferensi/DB/save; bukan aktivasi default |
+| `src/lib/asset-cache-rollout.ts`, `vite.config.ts`, kedua Dockerfile/Compose | **M6 tersedia:** override build-time penggunaan cache tanpa menimpa preferensi/DB/save; aktivasi default DB baru terpisah di `src/lib/asset-cache.ts` |
 | `tests/browser/catalog-indexeddb-deployment.spec.ts`, `tests/fixtures/asset-cache-deployment.mjs` | **M6 tersedia:** frontend/helper aktual, proses backend diganti pada origin sama, origin terpisah, HTTP LAN dan build darurat; bukan bukti Docker/HTTPS |
 
 Tidak diperlukan endpoint backend baru pada rancangan awal. Metadata dan endpoint HEAD/GET sudah menyediakan hash serta ukuran; perubahan server hanya bila spike menemukan kebutuhan kontrak yang tidak dapat dipenuhi saat ini.
@@ -275,6 +275,8 @@ Notifikasi cache bukan error fatal player. Error validasi aset tetap fatal. Sedi
 
 Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan prototipe filename harus selesai sebelum optimasi atau klaim dukungan file besar. Setiap milestone dapat menjadi commit terpisah dengan bukti tesnya sendiri.
 
+Bagian M0–M5 berikut merekam hasil dan batas pada penutupan milestone masing-masing. Pernyataan default nonaktif atau verifikasi yang masih menunggu di bagian historis tersebut bukan status rollout terbaru; aktivasi default dan penerimaan manual Docker/CHD dicatat pada M6. Angka tes historis tidak dianggap sebagai run ulang sesudah perubahan default.
+
 | Milestone | Hasil utama | Bukti sebelum lanjut |
 | --- | --- | --- |
 | M0 | Keputusan adapter dan strategi memori/kompatibilitas | Nama file, save lama, dan spike file besar aman |
@@ -312,7 +314,7 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M1 — Storage IndexedDB dan kebijakan cache
 
-**Selesai dalam cakupan storage mandiri.** [API, keputusan transaksi, hasil tes dan batas bukti](milestone-1-cache-indexeddb-storage.md). Kini dipakai resolver M2 dan Player M3; default storage tetap nonaktif sampai rollout. M3 menambahkan regresi/fix concurrent abort sebelum close tanpa mengubah schema.
+**Selesai dalam cakupan storage mandiri.** [API, keputusan transaksi, hasil tes dan batas bukti](milestone-1-cache-indexeddb-storage.md). Kini dipakai resolver M2 dan Player M3; default storage pada penutupan M1 nonaktif, kemudian diaktifkan untuk DB baru pada M6. M3 menambahkan regresi/fix concurrent abort sebelum close tanpa mengubah schema.
 
 **Implementasi**
 
@@ -336,7 +338,7 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M2 — Resolver aset, validasi origin, dan hashing
 
-**Selesai dalam cakupan resolver mandiri.** [API, hasil aktual, dan batas bukti](milestone-2-cache-indexeddb-resolver.md). Verifikasi historis M2: 295 tes unit dan 109 tes backend lulus; production statis 54 lulus/60 skip. Pada penyelesaian M2 belum dipanggil Player; kini integrasinya tersedia pada M3 dengan default cache tetap nonaktif.
+**Selesai dalam cakupan resolver mandiri.** [API, hasil aktual, dan batas bukti](milestone-2-cache-indexeddb-resolver.md). Verifikasi historis M2: 295 tes unit dan 109 tes backend lulus; production statis 54 lulus/60 skip. Pada penyelesaian M2 belum dipanggil Player; integrasinya kemudian tersedia pada M3 dan default DB baru diaktifkan pada M6.
 
 **Implementasi**
 
@@ -438,26 +440,30 @@ Urutan: **M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6**. Kebijakan/integritas dan pro
 
 ### M6 — Dokumentasi, rollout, dan verifikasi deployment
 
-**Diimplementasikan sebagian pada 2026-11-05.** [Dokumentasi operasi, hasil aktual, rollback, dan gate yang masih terbuka](milestone-6-cache-indexeddb-rollout.md). **317 unit dan 154 backend lulus; production statis 66 lulus/93 skip**; Node/HTTP LAN dan rem darurat teruji. Docker CLI tidak tersedia, HTTPS reverse proxy dan gameplay CHD legal belum diuji. Default tetap nonaktif dan milestone belum ditutup.
+**Selesai pada 2026-11-05 untuk cakupan penggunaan lokal/HTTP LAN.** [Dokumentasi operasi, hasil aktual, rollback, penerimaan manual dan batas cakupan](milestone-6-cache-indexeddb-rollout.md). Bukti otomatis historis sebelum aktivasi default: **317 unit dan 154 backend lulus; production statis 66 lulus/93 skip**; Node/HTTP LAN dan rem darurat teruji. Pengguna mengonfirmasi pengujian Docker backend di mesin lain dan seluruh skenario manual CHD besar legal beserta progres lama lulus. HTTPS reverse proxy dilewati/ditunda karena belum diperlukan. Default aktif hanya untuk DB/profil baru; preferensi lama tetap dihormati. Tidak ada run ulang suite otomatis pada pembaruan dokumentasi penutupan ini.
 
 **Implementasi dokumentasi/rollout**
 
-- [x] Perbarui README dan `deploy/README.backend.md`: otomatis di frontend sesudah opt-in, tidak perlu Redis/volume cache Docker/.env cache normal, dukungan HTTP LAN, dan batas kuota/RAM.
+- [x] Perbarui README dan `deploy/README.backend.md`: otomatis di frontend saat cache aktif, default aktif hanya untuk DB baru, tidak perlu Redis/volume cache Docker/.env cache normal, dukungan HTTP LAN, dan batas kuota/RAM.
 - [x] Tambahkan tautan lanjutan dari dokumen HTTP cache lama tanpa mengganti hasil tes historis atau mengklaim hasil baru sudah lulus.
 - [x] Dokumentasikan lokasi `Application -> IndexedDB -> maindulu-asset-cache`, status UI, cara hapus, perbedaan save, serta bahwa chunk/staging bukan koleksi siap pakai.
 - [x] Catat bahwa engine/fingerprint/skema tidak berubah (tidak perlu regenerasi engine), kompatibilitas progres/state tidak diperluas, dan rollback tersedia lewat toggle/rem darurat build-time tanpa menghapus preferensi/save.
 - [x] Aktifkan default setelah M0–M5 lulus pada cakupan rilis; sediakan toggle pengguna dan kill switch build-time bila diperlukan. Kill switch bukan perubahan kebijakan cache backend global. Default diubah ke `enabled: true` untuk database baru; legacy DB mempertahankan preferensi pengguna.
 - [x] Catat hasil aktual per browser/OS/origin/ukuran, jumlah tes, waktu, serta skenario yang tidak dijalankan di laporan M6; hasil M5 tetap bukti terpisah.
 
-**Verifikasi deployment**
+**Verifikasi deployment dalam cakupan rilis lokal**
 
-- [ ] Build frontend dan bundle adapter terbaru benar-benar ada dalam image/backend yang dijalankan. **Backend Node terverifikasi melalui byte/hash file yang disajikan; image Docker belum diuji.**
-- [ ] Node langsung, Docker backend, HTTP LAN, serta HTTPS reverse proxy diuji terpisah. Lulus loopback Windows tidak dianggap bukti Docker/Linux/HTTPS.
-- [ ] Proxy mempertahankan ETag/Content-Length dan tidak mengubah error menjadi HTML atau melayani aset melalui static alias. Jika representasi dikompresi/diubah, verifikasi validator dan jumlah byte.
-- [ ] Restart/recreate backend dengan origin sama tidak menghapus IndexedDB browser; origin/domain/port baru memakai storage terpisah. **Pergantian proses Node penuh dan origin lain terverifikasi di loopback/HTTP LAN; recreate container belum diuji.**
-- [ ] Uji manual CHD besar yang sah: pertama download, sesi kedua, restart browser, canvas/gameplay aktif, dan save/progres sebelumnya tetap bisa dipakai.
+- [x] Frontend dan bundle adapter yang disajikan backend Node diverifikasi melalui byte/hash. Pengguna mengonfirmasi Docker backend sudah diuji di mesin lain; perbandingan hash file dalam image belum dilampirkan, tidak dianggap terbukti hanya dari konfirmasi tersebut.
+- [x] Pisahkan bukti tiap lingkungan: Node langsung/HTTP LAN otomatis, Docker backend manual pengguna di mesin lain. Lulus loopback Windows tidak dianggap bukti Docker/Linux/HTTPS.
+- [x] Persistensi cache pada origin sama serta isolasi origin lain dibuktikan lewat pergantian proses Node penuh dan tes origin di loopback/HTTP LAN. Rincian restart/recreate container belum diberikan; tidak dipromosikan menjadi hasil lulus dari tes Node atau konfirmasi Docker umum.
+- [x] Uji manual CHD besar yang sah: pengguna mengonfirmasi pertama download, sesi kedua, restart browser, canvas/gameplay aktif, dan save/progres sebelumnya tetap bisa dipakai. Rincian konfigurasi/log belum dilampirkan; lihat batas bukti di laporan M6.
 
-**Gate:** dokumentasi memisahkan target, hasil nyata, dan keterbatasan; tidak ada klaim "500 MB pasti tersimpan di semua perangkat".
+**Dilewati/ditunda — di luar cakupan lokal, bukan hasil lulus**
+
+- HTTPS reverse proxy tidak diperlukan saat ini menurut pengguna. Verifikasi TLS/proxy wajib dibuka kembali jika cakupan HTTPS/deployment publik digunakan.
+- Pada perluasan tersebut, buktikan proxy mempertahankan ETag/Content-Length, HEAD dan status/error asli, tidak mengubah error menjadi HTML, serta tidak melayani aset melalui static alias. Jika representasi dikompresi/diubah, verifikasi validator dan jumlah byte. Panduan keamanan akun tetap berlaku; HTTP LAN tidak boleh dibuka ke internet.
+
+**Gate terpenuhi untuk cakupan lokal yang disepakati:** dokumentasi memisahkan target, hasil otomatis, konfirmasi manual pengguna, dan penundaan HTTPS; tidak ada klaim "500 MB pasti tersimpan di semua perangkat" atau kesiapan deployment publik.
 
 ## 9. Strategi Pengujian dan Bukti
 
@@ -524,18 +530,20 @@ Script besar memakai backend/fixture eksplisit, satu worker, tanpa retry, timeou
 
 ## 10. Kriteria Penerimaan Rilis
 
-- [ ] ROM/BIOS eligible yang berhasil dikomit terlihat melalui UI dan IndexedDB; ukuran/hash tepat, bukan sekadar nama database.
-- [ ] Reuse sesi kedua dan restart profil sama terbukti tanpa GET/body aset origin, meskipun HTTP cache tidak membantu.
-- [ ] File sintetis 329.641.708 byte dan 500 MiB melewati alur simpan/baca/restart pada browser yang dicatat.
-- [ ] Engine nyata playable untuk fixture legal; uji transport sintetis tidak diklaim sebagai gameplay CHD/firmware.
-- [ ] Server tetap diperiksa; delete, file hilang, offline, dan error tidak dibypass oleh salinan lokal.
-- [ ] Nama sama/ukuran sama/konten berbeda tidak tertukar; namespace ROM dan BIOS tidak bertabrakan.
-- [ ] Quota/IDB unavailable tidak memblokir gameplay aset sehat dan tidak menyebabkan download ganda atau status tersimpan palsu.
-- [ ] Abort, banyak tab, clear, dan cleanup tidak menghasilkan manifest parsial, budget race tak terkendali, atau resurrection.
-- [ ] SaveIdentity, nama filesystem, state/SRAM/memcard, tamu/akun, dan save server tidak berubah/regresi.
-- [ ] File lokal/statis di luar cakupan tidak dipersistenkan otomatis.
-- [ ] Pengguna dapat menonaktifkan/menghapus cache tanpa menghapus save; persistence tidak dijanjikan permanen.
-- [ ] Dokumentasi dan hasil aktual menyebut batas browser/perangkat/origin/ukuran, serta hasil deployment yang benar-benar diuji.
+Checklist ditutup untuk **cakupan lokal/HTTP LAN**, dengan sumber bukti di bawah. Hasil otomatis historis M0–M6 dan penerimaan manual pengguna tidak dianggap verifikasi semua perangkat/core atau run ulang setelah perubahan default. HTTPS dikecualikan atas keputusan pengguna, bukan dinyatakan lulus. Detail Docker/CHD yang belum diberikan tercatat pada [laporan M6](milestone-6-cache-indexeddb-rollout.md).
+
+- [x] ROM/BIOS eligible yang berhasil dikomit terlihat melalui UI dan IndexedDB; ukuran/hash tepat, bukan sekadar nama database. **Bukti: M1–M4.**
+- [x] Reuse sesi kedua dan restart profil sama terbukti tanpa GET/body aset origin, meskipun HTTP cache tidak membantu. **Bukti otomatis: M5.**
+- [x] File sintetis 329.641.708 byte dan 500 MiB melewati alur simpan/baca/restart pada browser yang dicatat. **Bukti: M5 Edge/Windows.**
+- [x] Engine nyata playable untuk fixture legal; uji transport sintetis tidak diklaim sebagai gameplay CHD/firmware. **Bukti: NES otomatis M3/M5/M6; CHD legal manual pengguna M6.**
+- [x] Server tetap diperiksa; delete, file hilang, offline, dan error tidak dibypass oleh salinan lokal. **Bukti: M2/M5.**
+- [x] Nama sama/ukuran sama/konten berbeda tidak tertukar; namespace ROM dan BIOS tidak bertabrakan. **Bukti: M1–M3.**
+- [x] Quota/IDB unavailable tidak memblokir gameplay aset sehat dan tidak menyebabkan download ganda atau status tersimpan palsu. **Bukti: M2/M4/M5, termasuk kegagalan kuota deterministik; bukan disk fisik penuh.**
+- [x] Abort, banyak tab, clear, dan cleanup tidak menghasilkan manifest parsial, budget race tak terkendali, atau resurrection. **Bukti: M1/M3/M5.**
+- [x] SaveIdentity, nama filesystem, state/SRAM/memcard, tamu/akun, dan save server tidak berubah/regresi. **Bukti: kontrak nama M0, NES/regresi M3/M6, progres lama CHD manual pengguna M6; bukan seluruh card/slot/varian PS1.**
+- [x] File lokal/statis di luar cakupan tidak dipersistenkan otomatis. **Bukti: M3/M6.**
+- [x] Pengguna dapat menonaktifkan/menghapus cache tanpa menghapus save; persistence tidak dijanjikan permanen. **Bukti: M4/M6.**
+- [x] Dokumentasi dan hasil aktual menyebut batas browser/perangkat/origin/ukuran, serta hasil deployment yang benar-benar diuji. **Bukti: laporan M0–M6; Docker manual di mesin lain dan keterbatasan pencatatannya dipisahkan dari Node/LAN otomatis; HTTPS ditunda.**
 
 ## 11. Rollback dan Operasi
 

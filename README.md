@@ -134,7 +134,7 @@ Desain, checklist selesai, bukti pengujian, dan rollback: [cache ROM/BIOS server
 
 ### Cache IndexedDB ROM/BIOS backend
 
-Cache perangkat tersedia melalui **Pengaturan → Cache ROM/BIOS perangkat → Gunakan cache ROM/BIOS backend**. **Default aktif** untuk profil/database baru (M6 rollout). Pengguna dapat menonaktifkan melalui Pengaturan. Setelah diaktifkan, frontend otomatis menangani ROM/BIOS upload backend dengan metadata lengkap; tidak perlu Redis, volume cache Docker, atau `.env` cache baru. File lokal, demo/manifest statis, cover, dan engine tidak ikut disimpan.
+Cache perangkat tersedia melalui **Pengaturan → Cache ROM/BIOS perangkat → Gunakan cache ROM/BIOS backend**. **Default aktif** untuk profil/database baru (M6 rollout); database lama mempertahankan preferensinya, termasuk yang nonaktif. Pengguna dapat mengaktifkan/menonaktifkan melalui Pengaturan. Saat aktif, frontend otomatis menangani ROM/BIOS upload backend dengan metadata lengkap; tidak perlu Redis, volume cache Docker, atau `.env` cache baru. File lokal, demo/manifest statis, cover, dan engine tidak ikut disimpan.
 
 - Setiap peluncuran tetap memeriksa katalog dan HEAD server. Cache hit terverifikasi memakai IndexedDB tanpa GET ROM/BIOS; cache miss mengunduh sekali, memverifikasi ukuran/SHA-256, lalu mencoba menyimpan. Jalur ini memakai fetch `no-store`, **tanpa mengubah** header HTTP cache backend di atas. Cache nonaktif memakai jalur URL/HTTP cache lama.
 - Status **Tersimpan di perangkat** hanya setelah commit berhasil; **Cache perangkat dipakai** berarti bytes lokal terverifikasi; **Dimainkan tanpa disimpan** berarti sesi tetap dapat dimainkan tetapi reuse belum dijamin. Error sumber/integritas tetap menolak boot; cache bukan mode offline.
@@ -143,7 +143,7 @@ Cache perangkat tersedia melalui **Pengaturan → Cache ROM/BIOS perangkat → G
 
 Inspeksi Chromium/Edge: **DevTools → Application → IndexedDB → `maindulu-asset-cache`**. `entries` hanya manifest committed; `chunks` berisi potongan byte, sedangkan `staging`/reservation bukan aset siap pakai. Keberadaan nama DB saja bukan bukti ROM berhasil disimpan. Jangan memilih **Clear site data** untuk menghapus cache saja karena save tamu dan sesi akun dapat ikut hilang.
 
-Bukti M5: Edge/Windows, engine NES, serta transport sintetis **329.641.708 byte** dan **500 MiB** reused setelah restart proses browser dengan HTTP cache mati. Ini bukan bukti gameplay CHD/semua perangkat. [Panduan operasi, rollback, dan gate rollout M6](doc/milestone-6-cache-indexeddb-rollout.md); [hasil M5](doc/milestone-5-cache-indexeddb-verification.md); [rencana lengkap](doc/rencana-cache-indexeddb-rom-bios.md).
+Bukti M5: Edge/Windows, engine NES, serta transport sintetis **329.641.708 byte** dan **500 MiB** reused setelah restart proses browser dengan HTTP cache mati. Bukti sintetis ini bukan bukti gameplay CHD/semua perangkat. **M6 selesai untuk penggunaan lokal/HTTP LAN:** pengguna mengonfirmasi Docker backend di mesin lain serta tes manual CHD besar legal (cold/warm/restart browser, gameplay aktif, dan pemulihan progres lama) lulus. HTTPS reverse proxy **dilewati/ditunda atas keputusan pengguna**, belum diuji dan bukan klaim kesiapan deployment publik. Rincian/batas bukti manual: [panduan operasi dan rollout M6](doc/milestone-6-cache-indexeddb-rollout.md); [hasil M5](doc/milestone-5-cache-indexeddb-verification.md); [rencana lengkap](doc/rencana-cache-indexeddb-rom-bios.md).
 
 ## Engine, sumber, dan kemandirian
 

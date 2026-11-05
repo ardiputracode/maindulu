@@ -2,15 +2,16 @@
 
 Lanjutan [rencana IndexedDB](rencana-cache-indexeddb-rom-bios.md) dan [bukti M5](milestone-5-cache-indexeddb-verification.md).
 
-Status 2026-11-05: **dokumentasi, rem darurat build-time, serta verifikasi Node/HTTP LAN diimplementasikan; M6 belum ditutup**. Default cache tetap **nonaktif**, dengan opt-in melalui Pengaturan. Docker/Linux, HTTPS reverse proxy, dan gameplay CHD besar legal beserta progres lama belum diverifikasi pada perubahan ini. Keterbatasan deployment tidak dijadikan alasan mengaktifkan default secara prematur.
+Status 2026-11-05: **M6 selesai untuk cakupan penggunaan lokal/HTTP LAN yang disepakati**. Dokumentasi, rem darurat build-time, dan verifikasi otomatis Node/HTTP LAN tersedia; pengguna mengonfirmasi Docker backend sudah diuji di mesin lain serta seluruh skenario manual CHD besar legal, cold/warm/restart browser, gameplay aktif, dan pemulihan progres lama lulus. Default cache **aktif hanya untuk database/profil baru**; preferensi lama tetap dihormati. **HTTPS reverse proxy dilewati/ditunda atas keputusan pengguna karena belum diperlukan**, bukan dinyatakan lulus atau menjadi penghalang penutupan cakupan lokal. Ini bukan klaim kesiapan deployment publik atau dukungan semua perangkat/game.
 
 ## Implementasi dan Cakupan
 
 - `README.md` dan `deploy/README.backend.md`: cara aktivasi/status/hapus, kuota/RAM, inspeksi DevTools, HTTP LAN, privasi origin/profil, perbedaan cache dengan save, dan operasi proxy. Tidak perlu Redis, volume cache Docker atau `.env` cache untuk penggunaan normal.
 - Dokumen HTTP cache lama mendapat tautan lanjutan tanpa mengubah hasil tes historis. HTTP cache dan IndexedDB bukan mekanisme yang sama: pipeline IndexedDB memakai fetch `no-store`, sementara header respons backend tetap `private, no-cache` untuk jalur URL lama.
-- `src/lib/asset-cache-rollout.ts`, `src/lib/player-assets.ts`, `vite.config.ts`: rem darurat **build-time** `VITE_ASSET_CACHE_DISABLED=true`, default `false` (artinya fitur tersedia untuk opt-in, **bukan** preferensi cache otomatis aktif).
+- `src/lib/asset-cache.ts`: commit `13ea2b2` mengubah pengaturan awal menjadi `enabled: true` saat database baru dibuat. Tidak ada migrasi preferensi pada database lama atau perubahan skema v1.
+- `src/lib/asset-cache-rollout.ts`, `src/lib/player-assets.ts`, `vite.config.ts`: rem darurat **build-time** `VITE_ASSET_CACHE_DISABLED=true`, default `false` (artinya tidak ada override; pilihan cache mengikuti settings DB, bukan nilai flag ini).
 - Pada build darurat, Player tidak membuka IndexedDB atau memanggil resolver untuk menyiapkan aset; jalur URL/HEAD/engine yang sudah ada tetap berjalan. File lokal/statis tetap seperti sebelumnya. UI menjelaskan override, switch efektif nonaktif, tetapi daftar, budget, dan penghapusan tetap tersedia. Pengaturan asli di DB tidak ditimpa.
-- Kedua Dockerfile mempunyai build argument tersebut, kedua Compose meneruskannya di `build.args`, bukan runtime environment. Ini verifikasi kontrak konfigurasi lewat unit test, **bukan** bukti image sudah berhasil dibangun/dijalankan.
+- Kedua Dockerfile mempunyai build argument tersebut, kedua Compose meneruskannya di `build.args`, bukan runtime environment. Unit test memverifikasi kontrak konfigurasi; penerimaan Docker di mesin lain berasal dari konfirmasi pengguna, bukan hasil suite otomatis ini.
 - `tests/browser/catalog-indexeddb-deployment.spec.ts` dan `tests/fixtures/asset-cache-deployment.mjs`: backend aplikasi produksi di proses Node terpisah, data fixture privat dan port/origin sama; shutdown penuh/SQLite ditutup lalu proses baru. PID berbeda diperiksa. Bukan hanya menghentikan listener seperti salah satu tes M5.
 - Suite memeriksa byte/hash frontend module, helper, bridge, dan `builds.json` yang benar-benar disajikan terhadap file `dist/`; helper/bridge/fingerprint juga sama dengan `public/`. Build darurat Vite terisolasi dibuat di direktori sementara, tanpa menimpa `dist/` yang sedang dipakai suite lain.
 - Engine NES nyata dan BIOS sintetis menguji cold lalu reuse setelah pergantian proses backend pada loopback dan HTTP LAN non-loopback. HTTP cache dimatikan melalui CDP. Origin lain tidak mewarisi preferensi/bytes; kembali ke origin lama masih mempunyai keduanya.
@@ -18,7 +19,7 @@ Status 2026-11-05: **dokumentasi, rem darurat build-time, serta verifikasi Node/
 
 ## Panduan Pengguna dan Inspeksi
 
-1. Buka **Pengaturan → Cache ROM/BIOS perangkat**, baca keterangan penyimpanan bersama lalu aktifkan **Gunakan cache ROM/BIOS backend**. Budget awal **2 GiB** adalah batas aplikasi, bukan jaminan kuota browser. Cache bisa berjalan pada HTTP LAN tanpa storage estimate/persistence API.
+1. Buka **Pengaturan → Cache ROM/BIOS perangkat** dan periksa **Gunakan cache ROM/BIOS backend**. Default aktif untuk database/profil baru; database lama mempertahankan pilihannya dan dapat diaktifkan manual jika masih nonaktif. Budget awal **2 GiB** adalah batas aplikasi, bukan jaminan kuota browser. Cache bisa berjalan pada HTTP LAN tanpa storage estimate/persistence API.
 2. Pilih upload backend dari Library, lalu **Main sekarang**. Persiapan hanya dimulai sesudah tindakan ini. Server tetap diperiksa; tombol **Mulai bermain** emulator masih manual.
 3. **Tersimpan di perangkat** baru sah setelah commit; **Cache perangkat dipakai** berarti hasil baca lokal diverifikasi; **Dimainkan tanpa disimpan** berarti sesi berjalan tetapi reuse belum dijamin. Error sumber/integritas bukan warning cache dan tetap menahan boot.
 4. Gunakan daftar/hapus satu/semua di Pengaturan. Mematikan toggle hanya menonaktifkan penggunaan/pengisian berikutnya, bukan menghapus data lama. Sesi yang sudah memegang File/Blob tetap berjalan ketika cache dihapus.
@@ -64,11 +65,15 @@ Contoh shell POSIX:
 VITE_ASSET_CACHE_DISABLED=true npm run build
 ```
 
-Restart backend agar menyajikan build yang diperbarui, tutup sesi Player lalu reload halaman. Ini bukan switch runtime backend: sekadar mengubah env lalu `restart` tanpa rebuild tidak mengganti bundle. Untuk Docker, gunakan perintah build-arg pada [panduan backend](../deploy/README.backend.md#cache-perangkat-rombios-indexeddb); konfigurasi tersedia tetapi runtime Docker belum diuji di mesin ini.
+Restart backend agar menyajikan build yang diperbarui, tutup sesi Player lalu reload halaman. Ini bukan switch runtime backend: sekadar mengubah env lalu `restart` tanpa rebuild tidak mengganti bundle. Untuk Docker, gunakan perintah build-arg pada [panduan backend](../deploy/README.backend.md#cache-perangkat-rombios-indexeddb). Docker tidak dijalankan di mesin verifikasi otomatis ini; pengguna mengonfirmasi pengujiannya di mesin lain, dengan batas pencatatan pada bagian penerimaan manual di bawah.
 
 Untuk kembali normal, build dengan `VITE_ASSET_CACHE_DISABLED=false` (atau hapus override dari lingkungan build), deploy/reload. Pilihan pengguna yang tersimpan kembali berlaku. Baik mengaktifkan maupun melepas rem darurat **tidak menghapus DB, memaksa preferensi menjadi true, atau mengubah header cache backend**. Jangan menghapus volume, memakai `down -v`, menghapus seluruh storage origin, atau mengubah save untuk rollback cache. Jika rollback ke aplikasi/engine release berbeda, periksa fingerprint/format save dan backup tersendiri; tidak menjanjikan seluruh state kompatibel lintas build engine.
 
 ## Hasil Aktual M6
+
+### Verifikasi Otomatis Historis Sebelum Aktivasi Default
+
+Angka dan artefak berikut berasal dari implementasi M6 sebelum commit aktivasi default `13ea2b2`. Suite tidak dijalankan ulang untuk pembaruan dokumentasi penutupan ini; tabel ini bukan bukti regresi otomatis baru setelah perubahan default.
 
 Perintah reproduksi dari akar repo:
 
@@ -95,9 +100,9 @@ Lingkungan: Windows x64 **10.0.26300**, Node **v26.12.1**, Edge headless **156.0
 | Backend penuh | **154/154 lulus**, tanpa fail/retry/skip, sekitar **12,0 menit**; termasuk tes M6 final dengan assertion PID/exit code, seluruh regresi M1–M5, HTTP cache historis, akun/katalog, state/SRAM/autosave/impor/backup |
 | Production statis penuh | **66 lulus/93 skip**, tanpa fail/retry, sekitar **1,7 menit**; tiga skip tambahan adalah tes deployment M6 yang membutuhkan backend, bukan bukti cache upload tersedia pada hosting statis |
 | Suite sintetis besar opt-in | **Tidak diulang pada M6**; bukti 329.641.708 byte/500 MiB tetap laporan M5, bukan hasil run M6 |
-| Docker build/runtime/Linux | **Tidak dijalankan**: `docker info` gagal karena Docker CLI tidak tersedia |
-| HTTPS reverse proxy | **Tidak dijalankan**: tidak ada deployment proxy/TLS terkonfigurasi untuk verifikasi ini |
-| CHD legal/gameplay PS1/progres lama | **Tidak dijalankan** pada pipeline ini; membutuhkan aset legal dan verifikasi operator |
+| Docker backend | **Tidak dijalankan pada suite lokal ini** karena Docker CLI tidak tersedia; kemudian dikonfirmasi pengguna sudah diuji di mesin lain, lihat penerimaan manual |
+| HTTPS reverse proxy | **Dilewati/ditunda oleh pengguna**, di luar cakupan rilis lokal saat ini; belum diuji dan tidak dinyatakan lulus |
+| CHD legal/gameplay PS1/progres lama | **Lulus manual menurut konfirmasi pengguna**, terpisah dari pipeline otomatis ini; lihat penerimaan manual |
 
 Percobaan TypeScript awal tanpa `allowJs` ditolak karena impor `.mjs` backend tidak mempunyai declaration; perintah dengan `--allowJs --checkJs false` kemudian lulus tanpa menonaktifkan strict pada TS. Tidak ada perubahan backend/keamanan untuk meluluskan typecheck.
 
@@ -122,13 +127,23 @@ Summary mencakup hash file yang disajikan, environment, metadata/generation dan 
 
 Build utama tidak diganti selama regresi backend/production. `git diff --check` dan pemeriksaan tautan file Markdown lokal lulus. Tidak ada kegagalan browser pada run M6 terfokus maupun regresi penuh; kegagalan pemeriksaan lingkungan Docker dan percobaan awal TypeScript tetap dicatat di atas, bukan disamarkan sebagai hasil lulus.
 
-## Runbook Gate Deployment yang Masih Terbuka
+### Penerimaan Manual Pengguna dan Batas Bukti
 
-Jalankan setiap baris sebagai environment terpisah; catat browser/OS, revisi/build hash, origin, ukuran byte/MiB, API storage, durasi dan request/body. Lulus Windows loopback/LAN **tidak** menutup Docker/Linux/HTTPS.
+- **Docker backend:** pengguna mengonfirmasi pengujian sudah dilakukan di mesin lain. Ini diterima sebagai hasil manual untuk penutupan cakupan lokal, bukan klaim Docker berjalan pada mesin Windows suite di atas. OS, versi Docker/Compose, browser, revisi/image digest, origin, hash file yang disajikan, log request/body, dan rincian restart/recreate container belum diberikan; tidak dianggap otomatis terverifikasi dari konfirmasi umum ini.
+- **CHD besar legal + progres lama:** pengguna mengonfirmasi seluruh skenario yang diminta **lulus**: peluncuran pertama/cold, sesi kedua/warm, restart browser pada profil/origin yang sama, canvas/gameplay aktif, serta pemulihan save/progres yang sudah ada. Ini penerimaan manual cache M6, bukan pengangkatan bukti sintetis M5 atau hasil milestone sinkronisasi progres lain.
+- Rincian CHD seperti judul/region, ukuran/hash, BIOS/HLE, browser/OS, core/varian/build, nama filesystem/memcard, metode isolasi HTTP cache dan log HEAD/GET/body belum disertakan. Jangan menebak nilainya atau menyamakan hasil manual ini dengan matriks transfer otomatis di atas. Seluruh game/card/slot, multi-disk, perangkat kecil, serta browser lain tidak ikut dinyatakan lulus.
+- **HTTPS reverse proxy:** pengguna memilih melewatinya karena belum diperlukan. Verifikasi TLS/proxy tetap belum dilakukan; harus dikerjakan jika HTTPS/deployment publik masuk cakupan berikutnya. Keputusan ini tidak mengubah proteksi akun/origin/CSRF/cookie atau mengizinkan HTTP tidak aman di internet. HTTP akun hanya untuk LAN tepercaya sesuai [panduan backend](../deploy/README.backend.md).
+- Tidak ada ROM/BIOS, dump proprietary, cookie, atau token ditambahkan ke repo. Rincian lingkungan/log nonrahasia dapat dilengkapi kemudian untuk reproduksi; ketiadaan rincian itu dicatat, bukan diganti angka hasil rekaan.
+
+## Runbook Verifikasi Ulang dan Perluasan Deployment
+
+Runbook berikut dipertahankan untuk reproduksi dan perluasan cakupan, **bukan daftar gate lokal yang semuanya masih terbuka**. Bukti otomatis Node/LAN, konfirmasi manual Docker/CHD, dan penundaan HTTPS dipisahkan di atas. Rincian tambahan Docker, termasuk hash image/file dan recreate container, belum tercatat. Lulus Windows loopback/LAN tidak membuktikan Docker/Linux/HTTPS; konfirmasi Docker tidak membuktikan HTTPS atau seluruh distro Linux.
+
+Saat mengulang, jalankan setiap baris sebagai environment terpisah; catat browser/OS, revisi/build hash, origin, ukuran byte/MiB, API storage, durasi dan request/body. Baris HTTPS hanya diperlukan ketika cakupan tersebut digunakan.
 
 1. **Docker backend:** build image dari revisi ini dengan `public/vendor` lengkap, jalankan dengan project/volume/origin yang benar, periksa health dan file frontend/helper yang disajikan. Bandingkan byte/hash dengan build di image, bukan sekadar tag image. Pastikan helper tidak hilang dan image benar-benar memakai hasil build baru.
 2. **HTTPS reverse proxy:** pakai sertifikat tepercaya perangkat dan domain nyata yang cocok konfigurasi akun. Teruskan endpoint aset ke Node, jangan static alias ke volume. Pertahankan Host publik, strong ETag SHA-256, Content-Length, HEAD, dan status/error asli; jangan mengubah error ke HTML. Hindari transformasi/kompresi representasi ROM/BIOS; jika tetap digunakan, buktikan validator/panjang/bytes konsisten. Tes proxy HTTP test-only M5 bukan bukti TLS/proxy produksi ini.
-3. **Cold/warm/restart:** aktifkan cache lewat UI pada profil tes, nonaktifkan HTTP cache dan blokir service worker untuk pengukuran. Cold harus tepat satu GET/body penuh per aset, commit/hash benar. Sesi kedua dan restart proses browser profil/origin sama harus HEAD segar, GET/body aset nol. Terapkan ulang pengaturan CDP setiap proses browser.
+3. **Cold/warm/restart:** pastikan cache aktif lewat UI pada profil tes, nonaktifkan HTTP cache dan blokir service worker untuk pengukuran. Cold harus tepat satu GET/body penuh per aset, commit/hash benar. Sesi kedua dan restart proses browser profil/origin sama harus HEAD segar, GET/body aset nol. Terapkan ulang pengaturan CDP setiap proses browser.
 4. **Restart/recreate backend:** gunakan volume dan origin sama, hentikan Player dahulu, restart lalu recreate backend secara terpisah. Pastikan cache browser tetap ada, server metadata sehat, engine dapat dimainkan, serta HEAD sukses tanpa GET/body pada hit. Jangan menghapus volume untuk menguji recreate.
 5. **Origin baru:** ganti satu dari domain/IP/skema/port dan buktikan cache terpisah; jangan menganggap volume Docker ikut memindahkan IDB browser. Kembali ke origin lama harus masih mengenali datanya selama tidak dihapus/evicted.
 6. **Penolakan sumber:** cache terisi lalu hapus satu aset/simulasikan file hilang dan offline/5xx pada lingkungan tes. Peluncuran baru harus ditolak, tanpa diam-diam boot memakai cache. Jangan merusak storage/metadata produksi pengguna.
@@ -137,7 +152,7 @@ Jalankan setiap baris sebagai environment terpisah; catat browser/OS, revisi/bui
 
 ## Keputusan Aktivasi Default
 
-- **Belum diaktifkan**. Bukti Node/LAN dan transport M5 cukup untuk opt-in terukur, bukan menutup gate deployment dan gameplay CHD yang belum dijalankan.
-- Sesudah gate cakupan rilis disepakati/lulus, aktivasi default hanya untuk **database/profil baru**, dengan penjelasan UI dan penyesuaian regression test default. Jangan melakukan migrasi massal `enabled: false → true`: skema v1 tidak menyimpan apakah `false` berasal dari default atau pilihan eksplisit pengguna. Pilihan lama harus tetap dihormati.
+- **Sudah diaktifkan** pada commit `13ea2b2`, hanya untuk **database/profil baru**. Database lama mempertahankan preferensinya, termasuk nilai nonaktif dari default sebelumnya.
+- Tidak ada migrasi massal `enabled: false → true`: skema v1 tidak menyimpan apakah `false` berasal dari default atau pilihan eksplisit pengguna. Pengguna lama dapat mengaktifkannya sendiri melalui Pengaturan tanpa menghapus DB/save.
 - Tidak perlu variabel lingkungan baru untuk kebijakan normal. Rem darurat build-time tetap tersedia sebagai override yang dapat dilepas tanpa memodifikasi preferensi/DB/save.
-- Checklist rencana hanya ditutup sesuai bukti; **M6 tetap parsial** sampai verifikasi deployment yang disepakati dan keputusan rollout default benar-benar selesai. Tidak ada klaim “500 MB pasti tersimpan di semua perangkat”.
+- **M6 ditutup untuk penggunaan lokal/HTTP LAN** berdasarkan implementasi M0–M6, bukti otomatis historis, penerimaan manual Docker di mesin lain dan CHD/progres lama, serta keputusan pengguna menunda HTTPS. Checklist rilis dipetakan ke sumber bukti pada rencana utama; HTTPS tidak dicentang sebagai hasil lulus. Tidak ada klaim “500 MB pasti tersimpan di semua perangkat” atau kesiapan deployment publik.

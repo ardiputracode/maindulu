@@ -1,5 +1,7 @@
 # M5 — Restart Browser, File Besar, LAN, dan Race
 
+> Catatan historis: hasil dan batas di bawah merekam penutupan M5, bukan status rollout terbaru. [M6](milestone-6-cache-indexeddb-rollout.md) kini selesai untuk cakupan lokal/HTTP LAN; default aktif hanya untuk DB baru, Docker/CHD dikonfirmasi manual pengguna, dan HTTPS ditunda (bukan lulus). Preferensi DB lama tetap dihormati.
+
 Lanjutan [rencana cache IndexedDB ROM/BIOS](rencana-cache-indexeddb-rom-bios.md) dan [pengelola cache M4](milestone-4-cache-indexeddb-settings.md).
 
 Status: **selesai pada 2026-11-05 dalam cakupan Edge/Windows, engine NES dan transport sintetis besar**, termasuk regresi backend penuh. Default cache tetap nonaktif; rollout/deployment M6 tidak termasuk perubahan ini.

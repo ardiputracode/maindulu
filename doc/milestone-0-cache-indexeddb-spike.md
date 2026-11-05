@@ -1,5 +1,7 @@
 # M0 — Spike Cache IndexedDB ROM/BIOS
 
+> Catatan historis: hasil dan batas di bawah merekam penutupan M0, bukan status rollout terbaru. [M6](milestone-6-cache-indexeddb-rollout.md) kini selesai untuk cakupan lokal/HTTP LAN; default aktif hanya untuk DB baru, Docker/CHD dikonfirmasi manual pengguna, dan HTTPS ditunda (bukan lulus). Preferensi DB lama tetap dihormati.
+
 Status: **selesai pada 2026-11-04 dalam cakupan spike yang dijelaskan di bawah**. Lanjutan [rencana IndexedDB ROM/BIOS](rencana-cache-indexeddb-rom-bios.md). Ini **belum mengaktifkan cache IndexedDB pada aplikasi pengguna**; storage produksi, resolver backend, integrasi bridge, dan UI masih M1–M6.
 
 ## 1. Keputusan Utama

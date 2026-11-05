@@ -1,5 +1,7 @@
 # M3 — Integrasi Player, Bridge, dan Regresi Save
 
+> Catatan historis: hasil dan batas di bawah merekam penutupan M3, bukan status rollout terbaru. [M6](milestone-6-cache-indexeddb-rollout.md) kini selesai untuk cakupan lokal/HTTP LAN; default aktif hanya untuk DB baru, Docker/CHD dikonfirmasi manual pengguna, dan HTTPS ditunda (bukan lulus). Preferensi DB lama tetap dihormati.
+
 Lanjutan [rencana cache IndexedDB ROM/BIOS](rencana-cache-indexeddb-rom-bios.md), [adapter M0](milestone-0-cache-indexeddb-spike.md), dan [resolver M2](milestone-2-cache-indexeddb-resolver.md).
 
 Status: **selesai pada 2026-11-05 dalam cakupan integrasi aset kecil/NES**, termasuk suite regresi penuh. **Default cache tetap nonaktif**, bukan rollout pengguna. PS1 nyata, file besar dan restart proses browser tetap di luar bukti M3 sebagaimana dirinci di bawah.
