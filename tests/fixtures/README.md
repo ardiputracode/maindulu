@@ -22,3 +22,7 @@ Suite M7 memakai kembali fixture NES/homebrew proyek untuk menghasilkan SRAM dan
 `tests/browser/library.spec.ts` mengunggah fixture battery CC0 melalui UI admin, lalu membuktikan alur tamu dan akun biasa, progres hasil CPU, pemulihan state/progres sesudah edit metadata, dan delete tanpa menghapus save. Demo `public/games/jalan-pulang.nes` mengikuti `public/games/LICENSE.txt` (CC0).
 
 BIOS pada tes katalog/API/browser adalah buffer nol/byte sintetis yang dibuat khusus untuk tes, termasuk buffer batas 32 MiB. Buffer tersebut boleh didistribusikan tetapi **bukan firmware boot yang valid**. Keberadaan nama firmware pada filesystem engine membuktikan plumbing, bukan boot FDS/PS1 atau kompatibilitas seluruh core. Matriks bukti dan batas lingkungan: `doc/milestone-6-keamanan-regresi-katalog.md`.
+
+## ScreenScraper M0
+
+`screenscraper/` berisi kontrak JSON sintetis, tanpa akun/secret/ROM/cover provider, untuk pengembangan metadata offline. Bukan capture API terautentikasi atau bukti cakupan database provider. Provenance dan batasnya ada di [README fixture ScreenScraper](screenscraper/README.md); keputusan teknis serta bukti penutupan M0 khusus pribadi/LAN ada di [laporan M0 §13](../../doc/milestone-0-screenscraper-contract.md#13-penutupan-m0-untuk-pribadilan--2026-11-07). Hasil operator dicatat terpisah dari fixture; penutupan tidak mengaktifkan scan otomatis.

@@ -14,6 +14,7 @@
     "data:verify": "node scripts/data-backup.mjs verify",
     "data:restore": "node scripts/data-backup.mjs restore",
     "storage:recover": "node scripts/recover-catalog.mjs",
+    "metadata:m0": "node scripts/screenscraper-m0.mjs",
     "dev": "npm run build:player && vite --host 0.0.0.0",
     "build:player": "node scripts/build-player-assets.mjs",
     "build": "npm run build:player && tsc -b && vite build",

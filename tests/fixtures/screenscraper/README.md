@@ -1,0 +1,18 @@
+# Fixture ScreenScraper M0
+
+Seluruh file di folder ini **sintetis, bukan rekaman request API terautentikasi**. Disusun dari dokumentasi publik [WebAPI v2](https://www.screenscraper.fr/webapi2.php), diperiksa 2026-11-05. Nama field mengikuti kontrak yang diteliti, tetapi variasi JSON aktual tetap harus dikonfirmasi lewat smoke opt-in M2/M6. Jangan menandai fixture ini sebagai bukti akses layanan asli.
+
+- `systemes.json`: subset tujuh ID platform yang diperiksa pada halaman sistem resmi. Tidak memuat seluruh katalog sistem provider.
+- `jeu-infos.json`: respons minimal ilustratif `response.jeu`, metadata regional/bahasa, quota contoh, satu ROM cocok, dan ROM lain pada `roms`. Nilai MD5/SHA-1 ROM cocok berasal dari teks ASCII `abc` (3 byte), ROM lain dari `abcd` (4 byte). **Teks ini bukan ROM valid**; ID game/perusahaan/genre dibuat untuk tes, bukan record ScreenScraper asli.
+- `jeu-recherche.json`: dua kandidat nama dengan metadata parsial, tanpa bukti ROM. Satu hasil nama saja pun tidak cukup untuk auto-apply.
+- `http-errors.json`: body pesan buatan untuk status yang didokumentasikan, termasuk 430/431, ditambah HTML 200/JSON rusak/503 sebagai kasus defensif. Field `decision` adalah keputusan aplikasi yang direncanakan, bukan field provider. M0 belum mengimplementasikan HTTP client/classifier.
+
+Tidak ada akun, password, request URL terautentikasi, ROM, cover pihak ketiga, atau data pengguna. Domain media `.invalid` sengaja tidak dapat diakses dan **bukan host yang diizinkan di produksi**. Angka quota pada fixture adalah contoh uji, bukan batas akun nyata. Header respons yang mungkin mengulang URL request sengaja tidak disalin.
+
+Konten sintetis yang ditulis untuk fixture ini didedikasikan ke [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/); ini tidak mengubah ketentuan API ataupun lisensi konten ScreenScraper.
+
+`tests/screenscraper-policy.test.mjs` menguji keputusan M0 secara offline. Normalisasi kecil di dalam tes hanya mengambil bukti dari bentuk fixture ini, **bukan parser produksi M2**. Fixture tambahan berupa salah ukuran/hash/sistem, hasil ganda, dan bukti hilang dibentuk di memori agar sumber kasus jelas.
+
+`tests/screenscraper-m0.test.mjs` juga membentuk varian referensi `jeu.romid` di memori: tidak ada, ID string/angka cocok, ID valid berbeda, null/nol/kosong, leading zero, boolean, object, dan array. Ini **bukan bentuk aktual yang sudah terbukti dikirim provider**. Varian tersebut menguji keputusan lokal CLI: referensi tambahan yang tidak valid/berbeda menjadi peringatan hanya setelah seluruh bukti matched `jeu.rom` lolos, tanpa fallback ke `roms` atau referensi atas. Matriks silang memastikan anomali referensi tidak menyembunyikan bukti utama yang salah/hilang; transport tiruan menguji urutan probe positif/negatif. Temuan kontrak dan batas interpretasi ada pada [laporan M0 §11](../../../doc/milestone-0-screenscraper-contract.md#11-referensi-rom-tambahan-bukan-gerbang-bukti-primer--2026-11-07).
+
+`tests/screenscraper-m0-cover.test.mjs` membuat byte PNG/JPEG/WebP sintetis memakai `sharp` di memori, termasuk varian animasi/truncated/dimensi berlebih. Bukan cover game/provider, tidak disimpan ke fixture publik. Semua unduh media memakai transport tiruan. URL fixture `.invalid` dan URL berbahaya dibuktikan **tidak diikuti**: CLI membangun satu request ke endpoint media tetap dengan ID game terverifikasi serta type/region allowlist. Teks/field tambahan palsu dipakai untuk menguji redaksi, bukan provenance/izin media aktual. Keberhasilan smoke metadata operator tidak mengubah fixture ini menjadi rekaman API; hasil layanan asli dicatat terpisah pada laporan M0 §12.

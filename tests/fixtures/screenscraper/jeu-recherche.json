@@ -1,0 +1,19 @@
+{
+  "header": { "success": "true" },
+  "response": {
+    "jeux": [
+      {
+        "id": "900000001",
+        "notgame": "false",
+        "systeme": { "id": "9", "text": "Game Boy" },
+        "noms": [{ "region": "wor", "text": "Contoh Metadata M0" }]
+      },
+      {
+        "id": "900000007",
+        "notgame": "false",
+        "systeme": { "id": "9", "text": "Game Boy" },
+        "noms": [{ "region": "wor", "text": "Contoh Metadata M0 Versi Lain" }]
+      }
+    ]
+  }
+}

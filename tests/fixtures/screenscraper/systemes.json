@@ -1,0 +1,14 @@
+{
+  "header": { "success": "true" },
+  "response": {
+    "systemes": [
+      { "id": "1", "noms": { "nom_eu": "Megadrive" } },
+      { "id": "3", "noms": { "nom_eu": "NES" } },
+      { "id": "4", "noms": { "nom_eu": "Super Nintendo" } },
+      { "id": "9", "noms": { "nom_eu": "Game Boy" } },
+      { "id": "10", "noms": { "nom_eu": "Game Boy Color" } },
+      { "id": "12", "noms": { "nom_eu": "Game Boy Advance" } },
+      { "id": "57", "noms": { "nom_eu": "Playstation" } }
+    ]
+  }
+}

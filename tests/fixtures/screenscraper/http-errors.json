@@ -1,0 +1,14 @@
+[
+  { "status": 400, "body": "Invalid request (synthetic)", "decision": "failed_request" },
+  { "status": 401, "body": "API closed for this membership (synthetic)", "decision": "paused_access" },
+  { "status": 403, "body": "Developer authentication rejected (synthetic)", "decision": "paused_credentials" },
+  { "status": 404, "body": "Game not found (synthetic)", "decision": "not_found" },
+  { "status": 423, "body": "API closed (synthetic)", "decision": "paused_provider" },
+  { "status": 426, "body": "Software blocked (synthetic)", "decision": "paused_software" },
+  { "status": 429, "headers": { "retry-after": "120" }, "body": "Rate limit (synthetic)", "decision": "retry_wait" },
+  { "status": 430, "body": "Daily quota exhausted (synthetic)", "decision": "paused_daily_quota" },
+  { "status": 431, "body": "Daily unrecognised ROM quota exhausted (synthetic)", "decision": "paused_negative_quota" },
+  { "status": 503, "body": "Provider unavailable (synthetic)", "decision": "retry_wait" },
+  { "status": 200, "contentType": "text/html", "body": "<html>Maintenance (synthetic)</html>", "decision": "invalid_response" },
+  { "status": 200, "contentType": "application/json", "body": "{", "decision": "invalid_response" }
+]

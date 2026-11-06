@@ -1,0 +1,50 @@
+{
+  "header": { "success": "true" },
+  "response": {
+    "ssuser": {
+      "maxthreads": "1",
+      "requeststoday": "2",
+      "requestskotoday": "0",
+      "maxrequestspermin": "60",
+      "maxrequestsperday": "100",
+      "maxrequestskoperday": "10"
+    },
+    "jeu": {
+      "id": "900000001",
+      "romid": "900000002",
+      "notgame": "false",
+      "systeme": { "id": "9", "text": "Game Boy" },
+      "noms": [
+        { "region": "wor", "text": "Contoh Metadata M0" },
+        { "region": "us", "text": "M0 Metadata Example" }
+      ],
+      "synopsis": [
+        { "langue": "en", "text": "Synthetic metadata for an offline contract test. Not a real game." }
+      ],
+      "dates": [{ "region": "wor", "text": "2026" }],
+      "editeur": { "id": "900000003", "text": "Publisher Uji" },
+      "developpeur": { "id": "900000004", "text": "Developer Uji" },
+      "joueurs": { "text": "1-2" },
+      "genres": [{ "id": "900000005", "noms": [{ "langue": "en", "text": "Test genre" }] }],
+      "medias": [{ "type": "box-2D", "region": "wor", "format": "png", "url": "https://media.example.invalid/cover.png" }],
+      "rom": {
+        "id": "900000002",
+        "romfilename": "exemple.gb",
+        "romsize": "3",
+        "rommd5": "900150983CD24FB0D6963F7D28E17F72",
+        "romsha1": "A9993E364706816ABA3E25717850C26C9CD0D89D",
+        "romnumsupport": "1",
+        "romtotalsupport": "1"
+      },
+      "roms": [
+        {
+          "id": "900000006",
+          "romfilename": "autre.gb",
+          "romsize": "4",
+          "rommd5": "E2FC714C4727EE9395F324CD2E7F331F",
+          "romsha1": "81FE8BFE87576C3ECB22426F8E57847382917ACF"
+        }
+      ]
+    }
+  }
+}
