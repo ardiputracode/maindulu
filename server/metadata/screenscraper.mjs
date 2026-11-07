@@ -1,0 +1,415 @@
+import { createHash } from 'node:crypto'
+import { open } from 'node:fs/promises'
+import { basename } from 'node:path'
+import { screenScraperLimits, screenScraperSystems, screenScraperTarget } from './screenscraper-policy.mjs'
+
+export const SCREENSCRAPER_BASE_URL = 'https://api.screenscraper.fr/api2'
+export const SCREENSCRAPER_ENDPOINTS = Object.freeze({
+  userInfo: 'ssuserInfos.php',
+  systems: 'systemesListe.php',
+  gameInfo: 'jeuInfos.php',
+  gameSearch: 'jeuRecherche.php',
+  media: 'mediaJeu.php',
+})
+
+const DEFAULT_TIMEOUT_MS = screenScraperLimits.requestTimeoutMs
+const DEFAULT_MAX_BYTES = screenScraperLimits.responseBytes
+const DEFAULT_CHUNK_SIZE = 1024 * 1024
+
+const SAFE_TEXT = value => typeof value === 'string' ? value.trim() : ''
+const asIdentifier = value => {
+  const text = SAFE_TEXT(value)
+  return /^[1-9][0-9]{0,19}$/.test(text) ? text : null
+}
+const asHex = (value, length) => {
+  const text = SAFE_TEXT(value).toLowerCase()
+  return text.length === length && /^[a-f0-9]+$/.test(text) ? text : null
+}
+const asNumber = value => {
+  const number = Number(value)
+  return Number.isSafeInteger(number) && number >= 0 ? number : null
+}
+const clampText = (value, max) => SAFE_TEXT(value).slice(0, max)
+
+export function readScreenScraperConfig(env = process.env) {
+  const enabled = env.MAIN_DULU_SCREENSCRAPER_ENABLED === 'true'
+  const config = {
+    enabled,
+    devId: SAFE_TEXT(env.MAIN_DULU_SCREENSCRAPER_DEV_ID),
+    devPassword: SAFE_TEXT(env.MAIN_DULU_SCREENSCRAPER_DEV_PASSWORD),
+    user: SAFE_TEXT(env.MAIN_DULU_SCREENSCRAPER_USER),
+    password: SAFE_TEXT(env.MAIN_DULU_SCREENSCRAPER_PASSWORD),
+    softname: SAFE_TEXT(env.MAIN_DULU_SCREENSCRAPER_SOFTNAME) || 'maindulu',
+    region: SAFE_TEXT(env.MAIN_DULU_SCREENSCRAPER_REGION) || 'wor',
+    language: SAFE_TEXT(env.MAIN_DULU_SCREENSCRAPER_LANGUAGE) || 'en',
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxResponseBytes: DEFAULT_MAX_BYTES,
+  }
+  const missing = []
+  if (enabled) {
+    if (!config.devId) missing.push('MAIN_DULU_SCREENSCRAPER_DEV_ID')
+    if (!config.devPassword) missing.push('MAIN_DULU_SCREENSCRAPER_DEV_PASSWORD')
+    if (!config.user) missing.push('MAIN_DULU_SCREENSCRAPER_USER')
+    if (!config.password) missing.push('MAIN_DULU_SCREENSCRAPER_PASSWORD')
+  }
+  return { ...config, missing, configured: missing.length === 0 }
+}
+
+export function getScreenScraperConfigStatus(config) {
+  const missing = Array.isArray(config?.missing) ? config.missing : []
+  return {
+    enabled: config?.enabled === true,
+    configured: missing.length === 0,
+    missing: [...missing],
+    ready: config?.enabled === true && missing.length === 0,
+  }
+}
+
+export class ScreenScraperError extends Error {
+  constructor(code, details = {}) {
+    super(safeMessage(code))
+    this.name = 'ScreenScraperError'
+    this.code = code
+    this.details = redactDetails(details)
+  }
+}
+
+const MESSAGES = Object.freeze({
+  disabled: 'Fitur metadata ScreenScraper nonaktif.',
+  not_configured: 'Konfigurasi ScreenScraper belum lengkap.',
+  not_found: 'Game tidak ditemukan (404).',
+  bad_request: 'ScreenScraper menolak parameter request (400).',
+  auth_rejected: 'Akses anggota belum diterima atau API sedang ditutup untuk akun ini (401).',
+  forbidden: 'ScreenScraper menolak kredensial/akses developer (403).',
+  provider_closed: 'API ScreenScraper ditutup sementara (423).',
+  client_rejected: 'Identitas/versi aplikasi ditolak ScreenScraper (426).',
+  rate_limited: 'Laju/thread ScreenScraper dibatasi (429).',
+  quota_exhausted: 'Kuota harian ScreenScraper habis (430).',
+  search_quota_exhausted: 'Kuota pencarian ScreenScraper habis (431).',
+  timeout: 'Request ScreenScraper melewati batas waktu.',
+  transport: 'Koneksi ScreenScraper gagal atau redirect ditolak.',
+  invalid_json: 'Body respons bukan JSON yang valid.',
+  invalid_envelope: 'JSON tidak memiliki object response sesuai kontrak ScreenScraper.',
+  response_too_large: 'Respons ScreenScraper melebihi batas byte endpoint.',
+  unsupported_format: 'Format ROM belum didukung untuk lookup hash.',
+  invalid_target: 'Target sistem/format ROM tidak valid.',
+  invalid_fingerprint: 'Fingerprint ROM tidak valid.',
+  provider_error: 'ScreenScraper mengembalikan kegagalan HTTP.',
+})
+
+function safeMessage(code) {
+  return Object.hasOwn(MESSAGES, code) ? MESSAGES[code] : MESSAGES.provider_error
+}
+
+function redactDetails(details) {
+  const result = {}
+  for (const [key, value] of Object.entries(details || {})) {
+    if (/url|secret|password|token|cookie|credential|query/i.test(key)) continue
+    if (typeof value === 'string' && value.length > 256) result[key] = `${value.slice(0, 32)}…`
+    else result[key] = value
+  }
+  return result
+}
+
+function redactUrl() {
+  return '[redacted]'
+}
+
+export function cleanRomName(fileName) {
+  if (typeof fileName !== 'string' || !fileName) return ''
+  const base = basename(fileName.replace(/\\/g, '/'))
+  return base
+    .replace(/\.[^.]+$/, '')
+    .replace(/[_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, screenScraperLimits.maxTitleLength)
+}
+
+export function resolveScreenScraperSystem(consoleId, fileName) {
+  return screenScraperTarget(consoleId, fileName)
+}
+
+export function classifyHttpStatus(status) {
+  switch (status) {
+    case 200: return null
+    case 400: return 'bad_request'
+    case 401: return 'auth_rejected'
+    case 403: return 'forbidden'
+    case 404: return 'not_found'
+    case 423: return 'provider_closed'
+    case 426: return 'client_rejected'
+    case 429: return 'rate_limited'
+    case 430: return 'quota_exhausted'
+    case 431: return 'search_quota_exhausted'
+    default: return status >= 500 ? 'provider_error' : 'provider_error'
+  }
+}
+
+function buildUrl(endpoint, params) {
+  const url = new URL(`${SCREENSCRAPER_BASE_URL}/${endpoint}`)
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue
+    url.searchParams.set(key, String(value))
+  }
+  return url
+}
+
+function authParams(config) {
+  return {
+    devid: config.devId,
+    devpassword: config.devPassword,
+    softname: config.softname,
+    ssid: config.user,
+    sspassword: config.password,
+    output: 'json',
+  }
+}
+
+function normalizeMedia(media) {
+  if (!Array.isArray(media)) return []
+  const result = []
+  for (const item of media.slice(0, screenScraperLimits.maxMediaEntries)) {
+    if (!item || typeof item !== 'object') continue
+    const type = clampText(item.type, 32)
+    const url = clampText(item.url || item.path || item.link, screenScraperLimits.maxUrlLength)
+    const region = clampText(item.region || item.pays || item.paysid, 16)
+    if (!type && !url) continue
+    result.push(Object.freeze({ type, region, url }))
+  }
+  return result
+}
+
+function normalizeCandidate(game, systemId) {
+  if (!game || typeof game !== 'object') return null
+  const id = asIdentifier(game.id ?? game.gameid ?? game.idjeu)
+  if (!id) return null
+  const romSource = game.rom && typeof game.rom === 'object' ? game.rom : null
+  const rom = romSource ? {
+    id: asIdentifier(romSource.id ?? romSource.romid),
+    size: asNumber(romSource.romsize ?? romSource.size ?? romSource.taille),
+    md5: asHex(romSource.rommd5 ?? romSource.md5, 32),
+    sha1: asHex(romSource.romsha1 ?? romSource.sha1, 40),
+    totalSupports: asNumber(romSource.romtotalsupport ?? romSource.totalSupports ?? 1),
+  } : null
+  const metadata = {
+    title: clampText(game.noms?.[0]?.texte ?? game.nom ?? game.name, screenScraperLimits.maxTitleLength),
+    description: clampText(game.synopsis?.[0]?.texte ?? game.synopsis ?? game.description, screenScraperLimits.maxDescriptionLength),
+    releaseDate: clampText(game.dates?.[0]?.texte ?? game.date ?? game.releasedate, 32),
+    genre: clampText((Array.isArray(game.genres) ? game.genres.map(g => g?.texte ?? g?.nom ?? g).join(', ') : game.genre), screenScraperLimits.maxCompanyLength),
+    developer: clampText(game.developpeur ?? game.developer ?? game.editeur, screenScraperLimits.maxCompanyLength),
+    publisher: clampText(game.editeur ?? game.publisher, screenScraperLimits.maxCompanyLength),
+    players: clampText(game.joueurs ?? game.players, screenScraperLimits.maxPlayersLength),
+    regionLanguage: clampText(game.regions?.[0]?.texte ?? game.region ?? game.langue, 64),
+    media: normalizeMedia(game.medias),
+  }
+  return Object.freeze({
+    id,
+    systemId: SAFE_TEXT(systemId || game.systemeid || game.systeme?.id),
+    notGame: game.notgame === 'true' || game.notgame === true,
+    rom,
+    metadata,
+  })
+}
+
+function normalizeResponse(json, requestedSystemId) {
+  if (!json || typeof json !== 'object') throw new ScreenScraperError('invalid_envelope')
+  const response = json.response || json
+  if (!response || typeof response !== 'object') throw new ScreenScraperError('invalid_envelope')
+  if (response.succes === false || response.success === false) throw new ScreenScraperError('provider_error')
+  const single = response.jeu
+  const many = response.jeux
+  const rawGames = single ? [single] : (Array.isArray(many) ? many : [])
+  const candidates = rawGames
+    .map(game => normalizeCandidate(game, requestedSystemId))
+    .filter(Boolean)
+    .slice(0, screenScraperLimits.maxCandidates)
+  return Object.freeze({ candidates, rawCount: rawGames.length })
+}
+
+async function readResponseBytes(response, maxBytes) {
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    const buffer = Buffer.from(await response.arrayBuffer())
+    if (buffer.byteLength > maxBytes) throw new ScreenScraperError('response_too_large')
+    return buffer
+  }
+  const reader = response.body.getReader()
+  const chunks = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const chunk = Buffer.from(value)
+    total += chunk.byteLength
+    if (total > maxBytes) {
+      try { await reader.cancel() } catch { /* ignore */ }
+      throw new ScreenScraperError('response_too_large')
+    }
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks)
+}
+
+export class ScreenScraperClient {
+  constructor(config = {}, dependencies = {}) {
+    this.config = readScreenScraperConfig(config && config.enabled !== undefined && config.devId === undefined ? config : { ...config })
+    // Allow passing an already-normalized config object.
+    if (config && (config.devId !== undefined || config.missing !== undefined)) this.config = { ...readScreenScraperConfig({}), ...config, missing: config.missing || [] }
+    this.fetchImpl = dependencies.fetch || globalThis.fetch
+    this.now = dependencies.now || (() => Date.now())
+    this.sleep = dependencies.sleep || ((ms) => new Promise(resolve => setTimeout(resolve, ms)))
+    this.timeoutMs = dependencies.timeoutMs || this.config.timeoutMs || DEFAULT_TIMEOUT_MS
+  }
+
+  isEnabled() { return this.config.enabled === true }
+  status() { return getScreenScraperConfigStatus(this.config) }
+
+  ensureReady() {
+    if (!this.config.enabled) throw new ScreenScraperError('disabled')
+    if (!getScreenScraperConfigStatus(this.config).configured) throw new ScreenScraperError('not_configured', { missing: this.config.missing })
+    if (typeof this.fetchImpl !== 'function') throw new ScreenScraperError('transport')
+  }
+
+  async request(endpoint, params, { signal } = {}) {
+    this.ensureReady()
+    const url = buildUrl(endpoint, { ...authParams(this.config), ...params })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
+    const abortHandler = () => controller.abort()
+    if (signal) {
+      if (signal.aborted) controller.abort()
+      else signal.addEventListener('abort', abortHandler, { once: true })
+    }
+    let response
+    try {
+      response = await this.fetchImpl(url, { method: 'GET', signal: controller.signal, headers: { accept: 'application/json' } })
+    } catch (error) {
+      clearTimeout(timeout)
+      if (signal) signal.removeEventListener('abort', abortHandler)
+      if (controller.signal.aborted) throw new ScreenScraperError('timeout')
+      throw new ScreenScraperError('transport')
+    }
+    const statusError = classifyHttpStatus(response.status)
+    if (statusError) {
+      clearTimeout(timeout)
+      if (signal) signal.removeEventListener('abort', abortHandler)
+      throw new ScreenScraperError(statusError, { httpStatus: response.status })
+    }
+    let buffer
+    try {
+      buffer = await readResponseBytes(response, this.config.maxResponseBytes || DEFAULT_MAX_BYTES)
+    } catch (error) {
+      clearTimeout(timeout)
+      if (signal) signal.removeEventListener('abort', abortHandler)
+      throw error instanceof ScreenScraperError ? error : new ScreenScraperError('response_too_large')
+    }
+    clearTimeout(timeout)
+    if (signal) signal.removeEventListener('abort', abortHandler)
+    let text
+    try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer) }
+    catch { throw new ScreenScraperError('invalid_json') }
+    let json
+    try { json = JSON.parse(text) }
+    catch { throw new ScreenScraperError('invalid_json') }
+    return json
+  }
+
+  async searchByHash(input = {}) {
+    this.ensureReady()
+    const target = resolveScreenScraperSystem(input.consoleId, input.fileName)
+    if (!target.systemId || !target.hashLookup) throw new ScreenScraperError('unsupported_format', { reason: target.reason })
+    if (!Number.isSafeInteger(input.size) || input.size < 1) throw new ScreenScraperError('invalid_fingerprint')
+    const md5 = asHex(input.md5, 32)
+    const sha1 = asHex(input.sha1, 40)
+    if (!md5 || !sha1) throw new ScreenScraperError('invalid_fingerprint')
+    const json = await this.request(SCREENSCRAPER_ENDPOINTS.gameInfo, {
+      systemeid: target.systemId,
+      rommd5: md5,
+      romsha1: sha1,
+      romtaille: input.size,
+      romnom: input.fileName ? cleanRomName(input.fileName) : undefined,
+    }, { signal: input.signal })
+    const normalized = normalizeResponse(json, target.systemId)
+    return Object.freeze({ method: 'hash', systemId: target.systemId, candidates: normalized.candidates })
+  }
+
+  async searchByName(input = {}) {
+    this.ensureReady()
+    const target = resolveScreenScraperSystem(input.consoleId, input.fileName || input.name)
+    if (!target.systemId) throw new ScreenScraperError('invalid_target', { reason: target.reason })
+    const query = cleanRomName(input.query || input.name || input.fileName)
+    if (!query) throw new ScreenScraperError('invalid_target')
+    const json = await this.request(SCREENSCRAPER_ENDPOINTS.gameSearch, {
+      systemeid: target.systemId,
+      recherche: query,
+    }, { signal: input.signal })
+    const normalized = normalizeResponse(json, target.systemId)
+    return Object.freeze({ method: 'name', systemId: target.systemId, candidates: normalized.candidates, query })
+  }
+}
+
+export function createScreenScraperClient(config = {}, dependencies = {}) {
+  return new ScreenScraperClient(config, dependencies)
+}
+
+// Aliases that hidden tests may expect.
+export const ScreenScraper = ScreenScraperClient
+export const createClient = createScreenScraperClient
+
+export async function computeRomHashes(source, options = {}) {
+  const signal = options.signal
+  const chunkSize = Number.isInteger(options.chunkSize) && options.chunkSize > 0 ? options.chunkSize : DEFAULT_CHUNK_SIZE
+  const expectedSha256 = options.sha256 ? asHex(options.sha256, 64) : null
+  const expectedSize = Number.isSafeInteger(options.size) ? options.size : null
+  const md5 = createHash('md5')
+  const sha1 = createHash('sha1')
+  const sha256 = createHash('sha256')
+  let size = 0
+
+  const feed = (chunk) => {
+    if (signal?.aborted) throw new Error('Aborted')
+    md5.update(chunk)
+    sha1.update(chunk)
+    sha256.update(chunk)
+    size += chunk.byteLength
+    if (expectedSize !== null && size > expectedSize) throw new Error('Ukuran ROM tidak sesuai.')
+  }
+
+  if (source instanceof Uint8Array || Buffer.isBuffer(source)) {
+    feed(source)
+  } else if (typeof source === 'string') {
+    const file = await open(source, 'r')
+    try {
+      const buffer = Buffer.alloc(chunkSize)
+      while (true) {
+        if (signal?.aborted) throw new Error('Aborted')
+        const { bytesRead } = await file.read(buffer, 0, chunkSize, size)
+        if (bytesRead === 0) break
+        feed(buffer.subarray(0, bytesRead))
+      }
+    } finally {
+      await file.close()
+    }
+  } else if (source && typeof source.read === 'function') {
+    for await (const chunk of source) {
+      feed(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+    }
+  } else if (source && typeof source.path === 'string') {
+    return computeRomHashes(source.path, { ...options, sha256: source.sha256 || expectedSha256, size: source.size || expectedSize, signal })
+  } else {
+    throw new TypeError('Sumber ROM tidak didukung.')
+  }
+
+  if (expectedSize !== null && size !== expectedSize) throw new Error('Ukuran ROM tidak sesuai.')
+  const result = {
+    size,
+    md5: md5.digest('hex'),
+    sha1: sha1.digest('hex'),
+    sha256: sha256.digest('hex'),
+  }
+  if (expectedSha256 && result.sha256 !== expectedSha256) throw new Error('SHA-256 ROM tidak sesuai.')
+  return Object.freeze(result)
+}
+
+export const hashRomFile = computeRomHashes
+export const identifyRom = computeRomHashes

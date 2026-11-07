@@ -1,4 +1,5 @@
 import { realpath } from 'node:fs/promises'
+import { readScreenScraperConfig } from './metadata/screenscraper.mjs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -63,5 +64,6 @@ export async function readConfig(env = process.env, root = projectRoot) {
     catalogQuotaBytes: bytes('MAIN_DULU_CATALOG_QUOTA_BYTES', 20 * 1024 ** 3, 1024 * 1024 ** 3),
     catalogMinFreeBytes: integer('MAIN_DULU_CATALOG_MIN_FREE_BYTES', 256 * 1024 * 1024, 0, 1024 * 1024 ** 3),
     catalogUploadLimit: integer('MAIN_DULU_CATALOG_UPLOAD_LIMIT', 2, 1, 16),
-    catalogUploadTimeoutMs: integer('MAIN_DULU_CATALOG_UPLOAD_TIMEOUT_MS', 30 * 60 * 1000, 1000, 60 * 60 * 1000) }
+    catalogUploadTimeoutMs: integer('MAIN_DULU_CATALOG_UPLOAD_TIMEOUT_MS', 30 * 60 * 1000, 1000, 60 * 60 * 1000),
+     screenscraper: readScreenScraperConfig(env) }
 }
