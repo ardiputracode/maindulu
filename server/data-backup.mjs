@@ -78,10 +78,10 @@ async function copy(source, target) {
   await sync(target)
 }
 
-function inspectDatabase(db, { legacy = false, catalogMetadata = false } = {}) {
+function inspectDatabase(db, { legacy = false, catalogMetadata = false, allowOperational = false } = {}) {
   db.exec('PRAGMA trusted_schema = OFF; PRAGMA query_only = ON;')
   const version = db.prepare('PRAGMA user_version').get().user_version
-  if (version !== schemaVersion && !(legacy && [7, 8, 9].includes(version))) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
+  if (version !== schemaVersion && !(legacy && [7, 8, 9, 10].includes(version))) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
   if (db.prepare('PRAGMA integrity_check').all().some(row => row.integrity_check !== 'ok') || db.prepare('PRAGMA foreign_key_check').all().length) fail('Integritas SQLite backup gagal.')
   if (version === 7) {
     if (db.prepare("SELECT name FROM sqlite_master WHERE name IN ('games', 'bios', 'catalog_cleanup', 'catalog_uploads', 'catalog_capacity')").all().length) fail('Katalog backup skema 7 tidak cocok; tabel katalog tidak boleh ada pada skema ini.')
@@ -93,7 +93,7 @@ function inspectDatabase(db, { legacy = false, catalogMetadata = false } = {}) {
     if (catalogMetadata) inspectCatalog(db)
     else if (db.prepare('SELECT 1 FROM catalog_cleanup UNION ALL SELECT 1 FROM catalog_uploads LIMIT 1').get()) fail('Katalog backup format 1 memiliki reservasi/cleanup yang belum kosong.')
   }
-  if (catalogMetadata && version === schemaVersion && db.prepare('SELECT 1 FROM metadata_jobs UNION ALL SELECT 1 FROM provider_cache LIMIT 1').get()) fail('Backup metadata tidak boleh membawa tugas operasional/cache provider aktif.')
+  if (catalogMetadata && !allowOperational && version === schemaVersion && db.prepare('SELECT 1 FROM metadata_jobs UNION ALL SELECT 1 FROM provider_cache LIMIT 1').get()) fail('Backup metadata tidak boleh membawa tugas operasional/cache provider aktif.')
   const installationId = db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get()?.value
   if (typeof installationId !== 'string') fail('Identitas instalasi backup tidak valid.')
   const files = new Map()
@@ -192,7 +192,7 @@ export async function createDataBackup(config, input) {
     // uses a connection on its worker thread. In particular, iterator/statement
     // GC must not touch the same SQLite connection while backup is running.
     const inspection = new DatabaseSync(join(source, databaseName), { readOnly: true })
-    try { inspectDatabase(inspection, { catalogMetadata: true }) } finally { inspection.close() }
+    try { inspectDatabase(inspection, { catalogMetadata: true, allowOperational: true }) } finally { inspection.close() }
     const db = new DatabaseSync(join(source, databaseName), { readOnly: true })
     let info
     try { await backup(db, join(stage, databaseName)) } finally { db.close() }

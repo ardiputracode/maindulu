@@ -245,6 +245,12 @@ const migrations = [
     ) STRICT;
     INSERT INTO catalog_revision VALUES (1, 1);`,
   },
+  {
+    version: 11,
+    name: 'metadata-job-candidates',
+    sql: `ALTER TABLE metadata_jobs ADD COLUMN candidate_json TEXT CHECK(candidate_json IS NULL OR length(candidate_json) BETWEEN 1 AND 2097152);
+    ALTER TABLE metadata_jobs ADD COLUMN candidate_at INTEGER;`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

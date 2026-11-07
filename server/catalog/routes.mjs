@@ -5,6 +5,7 @@ import { createCatalogMaintenance, enqueueCleanup, activeReference } from './mai
 import { metadataFields, fileName, validateCover, listQuery, validId } from './validation.mjs'
 import { catalogDto, adminDto, queryCatalog } from './queries.mjs'
 import { registerCatalogAssets } from './assets.mjs'
+import { createMetadataWorker } from '../metadata/worker.mjs'
 import { CatalogHttpError, invalidCatalog } from './errors.mjs'
 import { transaction } from '../auth/mutations.mjs'
 
@@ -17,8 +18,11 @@ export function registerCatalog(app, config, security, storage) {
   const repository = createCatalogRepository(db, storage)
   const maintenance = createCatalogMaintenance(db, storage, config, app.log)
   const operations = new Set()
-  app.decorate('catalog', { storage, repository, maintenance })
+  const worker = createMetadataWorker({ db, config, storage, logger: app.log })
+  app.decorate('catalog', { storage, repository, maintenance, worker })
+  worker.start()
   app.addHook('onClose', async () => {
+    await worker.stop()
     for (const operation of operations) operation.cancel()
     await Promise.allSettled([...operations].map(operation => operation.promise))
     await maintenance.close()

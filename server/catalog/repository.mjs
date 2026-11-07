@@ -117,6 +117,11 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
           const nowMeta = Date.now()
           db.prepare(`INSERT OR IGNORE INTO game_metadata (game_id, metadata_revision, created_at, updated_at) VALUES (?, 1, ?, ?)`).run(id, nowMeta, nowMeta)
           db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'filename', 0, ?)`).run(id, nowMeta)
+          db.prepare(`UPDATE metadata_jobs SET status = 'cancelled', updated_at = ? WHERE game_id = ? AND status IN ('queued', 'running', 'retry_wait', 'paused')`).run(nowMeta, id)
+          const generation = (db.prepare('SELECT COALESCE(MAX(generation), 0) + 1 AS g FROM metadata_jobs WHERE game_id = ?').get(id)?.g) || 1
+          db.prepare(`INSERT INTO metadata_jobs (id, game_id, asset_fingerprint, generation, phase, status, attempts, next_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'identifying', 'queued', 0, ?, ?, ?)`)
+            .run(randomUUID(), id, `${file.sha256}:${file.size}`, generation, nowMeta, nowMeta, nowMeta)
         }
         db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
         return get(kind, id)
@@ -165,6 +170,7 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
         if (row.deleted_at === null) db.prepare(`UPDATE ${kind} SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(Date.now(), Date.now(), id)
         enqueueCleanup(db, kind, row.storage_key)
         if (kind === 'games' && row.cover_storage_key) enqueueCleanup(db, 'covers', row.cover_storage_key)
+        if (kind === 'games') db.prepare(`UPDATE metadata_jobs SET status = 'cancelled', updated_at = ? WHERE game_id = ? AND status IN ('queued', 'running', 'retry_wait', 'paused')`).run(Date.now(), id)
         db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
         return get(kind, id, { includeDeleted: true })
       })

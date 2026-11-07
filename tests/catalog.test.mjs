@@ -45,7 +45,7 @@ test('catalog migration from schema 7 preserves accounts, roles, sessions and ev
   c.db.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   c.close()
   c.db = await openDatabase(c.config.dataDir)
-  assert.equal(schemaVersion, 10)
+  assert.equal(schemaVersion, 11)
   assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
   for (const name of tables) assert.deepEqual(c.db.prepare(`SELECT * FROM ${name}`).all(), before[name], name)
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM games').get().n, 0)

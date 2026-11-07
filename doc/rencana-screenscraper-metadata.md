@@ -1,6 +1,6 @@
 # Rencana Implementasi Metadata Otomatis ScreenScraper
 
-Status: **M0 selesai dan ditutup 2026-11-07 untuk penggunaan pribadi/nonkomersial LAN yang dikonfirmasi operator.** Akun/kuota, tujuh sistem, ROM GBA, negatif HTTP 404, konvensi metadata, dan decode satu cover aktual lolos menurut output operator; keputusan cache/atribusi terdokumentasi. **Scan otomatis tetap nonaktif; M1–M7 belum diimplementasikan.** Disusun pada 2026-11-05, diperbarui 2026-11-07. Kerjakan berurutan per milestone; checklist hanya ditandai selesai setelah implementasi dan verifikasinya benar-benar dilakukan.
+Status: **M0–M3 selesai (M1 `607e6e1`, M2 `fc76b05`, M3 implementasi putaran ini).** Scan otomatis menjadwalkan tugas setelah upload; auto-apply tetap nonaktif sampai M4. 389 tes lulus, build lulus. Disusun pada 2026-11-05, diperbarui 2026-11-07.
 
 **Penutupan M0:** cover PNG region `us` berukuran 875.141 byte dan 705×700 piksel berhasil didecode melalui endpoint tetap, tanpa disimpan; `preferredNameListed`/`preferredSynopsisListed` true. Anomali dua ID ROM valid berbeda tetap dicatat sebagai peringatan, bukan dianggap sudah hilang. **66 tes M0, seluruh suite 383 tes, dan build lulus.** [Bukti akhir dan batas penutupan §13](milestone-0-screenscraper-contract.md#13-penutupan-m0-untuk-pribadilan--2026-11-07). Bagian berikut mempertahankan riwayat putaran sebelumnya; keterangan “masih menunggu” di riwayat itu bukan status akhir.
 
