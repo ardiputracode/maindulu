@@ -178,6 +178,73 @@ const migrations = [
     ) STRICT;
     INSERT INTO catalog_capacity VALUES (1, 0);`,
   },
+  {
+    version: 10,
+    name: 'screenscraper-metadata-provenance-jobs-cache-revision',
+    sql: `CREATE TABLE game_metadata (
+      game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      release_date TEXT CHECK(release_date IS NULL OR length(release_date) BETWEEN 1 AND 32),
+      release_precision TEXT CHECK(release_precision IS NULL OR release_precision IN ('year', 'month', 'day')),
+      genre TEXT NOT NULL DEFAULT '' CHECK(length(genre) <= 200),
+      developer TEXT NOT NULL DEFAULT '' CHECK(length(developer) <= 200),
+      publisher TEXT NOT NULL DEFAULT '' CHECK(length(publisher) <= 200),
+      players TEXT NOT NULL DEFAULT '' CHECK(length(players) <= 32),
+      region_language TEXT NOT NULL DEFAULT '' CHECK(length(region_language) <= 64),
+      provider_game_id TEXT CHECK(provider_game_id IS NULL OR length(provider_game_id) BETWEEN 1 AND 64),
+      match_method TEXT CHECK(match_method IS NULL OR match_method IN ('hash', 'name', 'game_id', 'manual')),
+      fetched_at INTEGER,
+      applied_at INTEGER,
+      metadata_revision INTEGER NOT NULL DEFAULT 1 CHECK(metadata_revision > 0),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE TABLE game_metadata_field_sources (
+      game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      field TEXT NOT NULL CHECK(field IN ('title', 'description', 'release_date', 'genre', 'developer', 'publisher', 'players', 'region_language', 'cover')),
+      source TEXT NOT NULL CHECK(source IN ('filename', 'manual', 'screenscraper')),
+      locked INTEGER NOT NULL CHECK(locked IN (0, 1)),
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY(game_id, field)
+    ) STRICT;
+    CREATE INDEX game_metadata_field_sources_game ON game_metadata_field_sources(game_id);
+    CREATE TABLE metadata_jobs (
+      id TEXT PRIMARY KEY NOT NULL,
+      game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      asset_fingerprint TEXT NOT NULL CHECK(length(asset_fingerprint) BETWEEN 1 AND 256),
+      generation INTEGER NOT NULL CHECK(generation > 0),
+      phase TEXT NOT NULL CHECK(phase IN ('identifying', 'lookup', 'cover', 'apply')),
+      status TEXT NOT NULL CHECK(status IN ('disabled', 'queued', 'running', 'retry_wait', 'paused', 'needs_review', 'succeeded', 'not_found', 'unsupported', 'failed', 'cancelled')),
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+      next_at INTEGER NOT NULL,
+      lease_token TEXT,
+      lease_expires_at INTEGER,
+      error_code TEXT CHECK(error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(game_id, generation)
+    ) STRICT;
+    CREATE INDEX metadata_jobs_status_next ON metadata_jobs(status, next_at);
+    CREATE INDEX metadata_jobs_game ON metadata_jobs(game_id, generation);
+    CREATE TABLE provider_cache (
+      cache_key TEXT PRIMARY KEY NOT NULL,
+      system_id TEXT NOT NULL CHECK(length(system_id) BETWEEN 1 AND 32),
+      fingerprint TEXT NOT NULL CHECK(length(fingerprint) BETWEEN 1 AND 256),
+      preference_key TEXT NOT NULL CHECK(length(preference_key) BETWEEN 1 AND 128),
+      normalization_version INTEGER NOT NULL CHECK(normalization_version > 0),
+      payload TEXT NOT NULL CHECK(length(payload) BETWEEN 1 AND 2097152),
+      expires_at INTEGER NOT NULL,
+      negative INTEGER NOT NULL CHECK(negative IN (0, 1)),
+      size_bytes INTEGER NOT NULL CHECK(size_bytes BETWEEN 1 AND 2097152),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX provider_cache_expires ON provider_cache(expires_at);
+    CREATE TABLE catalog_revision (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      revision INTEGER NOT NULL CHECK(revision > 0)
+    ) STRICT;
+    INSERT INTO catalog_revision VALUES (1, 1);`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

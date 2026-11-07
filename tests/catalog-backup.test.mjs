@@ -94,7 +94,7 @@ test('schema-7 backups verify and restore without source migration; application 
   // Reconstruct the real milestone-1 shape: no catalog tables/migration/counts.
   const path = join(source, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
-  legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
+  legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   legacy.close()
   const original = await readFile(path)
   manifest.schemaVersion = 7
@@ -104,6 +104,10 @@ test('schema-7 backups verify and restore without source migration; application 
   delete manifest.counts.bios
   delete manifest.counts.catalog_cleanup
   delete manifest.counts.catalog_uploads
+  delete manifest.counts.game_metadata
+  delete manifest.counts.game_metadata_field_sources
+  delete manifest.counts.metadata_jobs
+  delete manifest.counts.provider_cache
   manifest.files[0] = { path: 'maindulu.sqlite', size: original.length, checksum: createHash('sha256').update(original).digest('hex') }
   await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
   assert.deepEqual(await verifyDataBackup(c.config, source), manifest)
@@ -120,7 +124,7 @@ test('schema-7 backups verify and restore without source migration; application 
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM games').get().n, 0)
   assert.deepEqual(await readFile(path), original)
   const sourceDb = new DatabaseSync(join(c.config.dataDir, 'maindulu.sqlite'))
-  sourceDb.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
+  sourceDb.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   sourceDb.close()
   await assert.rejects(createDataBackup(c.config, join(c.root, 'legacy-source-refused')), /Versi skema backup/)
 })
@@ -157,7 +161,7 @@ test('schema-8 empty backups verify/restore without migration or ignoring new co
   const manifest = await createDataBackup(c.config, source)
   const path = join(source, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
-  legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DELETE FROM schema_migrations WHERE version = 9; PRAGMA user_version = 8;')
+  legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DELETE FROM schema_migrations WHERE version >= 9; PRAGMA user_version = 8;')
   legacy.close()
   const original = await readFile(path)
   manifest.schemaVersion = 8
@@ -165,6 +169,10 @@ test('schema-8 empty backups verify/restore without migration or ignoring new co
   delete manifest.catalogAssets
   delete manifest.counts.catalog_cleanup
   delete manifest.counts.catalog_uploads
+  delete manifest.counts.game_metadata
+  delete manifest.counts.game_metadata_field_sources
+  delete manifest.counts.metadata_jobs
+  delete manifest.counts.provider_cache
   manifest.files[0] = { path: 'maindulu.sqlite', size: original.length, checksum: createHash('sha256').update(original).digest('hex') }
   await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
   assert.deepEqual(await verifyDataBackup(c.config, source), manifest)

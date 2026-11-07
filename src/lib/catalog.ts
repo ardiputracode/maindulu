@@ -6,6 +6,9 @@ export type CatalogEntry = {
   id: string; consoleId: string; fileName: string; size: number; sha256: string;
   description: string; createdAt: number; updatedAt: number; url: string;
   title?: string; name?: string; license?: string; distributionRights?: string; cover?: string;
+  releaseDate?: string; releasePrecision?: 'year' | 'month' | 'day'; genre?: string;
+  developer?: string; publisher?: string; players?: string; regionLanguage?: string;
+  providerGameId?: string; metadataRevision?: number;
 }
 export type CatalogPage = { items: CatalogEntry[]; page: number; pageSize: number; total: number }
 export class CatalogRequestError extends Error {

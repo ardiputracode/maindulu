@@ -720,7 +720,7 @@ test('schema-9 migration preserves a populated schema-8 catalog, firmware names,
   const sessions = c.app.database.prepare('SELECT * FROM sessions').all()
   await c.app.close(); c.app = null
   let db = await openDatabase(join(c.root, 'data'))
-  db.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DELETE FROM schema_migrations WHERE version = 9; PRAGMA user_version = 8;')
+  db.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DELETE FROM schema_migrations WHERE version >= 9; PRAGMA user_version = 8;')
   db.close()
   c.app = await createApp({ root: c.root, env: c.env })
   db = c.app.database

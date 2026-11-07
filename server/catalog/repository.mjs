@@ -113,6 +113,12 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, v[title], v.consoleId, v.description, kind === 'games' ? v.license : v.distributionRights, v.fileName, file.key, file.size, file.sha256, actor, now, now)
         }
         if (kind === 'games' && (!missing || cover !== null)) db.prepare('UPDATE games SET cover_storage_key = ?, cover_type = ?, cover_size = ?, cover_sha256 = ? WHERE id = ?').run(...fields, id)
+        if (kind === 'games') {
+          const nowMeta = Date.now()
+          db.prepare(`INSERT OR IGNORE INTO game_metadata (game_id, metadata_revision, created_at, updated_at) VALUES (?, 1, ?, ?)`).run(id, nowMeta, nowMeta)
+          db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'filename', 0, ?)`).run(id, nowMeta)
+        }
+        db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
         return get(kind, id)
       })
     },
@@ -135,6 +141,19 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
         db.prepare(`UPDATE ${kind} SET ${title} = ?, description = ?, ${rights} = ?, updated_at = ? WHERE id = ?`)
           .run(v[title] ?? row[title], v.description ?? row.description, v[kind === 'games' ? 'license' : 'distributionRights'] ?? row[rights], Date.now(), id)
         if (fields) db.prepare('UPDATE games SET cover_storage_key = ?, cover_type = ?, cover_size = ?, cover_sha256 = ? WHERE id = ?').run(...fields, id)
+        if (kind === 'games') {
+          const nowMeta = Date.now()
+          db.prepare(`INSERT OR IGNORE INTO game_metadata (game_id, metadata_revision, created_at, updated_at) VALUES (?, 1, ?, ?)`).run(id, nowMeta, nowMeta)
+          db.prepare(`UPDATE game_metadata SET updated_at = ? WHERE game_id = ?`).run(nowMeta, id)
+          for (const field of [title, 'description', 'license'].filter(Boolean)) {
+            const mapped = field === 'license' ? 'license' : field === title ? 'title' : field
+            if (mapped === 'title' || mapped === 'description') {
+              db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, ?, 'manual', 1, ?)`).run(id, mapped, nowMeta)
+            }
+          }
+          if (fields) db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', 'manual', 1, ?)`).run(id, nowMeta)
+        }
+        db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
         return get(kind, id)
       })
     },
@@ -146,6 +165,7 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
         if (row.deleted_at === null) db.prepare(`UPDATE ${kind} SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(Date.now(), Date.now(), id)
         enqueueCleanup(db, kind, row.storage_key)
         if (kind === 'games' && row.cover_storage_key) enqueueCleanup(db, 'covers', row.cover_storage_key)
+        db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
         return get(kind, id, { includeDeleted: true })
       })
     },

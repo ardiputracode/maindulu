@@ -8,6 +8,9 @@ export type Game = {
   id: string; title: string; consoleId: string; source: 'server' | 'local';
   fileName?: string; url?: string; cover?: string; description?: string;
   license?: string; lastPlayed?: number; sha256?: string; size?: number; createdAt?: number;
+  releaseDate?: string; releasePrecision?: 'year' | 'month' | 'day'; genre?: string;
+  developer?: string; publisher?: string; players?: string; regionLanguage?: string;
+  providerGameId?: string; metadataRevision?: number;
 }
 
 export type Bios = { id: string; name: string; consoleId: string; url: string; sha256?: string; size?: number; fileName?: string; description?: string; distributionRights?: string }
