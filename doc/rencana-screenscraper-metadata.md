@@ -1,6 +1,6 @@
 # Rencana Implementasi Metadata Otomatis ScreenScraper
 
-Status: **M0–M3 selesai (M1 `607e6e1`, M2 `fc76b05`, M3 implementasi putaran ini).** Scan otomatis menjadwalkan tugas setelah upload; auto-apply tetap nonaktif sampai M4. 389 tes lulus, build lulus. Disusun pada 2026-11-05, diperbarui 2026-11-07.
+Status: **M0–M4 selesai (M1 `607e6e1`, M2 `fc76b05`, M3 `2655fde`, M4 `7e9fc11`).** Auto-apply aman dan penyimpanan cover lokal aktif; scan otomatis menjadwalkan tugas setelah upload. 396 tes lulus, build lulus. Disusun pada 2026-11-05, diperbarui 2026-11-07.
 
 **Penutupan M0:** cover PNG region `us` berukuran 875.141 byte dan 705×700 piksel berhasil didecode melalui endpoint tetap, tanpa disimpan; `preferredNameListed`/`preferredSynopsisListed` true. Anomali dua ID ROM valid berbeda tetap dicatat sebagai peringatan, bukan dianggap sudah hilang. **66 tes M0, seluruh suite 383 tes, dan build lulus.** [Bukti akhir dan batas penutupan §13](milestone-0-screenscraper-contract.md#13-penutupan-m0-untuk-pribadilan--2026-11-07). Bagian berikut mempertahankan riwayat putaran sebelumnya; keterangan “masih menunggu” di riwayat itu bukan status akhir.
 
