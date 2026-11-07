@@ -116,7 +116,15 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
         if (kind === 'games') {
           const nowMeta = Date.now()
           db.prepare(`INSERT OR IGNORE INTO game_metadata (game_id, metadata_revision, created_at, updated_at) VALUES (?, 1, ?, ?)`).run(id, nowMeta, nowMeta)
-          db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'filename', 0, ?)`).run(id, nowMeta)
+          if (!previous) {
+            // Current upload UI requires an explicit title. It belongs to admin;
+            // only M5's explicit filename fallback may be auto-replaced.
+            db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'manual', 1, ?)`).run(id, nowMeta)
+            if (v.description) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'description', 'manual', 1, ?)`).run(id, nowMeta)
+            else db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'description', 'filename', 0, ?)`).run(id, nowMeta)
+            if (coverFile) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', 'manual', 1, ?)`).run(id, nowMeta)
+          }
+          if (previous && coverFile) db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', 'manual', 1, ?)`).run(id, nowMeta)
           db.prepare(`UPDATE metadata_jobs SET status = 'cancelled', updated_at = ? WHERE game_id = ? AND status IN ('queued', 'running', 'retry_wait', 'paused')`).run(nowMeta, id)
           const generation = (db.prepare('SELECT COALESCE(MAX(generation), 0) + 1 AS g FROM metadata_jobs WHERE game_id = ?').get(id)?.g) || 1
           db.prepare(`INSERT INTO metadata_jobs (id, game_id, asset_fingerprint, generation, phase, status, attempts, next_at, created_at, updated_at)
@@ -143,19 +151,15 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
         if (fields && row.cover_storage_key) enqueueCleanup(db, 'covers', row.cover_storage_key)
         const title = kind === 'games' ? 'title' : 'name'
         const rights = kind === 'games' ? 'license' : 'distribution_rights'
+        const changedFields = [title, 'description'].filter(field => Object.hasOwn(v, field) && v[field] !== row[field])
         db.prepare(`UPDATE ${kind} SET ${title} = ?, description = ?, ${rights} = ?, updated_at = ? WHERE id = ?`)
           .run(v[title] ?? row[title], v.description ?? row.description, v[kind === 'games' ? 'license' : 'distributionRights'] ?? row[rights], Date.now(), id)
         if (fields) db.prepare('UPDATE games SET cover_storage_key = ?, cover_type = ?, cover_size = ?, cover_sha256 = ? WHERE id = ?').run(...fields, id)
         if (kind === 'games') {
           const nowMeta = Date.now()
           db.prepare(`INSERT OR IGNORE INTO game_metadata (game_id, metadata_revision, created_at, updated_at) VALUES (?, 1, ?, ?)`).run(id, nowMeta, nowMeta)
-          db.prepare(`UPDATE game_metadata SET updated_at = ? WHERE game_id = ?`).run(nowMeta, id)
-          for (const field of [title, 'description', 'license'].filter(Boolean)) {
-            const mapped = field === 'license' ? 'license' : field === title ? 'title' : field
-            if (mapped === 'title' || mapped === 'description') {
-              db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, ?, 'manual', 1, ?)`).run(id, mapped, nowMeta)
-            }
-          }
+          if (changedFields.length || fields) db.prepare(`UPDATE game_metadata SET updated_at = ?, metadata_revision = metadata_revision + 1 WHERE game_id = ?`).run(nowMeta, id)
+          for (const field of changedFields) db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, ?, 'manual', 1, ?)`).run(id, field, nowMeta)
           if (fields) db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', 'manual', 1, ?)`).run(id, nowMeta)
         }
         db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()

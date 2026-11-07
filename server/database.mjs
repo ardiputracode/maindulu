@@ -251,6 +251,13 @@ const migrations = [
     sql: `ALTER TABLE metadata_jobs ADD COLUMN candidate_json TEXT CHECK(candidate_json IS NULL OR length(candidate_json) BETWEEN 1 AND 2097152);
     ALTER TABLE metadata_jobs ADD COLUMN candidate_at INTEGER;`,
   },
+  {
+    version: 12,
+    name: 'conservative-upload-title-provenance',
+    // M3 labelled explicit admin-upload titles as filename. No UI/server
+    // filename fallback existed before M5: lock these historical titles.
+    sql: `UPDATE game_metadata_field_sources SET source = 'manual', locked = 1 WHERE field = 'title' AND source = 'filename';`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

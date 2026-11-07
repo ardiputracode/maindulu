@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { transaction } from '../auth/mutations.mjs'
 import { createScreenScraperClient, computeRomHashes, ScreenScraperError } from './screenscraper.mjs'
+import { assessScreenScraperEvidence } from './screenscraper-policy.mjs'
+import { downloadScreenScraperCover, selectScreenScraperCover, CoverError } from './cover.mjs'
+import { applyVerifiedMetadata, metadataPreview } from './apply.mjs'
+import { validateCover } from '../catalog/validation.mjs'
+import { enqueueCleanup, activeReference } from '../catalog/maintenance.mjs'
 
 const LEASE_MS = 60_000
 const POLL_MS = 250
@@ -10,8 +15,7 @@ function nowMs() { return Date.now() }
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 
-function classifyError(error) {
-  const code = error?.code
+function classifyError(code) {
   if (code === 'not_found') return { status: 'not_found', retryable: false }
   if (code === 'unsupported_format' || code === 'invalid_target' || code === 'invalid_fingerprint') return { status: 'unsupported', retryable: false }
   if (code === 'auth_rejected' || code === 'forbidden' || code === 'not_configured' || code === 'disabled') return { status: 'paused', retryable: false }
@@ -26,7 +30,8 @@ function backoffMs(attempts) {
   return base + jitter
 }
 
-export function createMetadataWorker({ db, config, storage, logger = console }) {
+export function createMetadataWorker({ db, config, storage, maintenance, logger = console, clientFactory = createScreenScraperClient,
+  downloadCover = downloadScreenScraperCover }) {
   let running = false
   let loopPromise = null
   let stopping = false
@@ -66,14 +71,14 @@ export function createMetadataWorker({ db, config, storage, logger = console }) 
         SET status = 'running', phase = 'identifying', lease_token = ?, lease_expires_at = ?, attempts = attempts + 1, updated_at = ?
         WHERE id = ?
       `).run(token, leaseExpires, now, row.id)
-      return { ...row, lease_token: token, lease_expires_at: leaseExpires, attempts: row.attempts + 1, phase: 'identifying' }
+      return { ...row, storage_key: game.storage_key, lease_token: token, lease_expires_at: leaseExpires, attempts: row.attempts + 1, phase: 'identifying' }
     })
   }
 
   function setPhase(job, phase) {
     const now = nowMs()
-    db.prepare(`UPDATE metadata_jobs SET phase = ?, updated_at = ? WHERE id = ? AND lease_token = ?`)
-      .run(phase, now, job.id, job.lease_token)
+    db.prepare(`UPDATE metadata_jobs SET phase = ?, lease_expires_at = ?, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`)
+      .run(phase, now + LEASE_MS, now, job.id, job.lease_token)
   }
 
   function finishJob(job, patch) {
@@ -92,7 +97,7 @@ export function createMetadataWorker({ db, config, storage, logger = console }) 
     db.prepare(`
       UPDATE metadata_jobs
       SET status = ?, phase = ?, error_code = ?, candidate_json = ?, candidate_at = ?, next_at = ?, lease_token = ?, lease_expires_at = ?, updated_at = ?
-      WHERE id = ? AND lease_token = ?
+      WHERE id = ? AND status = 'running' AND lease_token = ?
     `).run(
       fields.status, fields.phase, fields.error_code, fields.candidate_json, fields.candidate_at,
       fields.next_at, fields.lease_token, fields.lease_expires_at, fields.updated_at,
@@ -103,6 +108,11 @@ export function createMetadataWorker({ db, config, storage, logger = console }) 
   async function processJob(job) {
     const controller = new AbortController()
     currentAbort = controller
+    const heartbeat = setInterval(() => {
+      if (!stopping && !controller.signal.aborted) db.prepare(`UPDATE metadata_jobs SET lease_expires_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`)
+        .run(nowMs() + LEASE_MS, job.id, job.lease_token)
+    }, LEASE_MS / 4)
+    heartbeat.unref()
     try {
       const game = db.prepare('SELECT * FROM games WHERE id = ? AND deleted_at IS NULL').get(job.game_id)
       if (!game) {
@@ -115,14 +125,19 @@ export function createMetadataWorker({ db, config, storage, logger = console }) 
         return
       }
 
+      // Snapshot revision *before* any async work; edits during hashing,
+      // lookup or cover download must win at the final transaction.
+      const expectedRevision = db.prepare('SELECT metadata_revision FROM game_metadata WHERE game_id = ?').get(game.id)?.metadata_revision
       setPhase(job, 'identifying')
-      const hashes = await computeRomHashes(
-        { path: await storage.pathFor('games', game.storage_key), size: game.size, sha256: game.sha256 },
-        { signal: controller.signal }
-      )
+      const file = await storage.open('games', game.storage_key)
+      let hashes
+      try {
+        hashes = await computeRomHashes(file.createReadStream({ autoClose: false }),
+          { size: game.size, sha256: game.sha256, signal: controller.signal })
+      } finally { await file.close() }
 
       setPhase(job, 'lookup')
-      const client = createScreenScraperClient(config.screenscraper)
+      const client = clientFactory(config.screenscraper)
       const result = await client.searchByHash({
         consoleId: game.console_id,
         fileName: game.original_name,
@@ -133,21 +148,63 @@ export function createMetadataWorker({ db, config, storage, logger = console }) 
       })
 
       const candidates = Array.isArray(result.candidates) ? result.candidates : []
-      const payload = JSON.stringify({ method: result.method, systemId: result.systemId, candidates })
+      const payload = JSON.stringify({ method: result.method, systemId: result.systemId, candidates,
+        fingerprint: { size: hashes.size, md5: hashes.md5, sha1: hashes.sha1 } })
 
       if (candidates.length === 0) {
         finishJob(job, { status: 'not_found', phase: 'lookup', next_at: nowMs() + 7 * 24 * 60 * 60 * 1000 })
         return
       }
-
-      finishJob(job, {
-        status: 'needs_review',
-        phase: 'apply',
-        candidate_json: payload,
-        candidate_at: nowMs(),
-      })
+      const evidence = assessScreenScraperEvidence({ method: result.method, consoleId: game.console_id,
+        fileName: game.original_name, size: hashes.size, md5: hashes.md5, sha1: hashes.sha1 }, candidates)
+      if (!evidence.verified) {
+        finishJob(job, { status: 'needs_review', phase: 'apply', error_code: evidence.reason,
+          candidate_json: payload, candidate_at: nowMs() })
+        return
+      }
+      const candidate = candidates[0]
+      let stage, promoted, reservation, warning = null
+      try {
+        const region = selectScreenScraperCover(candidate)
+        if (region && !metadataPreview(db, game.id, candidate)?.fields.cover.locked) {
+          setPhase(job, 'cover')
+          try {
+            if (!maintenance) throw new CoverError('COVER_CAPACITY')
+            reservation = await maintenance.reserve(8 * 1024 * 1024)
+            controller.signal.throwIfAborted()
+            const media = await downloadCover(config.screenscraper, { gameId: candidate.id, systemId: result.systemId,
+              region, signal: controller.signal })
+            if (media) {
+              stage = await storage.stage('covers', (async function* () { yield media.bytes })())
+              const type = await validateCover(storage, stage)
+              if (type !== media.type) throw new CoverError('COVER_TYPE')
+              reservation.check()
+              controller.signal.throwIfAborted()
+              promoted = { file: await storage.promote(stage), type }
+            }
+          } catch (error) {
+            warning = error instanceof CoverError ? error.code : 'COVER_UNAVAILABLE'
+          }
+        }
+        setPhase(job, 'apply')
+        controller.signal.throwIfAborted()
+        const applied = applyVerifiedMetadata(db, storage, { job, candidate, expectedRevision, cover: promoted })
+        if (applied) {
+          finishJob(job, { status: 'succeeded', phase: 'apply', error_code: warning, candidate_json: payload, candidate_at: nowMs() })
+        } else {
+          finishJob(job, { status: 'needs_review', phase: 'apply', error_code: 'STALE_RESULT', candidate_json: payload, candidate_at: nowMs() })
+        }
+      } finally {
+        if (stage && storage.ownsStage(stage, 'covers')) {
+          try { await storage.discard(stage) } catch { /* offline recovery */ }
+        }
+        if (promoted) transaction(db, () => {
+          if (!activeReference(db, 'covers', promoted.file.key)) enqueueCleanup(db, 'covers', promoted.file.key)
+        })
+        reservation?.release()
+      }
     } catch (error) {
-      const code = error instanceof ScreenScraperError ? error.code : (error?.code || 'provider_error')
+      const code = error instanceof ScreenScraperError ? error.code : controller.signal.aborted ? 'CANCELLED' : 'provider_error'
       const classified = classifyError(code)
       const attempts = job.attempts || 0
       if (classified.status === 'retry_wait' && attempts >= MAX_ATTEMPTS) {
@@ -162,8 +219,10 @@ export function createMetadataWorker({ db, config, storage, logger = console }) 
         error_code: code,
         next_at: nextAt,
       })
-      if (logger?.warn) logger.warn({ err: error?.message, code }, 'metadata worker job failed')
+      // Never log a raw provider error: it may contain a URL with credentials.
+      if (logger?.warn) logger.warn({ code: typeof code === 'string' && /^[A-Z_a-z]{1,64}$/.test(code) ? code : 'provider_error' }, 'metadata worker job failed')
     } finally {
+      clearInterval(heartbeat)
       currentAbort = null
     }
   }
@@ -205,5 +264,5 @@ export function createMetadataWorker({ db, config, storage, logger = console }) 
     }
   }
 
-  return { start, stop, isEnabled }
+  return { start, stop, isEnabled, processOne: async () => { if (!isEnabled()) return false; const job = claimJob(); if (!job) return false; await processJob(job); return true } }
 }

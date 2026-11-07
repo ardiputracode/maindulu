@@ -81,7 +81,7 @@ async function copy(source, target) {
 function inspectDatabase(db, { legacy = false, catalogMetadata = false, allowOperational = false } = {}) {
   db.exec('PRAGMA trusted_schema = OFF; PRAGMA query_only = ON;')
   const version = db.prepare('PRAGMA user_version').get().user_version
-  if (version !== schemaVersion && !(legacy && [7, 8, 9, 10].includes(version))) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
+  if (version !== schemaVersion && !(legacy && [7, 8, 9, 10, 11].includes(version))) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
   if (db.prepare('PRAGMA integrity_check').all().some(row => row.integrity_check !== 'ok') || db.prepare('PRAGMA foreign_key_check').all().length) fail('Integritas SQLite backup gagal.')
   if (version === 7) {
     if (db.prepare("SELECT name FROM sqlite_master WHERE name IN ('games', 'bios', 'catalog_cleanup', 'catalog_uploads', 'catalog_capacity')").all().length) fail('Katalog backup skema 7 tidak cocok; tabel katalog tidak boleh ada pada skema ini.')
@@ -89,11 +89,11 @@ function inspectDatabase(db, { legacy = false, catalogMetadata = false, allowOpe
     fail('Katalog backup format 1 harus kosong. Gunakan format 2 untuk metadata katalog tanpa berkas ROM/BIOS/cover.')
   }
   if (version === 8 && db.prepare("SELECT name FROM sqlite_master WHERE name IN ('catalog_cleanup', 'catalog_uploads', 'catalog_capacity')").all().length) fail('Katalog backup memiliki tabel yang tidak sesuai versi skema; jangan abaikan antrean/reservasi katalog.')
-  if (version === schemaVersion) {
+  if (version >= 10) {
     if (catalogMetadata) inspectCatalog(db)
     else if (db.prepare('SELECT 1 FROM catalog_cleanup UNION ALL SELECT 1 FROM catalog_uploads LIMIT 1').get()) fail('Katalog backup format 1 memiliki reservasi/cleanup yang belum kosong.')
   }
-  if (catalogMetadata && !allowOperational && version === schemaVersion && db.prepare('SELECT 1 FROM metadata_jobs UNION ALL SELECT 1 FROM provider_cache LIMIT 1').get()) fail('Backup metadata tidak boleh membawa tugas operasional/cache provider aktif.')
+  if (catalogMetadata && !allowOperational && version >= 10 && db.prepare('SELECT 1 FROM metadata_jobs UNION ALL SELECT 1 FROM provider_cache LIMIT 1').get()) fail('Backup metadata tidak boleh membawa tugas operasional/cache provider aktif.')
   const installationId = db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get()?.value
   if (typeof installationId !== 'string') fail('Identitas instalasi backup tidak valid.')
   const files = new Map()
@@ -111,7 +111,7 @@ function inspectDatabase(db, { legacy = false, catalogMetadata = false, allowOpe
   for (const table of ['users', 'saves', 'game_saves', 'save_backups', 'save_decisions']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
   if (version >= 8) for (const table of ['games', 'bios']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
   if (version >= 9) for (const table of ['catalog_cleanup', 'catalog_uploads']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
-  if (version === schemaVersion) for (const table of ['metadata_jobs', 'provider_cache', 'game_metadata', 'game_metadata_field_sources']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
+  if (version >= 10) for (const table of ['metadata_jobs', 'provider_cache', 'game_metadata', 'game_metadata_field_sources']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
   return { installationId, files, counts, version }
 }
 
@@ -140,9 +140,9 @@ async function verify(folder) {
   const actual = await tree(folder)
   if ((await safeEntry(join(folder, 'manifest.json'))).size > 64 * 1024 * 1024) fail('Manifest backup terlalu besar.')
   const manifest = JSON.parse(await readFile(join(folder, 'manifest.json'), 'utf8'))
-  if (manifest?.format !== 'maindulu-data-backup' || ![1, 2].includes(manifest.formatVersion) || ![7, 8, 9, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
+  if (manifest?.format !== 'maindulu-data-backup' || ![1, 2].includes(manifest.formatVersion) || ![7, 8, 9, 10, 11, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
   const catalogMetadata = manifest.formatVersion === 2
-  if (catalogMetadata && (manifest.schemaVersion !== schemaVersion || manifest.catalogAssets !== 'excluded')) fail('Format/versi manifest backup metadata harus menyatakan bahwa ROM/BIOS/cover tidak disertakan.')
+  if (catalogMetadata && (manifest.schemaVersion < 10 || manifest.catalogAssets !== 'excluded')) fail('Format/versi manifest backup metadata harus menyatakan bahwa ROM/BIOS/cover tidak disertakan.')
   const files = new Map()
   for (const file of manifest.files) {
     if (!file || typeof file.path !== 'string' || !allowedFile(file.path) || files.has(file.path) || !Number.isSafeInteger(file.size) || file.size < 1 || !checksum.test(file.checksum)) fail('Daftar berkas manifest backup tidak valid.')

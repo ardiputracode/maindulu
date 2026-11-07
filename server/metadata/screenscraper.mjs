@@ -18,7 +18,7 @@ const DEFAULT_CHUNK_SIZE = 1024 * 1024
 
 const SAFE_TEXT = value => typeof value === 'string' ? value.trim() : ''
 const asIdentifier = value => {
-  const text = SAFE_TEXT(value)
+  const text = typeof value === 'number' && Number.isSafeInteger(value) ? String(value) : SAFE_TEXT(value)
   return /^[1-9][0-9]{0,19}$/.test(text) ? text : null
 }
 const asHex = (value, length) => {
@@ -30,6 +30,17 @@ const asNumber = value => {
   return Number.isSafeInteger(number) && number >= 0 ? number : null
 }
 const clampText = (value, max) => SAFE_TEXT(value).slice(0, max)
+const providerText = value => typeof value === 'string' ? value : (value && typeof value === 'object' && !Array.isArray(value) ? (value.text ?? value.texte) : '')
+function preferredText(items, key, preferences, max) {
+  if (!Array.isArray(items)) return ''
+  for (const preference of preferences) {
+    const matches = items.filter(item => item && typeof item === 'object' && item[key] === preference)
+    if (matches.length > 1) return '' // Ambiguous regional value: leave unchanged.
+    const value = clampText(providerText(matches[0]), max)
+    if (value) return value
+  }
+  return ''
+}
 
 export function readScreenScraperConfig(env = process.env) {
   const enabled = env.MAIN_DULU_SCREENSCRAPER_ENABLED === 'true'
@@ -167,15 +178,16 @@ function authParams(config) {
 }
 
 function normalizeMedia(media) {
-  if (!Array.isArray(media)) return []
+  if (media === undefined || media === null) return []
+  if (!Array.isArray(media) || media.length > screenScraperLimits.maxMediaEntries) throw new ScreenScraperError('invalid_envelope')
   const result = []
-  for (const item of media.slice(0, screenScraperLimits.maxMediaEntries)) {
+  for (const item of media) {
     if (!item || typeof item !== 'object') continue
     const type = clampText(item.type, 32)
-    const url = clampText(item.url || item.path || item.link, screenScraperLimits.maxUrlLength)
     const region = clampText(item.region || item.pays || item.paysid, 16)
-    if (!type && !url) continue
-    result.push(Object.freeze({ type, region, url }))
+    // Never retain a provider-supplied URL (which might contain credentials).
+    if (!type) continue
+    result.push(Object.freeze({ type, region }))
   }
   return result
 }
@@ -190,23 +202,27 @@ function normalizeCandidate(game, systemId) {
     size: asNumber(romSource.romsize ?? romSource.size ?? romSource.taille),
     md5: asHex(romSource.rommd5 ?? romSource.md5, 32),
     sha1: asHex(romSource.romsha1 ?? romSource.sha1, 40),
-    totalSupports: asNumber(romSource.romtotalsupport ?? romSource.totalSupports ?? 1),
+    totalSupports: asNumber(romSource.romtotalsupport ?? romSource.totalSupports),
   } : null
   const metadata = {
-    title: clampText(game.noms?.[0]?.texte ?? game.nom ?? game.name, screenScraperLimits.maxTitleLength),
-    description: clampText(game.synopsis?.[0]?.texte ?? game.synopsis ?? game.description, screenScraperLimits.maxDescriptionLength),
-    releaseDate: clampText(game.dates?.[0]?.texte ?? game.date ?? game.releasedate, 32),
-    genre: clampText((Array.isArray(game.genres) ? game.genres.map(g => g?.texte ?? g?.nom ?? g).join(', ') : game.genre), screenScraperLimits.maxCompanyLength),
-    developer: clampText(game.developpeur ?? game.developer ?? game.editeur, screenScraperLimits.maxCompanyLength),
-    publisher: clampText(game.editeur ?? game.publisher, screenScraperLimits.maxCompanyLength),
-    players: clampText(game.joueurs ?? game.players, screenScraperLimits.maxPlayersLength),
-    regionLanguage: clampText(game.regions?.[0]?.texte ?? game.region ?? game.langue, 64),
+    title: preferredText(game.noms, 'region', ['wor', 'us', 'eu', 'jp', 'ss'], screenScraperLimits.maxTitleLength)
+      || clampText(providerText(game.nom ?? game.name), screenScraperLimits.maxTitleLength),
+    description: preferredText(game.synopsis, 'langue', ['en', 'fr', 'ja'], screenScraperLimits.maxDescriptionLength)
+      || clampText(providerText(game.description), screenScraperLimits.maxDescriptionLength),
+    releaseDate: preferredText(game.dates, 'region', ['wor', 'us', 'eu', 'jp', 'ss'], 32)
+      || clampText(providerText(game.date ?? game.releasedate), 32),
+    genre: clampText((Array.isArray(game.genres) ? game.genres.slice(0, screenScraperLimits.maxGenres).map(g => providerText(g) || g?.nom).filter(Boolean).join(', ') : providerText(game.genre)), screenScraperLimits.maxCompanyLength),
+    developer: clampText(providerText(game.developpeur ?? game.developer), screenScraperLimits.maxCompanyLength),
+    publisher: clampText(providerText(game.editeur ?? game.publisher), screenScraperLimits.maxCompanyLength),
+    players: clampText(providerText(game.joueurs ?? game.players), screenScraperLimits.maxPlayersLength),
+    regionLanguage: '',
     media: normalizeMedia(game.medias),
   }
   return Object.freeze({
     id,
-    systemId: SAFE_TEXT(systemId || game.systemeid || game.systeme?.id),
-    notGame: game.notgame === 'true' || game.notgame === true,
+    systemId: asIdentifier(game.systeme?.id ?? game.systemeid),
+    notGame: game.notgame === 'false' || game.notgame === false ? false
+      : game.notgame === 'true' || game.notgame === true ? true : null,
     rom,
     metadata,
   })
@@ -219,11 +235,13 @@ function normalizeResponse(json, requestedSystemId) {
   if (response.succes === false || response.success === false) throw new ScreenScraperError('provider_error')
   const single = response.jeu
   const many = response.jeux
+  if (single && many) throw new ScreenScraperError('invalid_envelope')
   const rawGames = single ? [single] : (Array.isArray(many) ? many : [])
+  if (rawGames.length > screenScraperLimits.maxCandidates) throw new ScreenScraperError('invalid_envelope')
   const candidates = rawGames
     .map(game => normalizeCandidate(game, requestedSystemId))
     .filter(Boolean)
-    .slice(0, screenScraperLimits.maxCandidates)
+  if (candidates.length !== rawGames.length) throw new ScreenScraperError('invalid_envelope')
   return Object.freeze({ candidates, rawCount: rawGames.length })
 }
 
@@ -282,11 +300,17 @@ export class ScreenScraperClient {
     }
     let response
     try {
-      response = await this.fetchImpl(url, { method: 'GET', signal: controller.signal, headers: { accept: 'application/json' } })
+      response = await this.fetchImpl(url, { method: 'GET', signal: controller.signal, redirect: 'error', credentials: 'omit',
+        cache: 'no-store', referrerPolicy: 'no-referrer', headers: { accept: 'application/json' } })
     } catch (error) {
       clearTimeout(timeout)
       if (signal) signal.removeEventListener('abort', abortHandler)
       if (controller.signal.aborted) throw new ScreenScraperError('timeout')
+      throw new ScreenScraperError('transport')
+    }
+    if (response.redirected || response.url && response.url !== url.href) {
+      clearTimeout(timeout)
+      if (signal) signal.removeEventListener('abort', abortHandler)
       throw new ScreenScraperError('transport')
     }
     const statusError = classifyHttpStatus(response.status)

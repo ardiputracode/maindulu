@@ -3,7 +3,12 @@ export function catalogDto(kind, row) {
     description: row.description, createdAt: row.created_at, updatedAt: row.updated_at }
   return kind === 'games'
     ? { ...common, title: row.title, source: 'server', license: row.license, url: `/games/${row.id}/rom/${encodeURIComponent(row.original_name)}`,
-        ...(row.cover_storage_key ? { cover: `/games/${row.id}/cover` } : {}) }
+        ...(row.cover_storage_key ? { cover: `/games/${row.id}/cover` } : {}),
+        ...(row.metadata_revision ? { metadataRevision: row.metadata_revision } : {}),
+        ...(row.release_date ? { releaseDate: row.release_date, releasePrecision: row.release_precision } : {}),
+        ...Object.fromEntries(['genre', 'developer', 'publisher', 'players'].filter(field => row[field]).map(field => [field, row[field]])),
+        ...(row.region_language ? { regionLanguage: row.region_language } : {}),
+        ...(row.provider_game_id ? { providerGameId: row.provider_game_id } : {}) }
     : { ...common, name: row.name, distributionRights: row.distribution_rights, url: `/bios/${row.id}/${encodeURIComponent(row.original_name)}` }
 }
 
@@ -16,9 +21,11 @@ export function queryCatalog(db, kind, v) {
   if (v.q) { conditions.push(`instr(lower(${name}), lower(?)) > 0`); values.push(v.q) }
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
   const order = v.sort === 'title' ? `${name} COLLATE NOCASE, id` : 'created_at DESC, id'
+  const from = kind === 'games' ? 'games LEFT JOIN game_metadata ON game_metadata.game_id = games.id' : 'bios'
+  const fields = kind === 'games' ? 'games.*, game_metadata.release_date, game_metadata.release_precision, game_metadata.genre, game_metadata.developer, game_metadata.publisher, game_metadata.players, game_metadata.region_language, game_metadata.provider_game_id, game_metadata.metadata_revision' : 'bios.*'
   return {
-    rows: db.prepare(`SELECT * FROM ${kind} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...values, v.pageSize, (v.page - 1) * v.pageSize),
-    total: db.prepare(`SELECT COUNT(*) AS n FROM ${kind} ${where}`).get(...values).n,
+    rows: db.prepare(`SELECT ${fields} FROM ${from} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...values, v.pageSize, (v.page - 1) * v.pageSize),
+    total: db.prepare(`SELECT COUNT(*) AS n FROM ${from} ${where}`).get(...values).n,
     page: v.page, pageSize: v.pageSize,
   }
 }

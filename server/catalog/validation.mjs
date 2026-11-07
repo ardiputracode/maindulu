@@ -50,7 +50,7 @@ export async function validateCover(storage, stage) {
   let bytes
   try { bytes = await file.readFile() } finally { await file.close() }
   try {
-    const image = sharp(bytes, { limitInputPixels: 4096 * 4096, animated: true, failOn: 'warning' })
+    const image = sharp(bytes, { limitInputPixels: 4096 * 4096, animated: true, failOn: 'warning' }).timeout({ seconds: 20 })
     const meta = await image.metadata()
     if (!['png', 'jpeg', 'webp'].includes(meta.format) || !meta.width || !meta.height || meta.width > 4096 || meta.height > 4096 || (meta.pages ?? 1) !== 1) throw new Error('Raster only')
     if (meta.format === 'png') {

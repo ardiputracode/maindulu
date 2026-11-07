@@ -8,6 +8,8 @@ import { registerCatalogAssets } from './assets.mjs'
 import { createMetadataWorker } from '../metadata/worker.mjs'
 import { CatalogHttpError, invalidCatalog } from './errors.mjs'
 import { transaction } from '../auth/mutations.mjs'
+import { applyVerifiedMetadata, metadataPreview } from '../metadata/apply.mjs'
+import { assessScreenScraperEvidence } from '../metadata/screenscraper-policy.mjs'
 
 const overhead = 128 * 1024
 const oversized = () => new CatalogHttpError(413, 'UPLOAD_TOO_LARGE', 'Upload melebihi batas ukuran atau jumlah bagian yang diizinkan.')
@@ -18,7 +20,10 @@ export function registerCatalog(app, config, security, storage) {
   const repository = createCatalogRepository(db, storage)
   const maintenance = createCatalogMaintenance(db, storage, config, app.log)
   const operations = new Set()
-  const worker = createMetadataWorker({ db, config, storage, logger: app.log })
+  const worker = createMetadataWorker({ db, config, storage, maintenance, logger: app.log })
+  const dto = (kind, row) => catalogDto(kind, kind === 'games' ? {
+    ...row, ...db.prepare('SELECT * FROM game_metadata WHERE game_id = ?').get(row.id),
+  } : row)
   app.decorate('catalog', { storage, repository, maintenance, worker })
   worker.start()
   app.addHook('onClose', async () => {
@@ -131,7 +136,7 @@ export function registerCatalog(app, config, security, storage) {
         v.metadata.fileName = fileName(kind, primary.name, v.metadata.consoleId)
         row = await repo.publish(kind, actor, v.metadata, primary.stage, { cover: coverValue ?? null, restoreId: v.restoreId })
       }
-      return reply.code(patch || v.restoreId ? 200 : 201).send({ item: catalogDto(kind, row) })
+      return reply.code(patch || v.restoreId ? 200 : 201).send({ item: dto(kind, row) })
     } catch (error) { failed = true; reply.header('Connection', 'close'); throw error }
     finally {
       request.raw.removeListener('data', count)
@@ -207,7 +212,7 @@ export function registerCatalog(app, config, security, storage) {
         if (!validId(request.params.id)) throw notFound()
         const row = repository.get(kind, request.params.id)
         if (!row) throw notFound()
-        return { item: catalogDto(kind, row) }
+        return { item: dto(kind, row) }
       })
       api.get(`/api/admin/${kind}`, { onRequest: async request => { security.protectAdmin(request) } }, async request => {
         const { rows, ...page } = queryCatalog(db, kind, listQuery(request.query, true))
@@ -231,6 +236,55 @@ export function registerCatalog(app, config, security, storage) {
         return { ok: true, id: row.id, deletedAt: row.deleted_at, cleanupPending: true }
       })
     }
+    // Backend-only M4 review controls. M5 supplies the admin UI and polling.
+    api.get('/api/admin/games/:id/metadata', { onRequest: async request => { security.protectAdmin(request) } }, async request => {
+      if (!validId(request.params.id)) throw notFound()
+      const game = repository.get('games', request.params.id)
+      if (!game) throw notFound()
+      const job = db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ? ORDER BY generation DESC LIMIT 1').get(game.id)
+      let candidate = null
+      try { candidate = JSON.parse(job?.candidate_json ?? 'null')?.candidates?.[0] ?? null } catch { /* damaged candidate is not applicable */ }
+      return { gameId: game.id, generation: job?.generation ?? null, status: job?.status ?? null, reason: job?.error_code ?? null,
+        preview: metadataPreview(db, game.id, candidate) }
+    })
+    api.post('/api/admin/games/:id/metadata/unlock', { onRequest: async request => { security.protectAdmin(request) } }, async request => {
+      if (!validId(request.params.id)) throw notFound()
+      const { field, expectedRevision } = request.body ?? {}
+      if (!['title', 'description', 'release_date', 'genre', 'developer', 'publisher', 'players', 'region_language', 'cover'].includes(field)
+        || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1) throw invalidCatalog('Field atau revisi metadata tidak valid.')
+      return transaction(db, () => {
+        security.requireAdmin(request)
+        const game = repository.get('games', request.params.id)
+        const meta = db.prepare('SELECT metadata_revision FROM game_metadata WHERE game_id = ?').get(request.params.id)
+        if (!game || !meta) throw notFound()
+        if (meta.metadata_revision !== expectedRevision) throw new CatalogHttpError(409, 'METADATA_CONFLICT', 'Metadata berubah. Tinjau ulang sebelum membuka kunci.')
+        const source = db.prepare('SELECT * FROM game_metadata_field_sources WHERE game_id = ? AND field = ?').get(game.id, field)
+        if (source) db.prepare('UPDATE game_metadata_field_sources SET locked = 0, updated_at = ? WHERE game_id = ? AND field = ?').run(Date.now(), game.id, field)
+        else db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, ?, 'manual', 0, ?)`).run(game.id, field, Date.now())
+        db.prepare('UPDATE game_metadata SET metadata_revision = metadata_revision + 1, updated_at = ? WHERE game_id = ?').run(Date.now(), game.id)
+        return { revision: expectedRevision + 1 }
+      })
+    })
+    api.post('/api/admin/games/:id/metadata/apply', { onRequest: async request => { security.protectAdmin(request) } }, async request => {
+      if (!validId(request.params.id)) throw notFound()
+      const { generation, expectedRevision, fields } = request.body ?? {}
+      if (!Number.isSafeInteger(generation) || generation < 1 || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1
+        || !Array.isArray(fields) || !fields.length || fields.length > 9
+        || fields.some(field => !['title', 'description', 'releaseDate', 'genre', 'developer', 'publisher', 'players', 'regionLanguage'].includes(field))) throw invalidCatalog('Pilihan metadata/revisi tidak valid.')
+      const game = repository.get('games', request.params.id)
+      if (!game) throw notFound()
+      const job = db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ? AND generation = ?').get(game.id, generation)
+      if (!job || job.status !== 'needs_review' || job.asset_fingerprint !== `${game.sha256}:${game.size}`) throw new CatalogHttpError(409, 'METADATA_CONFLICT', 'Kandidat tidak lagi berlaku.')
+      let payload
+      try { payload = JSON.parse(job.candidate_json) } catch { throw invalidCatalog('Kandidat metadata tidak valid.') }
+      const input = { method: payload?.method, consoleId: game.console_id, fileName: game.original_name,
+        size: payload?.fingerprint?.size, md5: payload?.fingerprint?.md5, sha1: payload?.fingerprint?.sha1 }
+      if (!assessScreenScraperEvidence(input, payload?.candidates).verified || payload.systemId !== payload.candidates[0].systemId) throw new CatalogHttpError(409, 'METADATA_EVIDENCE', 'Kandidat memerlukan peninjauan tanpa penerapan otomatis.')
+      const result = applyVerifiedMetadata(db, storage, { job: { ...job, storage_key: game.storage_key }, candidate: payload.candidates[0],
+        expectedRevision, selectedFields: fields, authorize: () => security.requireAdmin(request) })
+      if (!result) throw new CatalogHttpError(409, 'METADATA_CONFLICT', 'Game atau metadata berubah. Muat ulang preview.')
+      return { ...result, gameId: game.id }
+    })
   })
   registerCatalogAssets(app, repository, storage)
 }
