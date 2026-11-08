@@ -7,7 +7,7 @@ import type { CatalogEntry } from '../../src/lib/catalog.ts'
 import { hashRom } from '../../src/lib/identity.ts'
 
 const name = 'maindulu-asset-cache-m2-tests'
-export type Mode = 'normal' | 'quota' | 'budget' | 'unavailable' | 'disabled' | 'default-disabled' | 'server-error' | 'bad-download'
+export type Mode = 'normal' | 'quota' | 'budget' | 'unavailable' | 'disabled' | 'stored-disabled' | 'server-error' | 'bad-download'
 export async function stats() {
   const cache = await openAssetCache({ name })
   try { return await cache.stats() } finally { cache.close() }
@@ -15,6 +15,10 @@ export async function stats() {
 export async function run(entry: CatalogEntry, kind: AssetKind, mode: Mode = 'normal') {
   const descriptor = catalogAssetDescriptor(kind, entry), phases: string[] = []
   let appendAttempts = 0
+  if (mode === 'stored-disabled') {
+    const cache = await openAssetCache({ name })
+    try { await cache.setSettings({ enabled: false, budget: DEFAULT_ASSET_BUDGET }) } finally { cache.close() }
+  }
   const resolver = createServerAssetResolver({ cacheEnabled: mode !== 'disabled',
     fetch: mode === 'server-error' ? async (url, options) => options?.method === 'HEAD'
       ? new Response(null, { status: 503 }) : fetch(url, options) : mode === 'bad-download' ? async (url, options) => {
@@ -32,7 +36,7 @@ export async function run(entry: CatalogEntry, kind: AssetKind, mode: Mode = 'no
         if (mode === 'quota' && operation === 'append' && ++appendAttempts === 2) throw new DOMException('Test-only quota', 'QuotaExceededError')
       } })
       try {
-        if (mode !== 'default-disabled') await cache.setSettings({ enabled: true, budget: mode === 'budget' ? 1 : DEFAULT_ASSET_BUDGET })
+        if (mode !== 'stored-disabled') await cache.setSettings({ enabled: true, budget: mode === 'budget' ? 1 : DEFAULT_ASSET_BUDGET })
         return cache
       } catch (error) { cache.close(); throw error }
     },

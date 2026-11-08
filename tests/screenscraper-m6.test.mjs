@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import { PassThrough } from 'node:stream'
 import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { createApp } from '../server/app.mjs'
@@ -9,6 +11,7 @@ import { createMetadataWorker } from '../server/metadata/worker.mjs'
 import { ScreenScraperClient, ScreenScraperError, readScreenScraperConfig } from '../server/metadata/screenscraper.mjs'
 import { screenScraperQuota } from '../server/metadata/quota.mjs'
 import { metadataCacheKey, readMetadataCache, writeMetadataCache, pruneMetadata } from '../server/metadata/cache.mjs'
+import { enqueueMetadata, metadataDetail } from '../server/metadata/queue.mjs'
 import { screenScraperLimits as limits } from '../server/metadata/screenscraper-policy.mjs'
 import { downloadScreenScraperCover } from '../server/metadata/cover.mjs'
 import { csrfToken, hashToken } from '../server/auth/crypto.mjs'
@@ -177,6 +180,87 @@ test('M6 auth/config/quota isolation pauses shared queue; health, ROM and upload
   assert.ok(status.json().queue.oldestPendingMs >= 0)
 })
 
+for (const code of ['auth_rejected', 'forbidden', 'client_rejected', 'provider_closed', 'rate_limited', 'quota_exhausted', 'search_quota_exhausted', 'timeout', 'invalid_json']) test(`M6 ${code} respects shared pause/cooldown and keeps logs secret-free`, async t => {
+  const logs = []
+  const c = await fixture(t, { logger: { warn: (...args) => logs.push(args) }, clientFactory: () => ({ searchByHash: async () => {
+    throw new ScreenScraperError(code, { retryAfterMs: 120000, url: 'https://provider/?password=SECRET', cause: 'SECRET' })
+  } }) })
+  const started = Date.now()
+  await c.worker.processOne()
+  const job = c.db.prepare('SELECT * FROM metadata_jobs').get()
+  const gate = c.db.prepare('SELECT * FROM metadata_provider_state').get()
+  const paused = ['auth_rejected', 'forbidden', 'client_rejected'].includes(code)
+  assert.equal(job.status, paused ? 'paused' : 'retry_wait')
+  assert.equal(job.error_code, code)
+  assert.equal(gate.paused_reason, paused ? code : null)
+  if (!paused) assert.ok(gate.next_at >= started + (code.includes('quota_exhausted') ? 86400000 : 120000))
+  assert.equal(gate.lease_token, null)
+  assert.equal(await c.worker.processOne(), false)
+  assert.doesNotMatch(JSON.stringify(logs), /SECRET|password|https:|cause/)
+  assert.equal(logs[0][0].code, code)
+  assert.equal((await c.app.inject('/api/health')).statusCode, 200)
+  assert.equal((await c.app.inject(`/games/${c.game.id}/rom/fixture.nes`)).statusCode, 200)
+})
+
+test('M6 retries stop at the attempt cap and arbitrary transport exceptions never enter logs or job details', async t => {
+  const logs = []
+  const c = await fixture(t, { logger: { warn: (...args) => logs.push(args) }, clientFactory: () => ({ searchByHash: async () => {
+    throw new Error('https://provider/?password=SECRET', { cause: 'SECRET' })
+  } }) })
+  c.db.prepare('UPDATE metadata_jobs SET attempts = ?').run(limits.maxAttempts - 1)
+  await c.worker.processOne()
+  const job = c.db.prepare('SELECT status, attempts, error_code FROM metadata_jobs').get()
+  assert.deepEqual({ ...job }, { status: 'failed', attempts: limits.maxAttempts, error_code: 'provider_error' })
+  assert.doesNotMatch(JSON.stringify(logs), /SECRET|password|https:|cause/)
+  c.db.prepare('UPDATE metadata_provider_state SET next_at = 0').run()
+  assert.equal(await c.worker.processOne(), false)
+})
+
+for (const action of ['detail', 'scan']) test(`M6 legacy catalog ${action} initializes conservative provenance without losing historical values`, async t => {
+  const c = await fixture(t, { clientFactory: () => ({ searchByHash: async () => result }) })
+  c.db.exec('DELETE FROM metadata_jobs; DELETE FROM game_metadata_field_sources; DELETE FROM game_metadata;')
+  const revision = c.db.prepare('SELECT revision FROM catalog_revision').get().revision
+  if (action === 'scan') {
+    const queued = enqueueMetadata(c.db, config, c.game)
+    assert.equal(queued.status, 'queued')
+    await c.worker.processOne()
+  }
+  const detail = metadataDetail(c.db, c.game)
+  for (const field of ['title', 'description', 'cover']) {
+    assert.equal(detail.preview.fields[field].source, 'manual')
+    assert.equal(detail.preview.fields[field].locked, true)
+  }
+  assert.equal(detail.preview.fields.title.current, c.game.title)
+  assert.equal(detail.preview.fields.description.current, c.game.description)
+  if (action === 'detail') {
+    assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM metadata_jobs').get().n, 0)
+    metadataDetail(c.db, c.game)
+    assert.equal(c.db.prepare('SELECT revision FROM catalog_revision').get().revision, revision + 1)
+  }
+  else assert.equal(detail.status, 'succeeded')
+})
+
+for (const action of ['disable', 'delete']) test(`M6 ${action} during cover reservation prevents quota/media requests and releases capacity`, async t => {
+  const started = hold(), release = hold()
+  let requests = 0, released = 0
+  const c = await fixture(t, { maintenance: { reserve: async () => {
+    started.resolve(); await release.promise
+    return { check() {}, release() { released++ } }
+  } }, clientFactory: () => ({ accountQuota: async () => { requests++; throw new Error('Unexpected quota request') } }), downloadCover: async () => { requests++ } })
+  const key = metadataCacheKey('3', { size: 3, md5: hash('md5'), sha1: hash('sha1') }, 'fixture.nes')
+  writeMetadataCache(c.db, key, { ...result, candidates: [{ ...candidate, metadata: { ...candidate.metadata, media: [{ type: 'box-2D', region: 'us' }] } }] })
+  const work = c.worker.processOne()
+  await started.promise
+  if (action === 'disable') c.workerConfig.screenscraper.enabled = false
+  else c.app.catalog.repository.delete('games', c.actor, c.game.id)
+  release.resolve()
+  await work
+  assert.equal(requests, 0)
+  assert.equal(released, 1)
+  assert.equal(c.db.prepare('SELECT cover_storage_key FROM games WHERE id = ?').get(c.game.id).cover_storage_key, null)
+  assert.notEqual(c.db.prepare('SELECT title FROM games WHERE id = ?').get(c.game.id).title, 'Provider title')
+})
+
 test('M6 all metadata routes reject guest, wrong CSRF, revoked role; forged candidates/generations/fields and replay conflict', async t => {
   const c = await fixture(t)
   c.app.appConfig.screenscraper = readScreenScraperConfig({ MAIN_DULU_SCREENSCRAPER_ENABLED: 'true', MAIN_DULU_SCREENSCRAPER_DEV_ID: 'dummy', MAIN_DULU_SCREENSCRAPER_DEV_PASSWORD: 'dummy', MAIN_DULU_SCREENSCRAPER_USER: 'dummy', MAIN_DULU_SCREENSCRAPER_PASSWORD: 'dummy' })
@@ -190,6 +274,9 @@ test('M6 all metadata routes reject guest, wrong CSRF, revoked role; forged cand
     c.db.prepare("UPDATE users SET role = 'admin'").run()
   }
   c.db.prepare("UPDATE metadata_jobs SET status = 'needs_review', candidate_json = ?, candidate_at = ?").run(JSON.stringify(result), Date.now())
+  const other = await c.publish('other.nes', 'xyz')
+  c.db.prepare("UPDATE metadata_jobs SET status = 'needs_review', candidate_json = ?, candidate_at = ? WHERE game_id = ?")
+    .run(JSON.stringify({ ...result, candidates: [{ ...candidate, id: '999' }] }), Date.now(), other.id)
   const apply = payload => c.app.inject({ method: 'POST', url: `/api/admin/games/${c.game.id}/metadata/apply`, headers: c.headers, payload })
   const valid = { candidateId: '123', generation: 1, expectedRevision: 1, fields: ['title'] }
   for (const patch of [{ candidateId: '999' }, { generation: 0 }, { generation: 2 }, { expectedRevision: 999 }, { fields: ['license'] }, { fields: ['title', 'title'] }, { fields: ['__proto__'] }]) assert.ok([400, 409].includes((await apply({ ...valid, ...patch })).statusCode))
@@ -212,6 +299,32 @@ test('M6 cover DNS timeout/private mixed answers/IPv6 fail closed before any soc
   }
   await assert.rejects(downloadScreenScraperCover({}, input, { lookup: () => new Promise(() => {}), request, timeoutMs: 20 }), e => e.code === 'COVER_TIMEOUT')
   assert.equal(calls, 0)
+})
+
+test('M6 production cover transport bounds body bytes, rejects HTML/compression and cancels stalled media', async () => {
+  for (const mode of ['oversize', 'html', 'gzip', 'stalled']) {
+    let response, destroyed = false
+    await assert.rejects(downloadScreenScraperCover({ password: 'SECRET' }, { gameId: '123', systemId: '3', region: 'us' }, {
+      timeoutMs: 30,
+      lookup: async () => [{ address: '8.8.8.8' }],
+      request: (_url, options, receive) => {
+        assert.equal(options.headers['Accept-Encoding'], 'identity')
+        const req = new EventEmitter()
+        req.destroy = () => { destroyed = true }
+        req.end = () => queueMicrotask(() => {
+          response = new PassThrough()
+          response.statusCode = 200
+          response.headers = { 'content-type': mode === 'html' ? 'text/html' : 'image/png', ...(mode === 'gzip' ? { 'content-encoding': 'gzip' } : {}) }
+          receive(response)
+          if (mode === 'oversize') response.end(Buffer.alloc(limits.coverBytes + 1))
+          else if (mode !== 'stalled') response.end('not an image')
+        })
+        return req
+      },
+    }), error => error.code === ({ oversize: 'COVER_SIZE', html: 'COVER_TYPE', gzip: 'COVER_TYPE', stalled: 'COVER_TIMEOUT' })[mode] && !JSON.stringify(error).includes('SECRET'))
+    assert.equal(response.destroyed, true)
+    if (mode === 'oversize' || mode === 'stalled') assert.equal(destroyed, true)
+  }
 })
 
 test('M6 deploy forwards runtime secrets only and packages metadata source without local credentials', async () => {

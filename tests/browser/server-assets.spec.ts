@@ -126,9 +126,9 @@ test('same-size wrong download hash aborts an already-staged real chunk and neve
   expect(metadata.count).toBe(0); expect(metadata.stagingCount).toBe(0); expect(metadata.reservedBytes).toBe(0)
 })
 
-test('budget, unavailable storage and toggle off retain verified network-only fallback; stored default stays off', async ({ page }) => {
+test('budget, unavailable storage and toggle off retain verified network-only fallback; stored opt-out stays off', async ({ page }) => {
   await harness(page)
-  for (const mode of ['default-disabled', 'budget', 'unavailable', 'disabled'] as const) {
+  for (const mode of ['stored-disabled', 'budget', 'unavailable', 'disabled'] as const) {
     const since = transfers.length
     const result = await page.evaluate(({ entry, mode }) => window.serverAssetTest.run(entry, 'rom', mode), { entry: game, mode })
     expect(result).toMatchObject({ persistence: 'not-stored', sha256: game.sha256 })

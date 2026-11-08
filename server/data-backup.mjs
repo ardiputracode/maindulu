@@ -89,7 +89,13 @@ function inspectDatabase(db, { legacy = false, catalogMetadata = false, allowOpe
     fail('Katalog backup format 1 harus kosong. Gunakan format 2 untuk metadata katalog tanpa berkas ROM/BIOS/cover.')
   }
   if (version === 8 && db.prepare("SELECT name FROM sqlite_master WHERE name IN ('catalog_cleanup', 'catalog_uploads', 'catalog_capacity')").all().length) fail('Katalog backup memiliki tabel yang tidak sesuai versi skema; jangan abaikan antrean/reservasi katalog.')
-  if (version >= 10) {
+  if (version < 10 && db.prepare("SELECT 1 FROM sqlite_master WHERE name IN ('game_metadata', 'game_metadata_field_sources', 'metadata_jobs', 'provider_cache', 'catalog_revision') LIMIT 1").get()
+    || version < 13 && db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'metadata_provider_state'").get()) fail('Metadata backup memiliki tabel yang tidak sesuai versi skema.')
+  if (version >= 10 && version < 13) {
+    const columns = db.prepare('PRAGMA table_info(metadata_jobs)').all().map(row => row.name)
+    if (columns.some(name => ['request_method', 'request_json', ...(version === 10 ? ['candidate_json', 'candidate_at'] : [])].includes(name))) fail('Metadata backup memiliki kolom yang tidak sesuai versi skema.')
+  }
+  if (version >= 9) {
     if (catalogMetadata) inspectCatalog(db)
     else if (db.prepare('SELECT 1 FROM catalog_cleanup UNION ALL SELECT 1 FROM catalog_uploads LIMIT 1').get()) fail('Katalog backup format 1 memiliki reservasi/cleanup yang belum kosong.')
   }
@@ -144,7 +150,7 @@ async function verify(folder) {
   const manifest = JSON.parse(await readFile(join(folder, 'manifest.json'), 'utf8'))
   if (manifest?.format !== 'maindulu-data-backup' || ![1, 2].includes(manifest.formatVersion) || ![7, 8, 9, 10, 11, 12, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
   const catalogMetadata = manifest.formatVersion === 2
-  if (catalogMetadata && (manifest.schemaVersion < 10 || manifest.catalogAssets !== 'excluded')) fail('Format/versi manifest backup metadata harus menyatakan bahwa ROM/BIOS/cover tidak disertakan.')
+  if (catalogMetadata && (manifest.schemaVersion < 9 || manifest.catalogAssets !== 'excluded')) fail('Format/versi manifest backup metadata harus menyatakan bahwa ROM/BIOS/cover tidak disertakan.')
   const files = new Map()
   for (const file of manifest.files) {
     if (!file || typeof file.path !== 'string' || !allowedFile(file.path) || files.has(file.path) || !Number.isSafeInteger(file.size) || file.size < 1 || !checksum.test(file.checksum)) fail('Daftar berkas manifest backup tidak valid.')

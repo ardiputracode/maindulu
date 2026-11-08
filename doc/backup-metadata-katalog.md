@@ -8,12 +8,14 @@ Metadata tetap dicadangkan supaya ID game/BIOS, console, hash, ukuran, nama firm
 
 ## Format dan kompatibilitas
 
-- Backup baru memakai `formatVersion: 2`, `catalogAssets: "excluded"`, dan skema SQLite **9**. Tidak ada migrasi skema atau perubahan format/identitas save/engine untuk keputusan ini.
+- Backup baru memakai `formatVersion: 2`, `catalogAssets: "excluded"`, dan skema SQLite **13**. Format 2 diperkenalkan pada skema 9; dukungan metadata ScreenScraper kemudian menambah skema tanpa mengubah format/identitas save/engine.
 - Folder backup tetap hanya berisi `manifest.json`, `maindulu.sqlite`, `saves/`, dan `game-saves/`. Allowlist tidak menerima tambahan folder/berkas aset katalog, walaupun ditambahkan manual ke manifest.
 - Verify memeriksa integritas SQLite, record/count, path metadata katalog, dan seluruh ukuran/checksum blob save aktif/cadangan yang direferensikan. ROM/BIOS/cover yang tidak disertakan **tidak** diverifikasi keberadaan atau isinya; hasil verify bukan bukti koleksi lengkap/kompatibel.
 - Format 1 lama tetap diterima untuk skema 7/8/9 dengan katalog kosong sesuai kontrak lamanya. Format 1 yang berisi katalog ditolak, bukan ditafsirkan sebagai format 2 tanpa deklarasi. CLI/aplikasi lama tidak dapat membaca format 2.
 - Untuk skema 6, gunakan aplikasi lama untuk verify/restore, lalu buka hasil restore dengan server baru untuk migrasi. CLI tidak memigrasikan backup asal atau memaksa downgrade.
 - Reservasi upload dan antrean cleanup tidak dibawa ke instalasi hasil restore. Saat backup offline, keduanya dikosongkan **hanya pada snapshot**, bukan sumber. File staging/orphan sumber tidak dihapus oleh backup. Sesi login pada snapshot tetap dicabut saat restore seperti sebelumnya.
+- Metadata ScreenScraper terapan, provenance, dan kunci manual dipertahankan. Cache provider, kandidat/tugas operasional, lease/cooldown/pause provider tidak dilanjutkan: dinormalisasi pada snapshot saja, tidak pada sumber. Kredensial environment tidak disertakan. Setelah restore, tidak ada scan otomatis; pemulihan aset dan rescan tetap eksplisit.
+- Format 2 skema **9–13** diverifikasi terhadap skema sumber sebelum restore; aplikasi memigrasikan hanya data hasil restore saat dibuka. Tabel/kolom metadata yang lebih baru tidak boleh disembunyikan dengan mengganti nomor versi. [Matriks kompatibilitas dan runbook M6 ScreenScraper](milestone-6-screenscraper-operasi.md).
 
 ## Membuat backup
 

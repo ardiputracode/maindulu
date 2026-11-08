@@ -10,7 +10,7 @@ import { setAccountRoleByAdmin } from '../../server/auth/mutations.mjs'
 import { startPlayer } from './helpers/player'
 import { ScreenScraperError } from '../../server/metadata/screenscraper.mjs'
 
-type Site = { app: Awaited<ReturnType<typeof createApp>>; address: string; headers: Record<string, string>; release: () => void; mode: 'verified' | 'review' | 'failure'; calls: number; coverFails: boolean }
+type Site = { app: Awaited<ReturnType<typeof createApp>>; address: string; headers: Record<string, string>; release: () => void; restart: () => Promise<void>; mode: 'verified' | 'review' | 'failure'; calls: number; coverFails: boolean; providerTitle?: string }
 const test = base.extend<{ site: Site }>({
   site: async ({ context }, use, info) => {
     test.skip(info.project.name !== 'node-backend', 'Metadata memerlukan backend nyata; provider tetap tiruan.')
@@ -21,9 +21,10 @@ const test = base.extend<{ site: Site }>({
     const png = await sharp({ create: { width: 3, height: 3, channels: 3, background: '#118844' } }).png().toBuffer()
     const makeCandidate = (id: string, title: string, input?: { size: number; md5: string; sha1: string }) => ({ id, systemId: '3', notGame: false,
       rom: input ? { id: '456', size: input.size, md5: input.md5, sha1: input.sha1, totalSupports: 1 } : null,
-      metadata: { title, description: 'Sinopsis fixture', genre: 'Action', media: [{ type: 'box-2D', region: 'us' }] } })
+      metadata: { title: site.providerTitle ?? title, description: 'Sinopsis fixture', genre: 'Action', media: [{ type: 'box-2D', region: 'us' }] } })
     let site: Site
-    const app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data'), MAIN_DULU_SCREENSCRAPER_ENABLED: 'true', MAIN_DULU_SCREENSCRAPER_DEV_ID: 'dummy', MAIN_DULU_SCREENSCRAPER_DEV_PASSWORD: 'dummy', MAIN_DULU_SCREENSCRAPER_USER: 'dummy', MAIN_DULU_SCREENSCRAPER_PASSWORD: 'dummy' }, metadataDependencies: {
+    const env = { MAIN_DULU_DATA_DIR: join(folder, 'data'), MAIN_DULU_SCREENSCRAPER_ENABLED: 'true', MAIN_DULU_SCREENSCRAPER_DEV_ID: 'dummy', MAIN_DULU_SCREENSCRAPER_DEV_PASSWORD: 'dummy', MAIN_DULU_SCREENSCRAPER_USER: 'dummy', MAIN_DULU_SCREENSCRAPER_PASSWORD: 'dummy' }
+    const metadataDependencies = {
       clientFactory: () => ({ searchByHash: async (input: { size: number; md5: string; sha1: string; signal: AbortSignal }) => {
         site.calls++
         await Promise.race([gate, new Promise<void>((_, reject) => input.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }))])
@@ -31,7 +32,8 @@ const test = base.extend<{ site: Site }>({
         return { method: 'hash', systemId: '3', candidates: site.mode === 'review' ? [makeCandidate('123', 'Kandidat pertama', input), makeCandidate('124', 'Kandidat kedua', input)] : [makeCandidate('123', 'Judul otomatis', input)] }
       }, searchByName: async () => { site.calls++; return { method: 'name', systemId: '3', candidates: [makeCandidate('123', 'Kandidat pertama'), makeCandidate('124', 'Kandidat kedua')] } } }),
       downloadCover: async () => { if (site.coverFails) throw new Error('Synthetic cover failure'); return { bytes: png, type: 'image/png' } },
-    } })
+    }
+    let app = await createApp({ env, metadataDependencies })
     try {
       const address = await app.listen({ host: '127.0.0.1', port: 0 })
       const csrf = (await (await context.request.get(address + '/api/auth/csrf')).json()).csrfToken
@@ -40,7 +42,12 @@ const test = base.extend<{ site: Site }>({
       expect(registration.status()).toBe(201)
       const headers = { origin: address, 'x-csrf-token': (await registration.json()).csrfToken }
       setAccountRoleByAdmin(app.database, username, 'admin')
-      site = { app, address, headers, release, mode: 'verified', calls: 0, coverFails: false }
+      site = { app, address, headers, release, mode: 'verified', calls: 0, coverFails: false, restart: async () => {
+        await app.close()
+        app = await createApp({ env, metadataDependencies })
+        await app.listen({ host: '127.0.0.1', port: Number(new URL(address).port) })
+        site.app = app
+      } }
       await use(site)
     } finally { release(); await context.close(); await app.close(); await rm(folder, { recursive: true, force: true }) }
   },
@@ -61,6 +68,8 @@ async function upload(page: Page, site: Site) {
 
 test('M5 upload stays playable while provider is held; another tab refreshes title/cover/favorites without reload or changing the active session', async ({ page, context, site }) => {
   const game = await upload(page, site)
+  let downloads = 0
+  context.on('request', request => { if (request.method() === 'GET' && request.url() === site.address + game.url) downloads++ })
   await expect.poll(() => site.calls).toBe(1)
   const library = await context.newPage()
   await library.goto(site.address + '/library?console=nes&sort=title')
@@ -71,6 +80,9 @@ test('M5 upload stays playable while provider is held; another tab refreshes tit
   await page.getByRole('button', { name: 'Main sekarang', exact: true }).click()
   const frame = await startPlayer(page)
   await expect(frame.locator('canvas')).toBeVisible()
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Tersimpan di perangkat')
+  const identity = await frame.locator('body').evaluate(() => (window as unknown as { EJS_emulator: { config: { gameName: string } } }).EJS_emulator.config.gameName)
+  expect(downloads).toBe(1)
   site.release()
   await expect.poll(async () => (await (await page.request.get(site.address + '/api/games/' + game.id)).json()).item.title).toBe('Judul otomatis')
   await library.bringToFront()
@@ -82,6 +94,12 @@ test('M5 upload stays playable while provider is held; another tab refreshes tit
   await library.getByRole('link', { name: /^Favoritku/ }).click()
   await expect(library.getByRole('button', { name: 'Mainkan Judul otomatis', exact: true })).toBeVisible()
   expect((await (await page.request.get(site.address + '/api/games/' + game.id)).json()).item.sha256).toBe(game.sha256)
+  await library.getByRole('button', { name: 'Mainkan Judul otomatis', exact: true }).click()
+  await library.getByRole('button', { name: 'Main sekarang', exact: true }).click()
+  const warm = await startPlayer(library)
+  await expect(library.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Cache perangkat dipakai')
+  expect(await warm.locator('body').evaluate(() => (window as unknown as { EJS_emulator: { config: { gameName: string } } }).EJS_emulator.config.gameName)).toBe(identity)
+  expect(downloads).toBe(1) // A new title/cover does not invalidate the committed ROM cache.
 })
 
 test('M5 candidate selection, preview, explicit field apply and unlock work on mobile with focus restoration', async ({ page, site }) => {
@@ -245,4 +263,65 @@ test('M5 polling pauses when hidden/offline and resumes on focus without clearin
   await expect(page.getByRole('button', { name: 'Mainkan sementara', exact: true })).toBeVisible()
   await context.setOffline(false)
   await expect.poll(() => requests.length).toBeGreaterThan(offline)
+})
+
+test('M6 restart retains applied metadata, manual override and playable ROM without another provider lookup', async ({ page, site }) => {
+  const game = await upload(page, site)
+  site.release()
+  const detail = () => page.request.get(site.address + `/api/admin/games/${game.id}/metadata`).then(r => r.json())
+  await expect.poll(async () => (await detail()).status).toBe('succeeded')
+  const before = await detail()
+  const edit = await page.request.patch(site.address + `/api/admin/games/${game.id}`, { headers: site.headers,
+    data: { title: 'Judul pilihan admin', expectedRevision: before.preview.revision } })
+  expect(edit.status()).toBe(200)
+  const cover = await (await page.request.get(site.address + `/games/${game.id}/cover`)).body()
+  await site.restart()
+  await page.goto(site.address + '/library')
+  await expect(page.getByRole('button', { name: 'Mainkan Judul pilihan admin', exact: true })).toBeVisible()
+  const after = await detail()
+  expect(after.status).toBe('succeeded')
+  expect(after.preview.fields.title).toMatchObject({ current: 'Judul pilihan admin', locked: true, source: 'manual' })
+  expect(await (await page.request.get(site.address + `/games/${game.id}/cover`)).body()).toEqual(cover)
+  expect(site.calls).toBe(1)
+  await page.getByRole('button', { name: 'Mainkan Judul pilihan admin', exact: true }).click()
+  await page.getByRole('button', { name: 'Main sekarang', exact: true }).click()
+  await startPlayer(page)
+  expect(site.calls).toBe(1)
+})
+
+test('M6 delete during a held lookup prevents late metadata and cover publication', async ({ page, site }) => {
+  const game = await upload(page, site)
+  await expect.poll(() => site.calls).toBe(1)
+  await page.getByRole('article', { name: 'sementara', exact: true }).getByRole('button', { name: 'Hapus game', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: 'Ya, hapus', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  site.release()
+  await expect.poll(() => site.app.catalog.worker.status().processing).toBe(false)
+  expect((await page.request.get(site.address + '/api/games/' + game.id)).status()).toBe(404)
+  expect((await page.request.get(site.address + game.url)).status()).toBe(404)
+  expect((await page.request.get(site.address + `/games/${game.id}/cover`)).status()).toBe(404)
+  const row = site.app.database.prepare('SELECT title, cover_storage_key FROM games WHERE id = ?').get(game.id)
+  expect(row.title).toBe('sementara'); expect(row.cover_storage_key).toBeNull()
+  await page.goto(site.address + '/library')
+  await expect(page.getByRole('button', { name: 'Mainkan sementara', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Mainkan Judul otomatis', exact: true })).toHaveCount(0)
+})
+
+test('M6 provider markup remains literal text in catalog and review without script execution or hotlinks', async ({ page, site }) => {
+  site.providerTitle = '<img src=x onerror=alert(1)>'
+  const dialogs: string[] = [], requests: string[] = []
+  page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss() })
+  page.on('request', request => { if (new URL(request.url()).pathname === '/x') requests.push(request.url()) })
+  const game = await upload(page, site)
+  site.release()
+  await expect.poll(async () => (await (await page.request.get(site.address + `/api/admin/games/${game.id}/metadata`)).json()).status).toBe('succeeded')
+  await page.goto(site.address + '/library')
+  await expect(page.getByRole('button', { name: `Mainkan ${site.providerTitle}`, exact: true })).toBeVisible()
+  expect(await page.locator('img[src="x"]').count()).toBe(0)
+  await page.goto(site.address + '/admin/games')
+  await page.getByRole('article', { name: site.providerTitle, exact: true }).getByRole('button', { name: 'Review / scan metadata' }).click()
+  await expect(page.getByRole('dialog')).toContainText(site.providerTitle)
+  expect(await page.locator('img[src="x"]').count()).toBe(0)
+  expect(dialogs).toEqual([]); expect(requests).toEqual([])
 })

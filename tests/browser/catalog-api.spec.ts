@@ -122,6 +122,12 @@ test('BIOS deletion after metadata refresh is still caught by the real player as
     expect(response.status()).toBe(201)
     const bios = (await response.json()).item
     const page = await guest.newPage()
+    // Exercise the legacy engine HEAD boundary, not the default-on cache's
+    // earlier metadata recheck (covered by cache-specific race tests).
+    await page.goto('/pengaturan')
+    const cacheToggle = page.getByRole('switch', { name: 'Gunakan cache ROM/BIOS backend' })
+    await expect(cacheToggle).toBeChecked()
+    await cacheToggle.click(); await expect(cacheToggle).not.toBeChecked()
     await page.goto('/')
     await page.getByRole('button', { name: 'Mainkan Jalan Pulang', exact: true }).click()
     await page.locator('#bios-choice').selectOption(bios.id)
@@ -132,7 +138,7 @@ test('BIOS deletion after metadata refresh is still caught by the real player as
       expect(metadata.status()).toBe(200)
       expect((await admin.request.delete(`/api/admin/bios/${bios.id}`, { headers, data: {} })).status()).toBe(200)
       await route.fulfill({ response: metadata })
-    })
+    }, { times: 1 })
     await page.getByRole('button', { name: 'Main sekarang', exact: true }).click()
     await expect(page.getByRole('alert')).toContainText('BIOS server tidak ditemukan')
     await expect(page.getByRole('alert')).toContainText('HTTP 404')

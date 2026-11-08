@@ -5,6 +5,21 @@ import { getScreenScraperConfigStatus, resolveScreenScraperSystem } from './scre
 import { screenScraperLimits } from './screenscraper-policy.mjs'
 import { metadataPreview } from './apply.mjs'
 
+// Schema-9 catalogs predate metadata rows. Initialize only on explicit admin
+// inspection/scan, preserving historical values as manual, never enqueue here.
+function ensureLegacyMetadata(db, game) {
+  const now = Date.now()
+  const inserted = db.prepare(`INSERT OR IGNORE INTO game_metadata (game_id, metadata_revision, created_at, updated_at)
+    SELECT id, 1, ?, ? FROM games WHERE id = ? AND deleted_at IS NULL`).run(now, now, game.id)
+  if (inserted.changes) {
+    for (const field of ['title', 'description', 'cover']) {
+      db.prepare(`INSERT OR IGNORE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at)
+        VALUES (?, ?, 'manual', 1, ?)`).run(game.id, field, now)
+    }
+    db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
+  }
+}
+
 export function storedCandidates(job, game) {
   if (!job || job.asset_fingerprint !== `${game.sha256}:${game.size}` || !job.candidate_at || Date.now() - job.candidate_at > screenScraperLimits.reviewRetentionMs) return []
   try {
@@ -16,6 +31,7 @@ export function storedCandidates(job, game) {
 }
 
 export function metadataDetail(db, game) {
+  if (!db.prepare('SELECT 1 FROM game_metadata WHERE game_id = ?').get(game.id)) transaction(db, () => ensureLegacyMetadata(db, game))
   const job = db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ? ORDER BY generation DESC LIMIT 1').get(game.id)
   const candidates = storedCandidates(job, game)
   return { gameId: game.id, generation: job?.generation ?? null, status: job?.status ?? 'disabled',
@@ -32,6 +48,7 @@ export function enqueueMetadata(db, config, game, { method = 'hash', query, cand
     authorize()
     const ready = getScreenScraperConfigStatus(config.screenscraper)
     if (!ready.ready) throw new CatalogHttpError(409, 'METADATA_DISABLED', ready.enabled ? 'Konfigurasi ScreenScraper belum lengkap.' : 'Fitur metadata ScreenScraper nonaktif.')
+    ensureLegacyMetadata(db, game)
     const latest = db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ? ORDER BY generation DESC LIMIT 1').get(game.id)
     const now = Date.now()
     const gate = db.prepare('SELECT * FROM metadata_provider_state WHERE id = 1').get()

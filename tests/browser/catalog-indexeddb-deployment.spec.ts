@@ -121,8 +121,7 @@ for (const lan of [false, true]) test(`M6 built frontend and real NES/BIOS survi
   await page.goto(origin + '/pengaturan')
   const hashes = await verifyBuild(page, origin)
   const toggle = page.getByRole('switch', { name: 'Gunakan cache ROM/BIOS backend' })
-  await expect(toggle).not.toBeChecked(); await expect(toggle).toBeEnabled()
-  await toggle.click(); await expect(toggle).toBeChecked()
+  await expect(toggle).toBeChecked(); await expect(toggle).toBeEnabled()
   const cold = await launch(page, fixture, game, bios, origin)
   await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Tersimpan di perangkat')
   const coldTransfers = await deployment.records()
@@ -143,11 +142,12 @@ for (const lan of [false, true]) test(`M6 built frontend and real NES/BIOS survi
   expect(warmTransfers).toHaveLength(2)
   expect(warmTransfers.every(t => t.method === 'HEAD' && t.bytes === 0 && t.completed && t.status === 200)).toBe(true)
   await exitPlayer(page)
-  // The same server reached through another origin does NOT inherit the cache
-  // preference/bytes. No site data is deleted to obtain this result.
+  // A different origin starts with empty bytes and default-on settings. Its
+  // explicit opt-out must not change the original origin's preference/bytes.
   const otherOrigin = lan ? fixture.address : `http://127.0.0.2:${fixture.port}`
   await page.goto(otherOrigin + '/pengaturan')
-  await expect(toggle).not.toBeChecked(); await expect(toggle).toBeEnabled()
+  await expect(toggle).toBeChecked(); await expect(toggle).toBeEnabled()
+  await toggle.click(); await expect(toggle).not.toBeChecked()
   await expect(page.getByRole('region', { name: 'Cache ROM dan BIOS backend' })).toContainText('0 B · 0 aset')
   await page.goto(origin + '/pengaturan')
   await expect(toggle).toBeChecked()

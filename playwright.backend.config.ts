@@ -8,9 +8,10 @@ export default defineConfig({
   projects: [{ name: 'node-backend' }],
   use: { ...config.use, baseURL: 'http://localhost:4174' },
   webServer: {
-    command: 'npm start',
+    // Never load an operator's .env or enable real provider traffic in regression.
+    command: 'node server/index.mjs',
     url: 'http://localhost:4174/api/health',
     reuseExistingServer: false,
-    env: { MAIN_DULU_PORT: '4174', MAIN_DULU_HOST: '127.0.0.1', MAIN_DULU_DATA_DIR: resolve('test-results/backend-data') },
+    env: { MAIN_DULU_PORT: '4174', MAIN_DULU_HOST: '127.0.0.1', MAIN_DULU_DATA_DIR: resolve('test-results/backend-data'), MAIN_DULU_SCREENSCRAPER_ENABLED: 'false' },
   },
 })

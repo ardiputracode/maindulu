@@ -29,7 +29,7 @@ function classifyError(code) {
   if (code === 'not_found') return { status: 'not_found', retryable: false }
   if (code === 'unsupported_format' || code === 'invalid_target' || code === 'invalid_fingerprint') return { status: 'unsupported', retryable: false }
   if (['auth_rejected', 'forbidden', 'not_configured', 'disabled', 'quota_unknown', 'client_rejected'].includes(code)) return { status: 'paused', retryable: false }
-  if (code === 'rate_limited' || code === 'quota_exhausted' || code === 'search_quota_exhausted' || code === 'provider_closed' || code === 'client_rejected') return { status: 'retry_wait', retryable: true }
+  if (code === 'rate_limited' || code === 'quota_exhausted' || code === 'search_quota_exhausted' || code === 'provider_closed') return { status: 'retry_wait', retryable: true }
   if (code === 'timeout' || code === 'transport' || code === 'invalid_json' || code === 'invalid_envelope' || code === 'response_too_large' || code === 'provider_error' || code === 'bad_request') return { status: 'retry_wait', retryable: true }
   return { status: 'failed', retryable: false }
 }
@@ -259,6 +259,7 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
           try {
             if (!maintenance) throw new CoverError('COVER_CAPACITY')
             reservation = await maintenance.reserve(8 * 1024 * 1024)
+            checkCurrent(job, controller.signal)
             if (!quotaChecked && client.accountQuota) {
               quota = await abortable(client.accountQuota({ signal: controller.signal }), controller.signal)
               quotaChecked = true

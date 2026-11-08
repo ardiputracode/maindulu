@@ -50,7 +50,7 @@ MAIN_DULU_REGISTRATION_OPEN=true
 Kemudian:
 
 ```sh
-docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml config
+docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml config --quiet
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -d --build
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml ps
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml logs --tail=50 backend
@@ -63,7 +63,7 @@ Buka **http://192.168.2.251:7777** dari PC/HP lain. Tidak perlu Nginx, sertifika
 **Penting tentang environment:**
 
 - Gunakan `--env-file .env.backend` pada **semua** perintah contoh berikut jika memilih mode ini. Contoh operasi di bawah memakai opsi tersebut; pengguna localhost dapat menghilangkannya.
-- `.env.backend` bukan otomatis dibaca Node maupun Compose tanpa opsi itu. Shell environment yang sudah diekspor mengalahkan nilai env-file; periksa hasil `config` jika nilainya tidak sesuai.
+- `.env.backend` bukan otomatis dibaca Node maupun Compose tanpa opsi itu. Shell environment yang sudah diekspor mengalahkan nilai env-file. Gunakan `config --quiet` untuk validasi; `config` tanpa opsi, `inspect`, dan dump environment dapat menampilkan secret ScreenScraper. Jangan bagikan hasilnya.
 - `MAIN_DULU_PUBLIC_ORIGIN` harus sama dengan URL browser: skema, hostname/IP, dan port. Tanpa path/query/kredensial. Dengan origin LAN, API akun lewat `localhost` yang berbeda akan ditolak; healthcheck `/api/health` tetap bekerja.
 - Mengganti IP/port berarti memperbarui origin dan URL browser sekaligus. Data akun/save server tetap pada volume, tetapi storage tamu terpisah per origin.
 - Mengaktifkan flag HTTP **tanpa origin eksplisit** membuat startup gagal. Flag default tetap `false`; HTTPS tetap memakai cookie `Secure` walaupun flag keliru dibiarkan `true`.
@@ -91,6 +91,16 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -
 ```
 
 Variabel `https://...` saja **tidak** mengaktifkan TLS pada server Node. Compose ini tidak memasang proxy/sertifikat. HTTP LAN bukan pengganti HTTPS untuk deployment publik.
+
+### Metadata ScreenScraper (M6, opt-in pribadi/LAN)
+
+Fitur default nonaktif. Isi `MAIN_DULU_SCREENSCRAPER_ENABLED`, `DEV_ID`, `DEV_PASSWORD`, `USER`, `PASSWORD`, dan `SOFTNAME` dengan prefix `MAIN_DULU_SCREENSCRAPER_` melalui environment runtime/secret operator. Contoh nama tersedia di `backend.env.example`; jangan menaruh nilai secret di Dockerfile, build arg, variabel `VITE_`, repository, atau backup. Node `npm start` membaca `.env`; Compose memakai `--env-file .env.backend`. File probe `.env.screenscraper.local` tidak otomatis mengonfigurasi backend.
+
+Compose meneruskan secret saat runtime, bukan saat build. Sesudah mengubah enable/secret, jalankan `up -d --force-recreate` dengan env-file yang sama, **tanpa** menghapus volume. Volume `storage` tetap menyimpan database, antrean, ROM/BIOS/cover dan save. Worker satu proses backend; tidak perlu Redis/layanan worker tambahan. Izinkan DNS dan egress TCP 443 ke `api.screenscraper.fr`; media memakai endpoint tetap pada host yang sama, alamat IPv4 publik tervalidasi/pinned, tanpa redirect. Jangan menonaktifkan verifikasi TLS atau mengizinkan URL media arbitrer.
+
+Periksa `GET /api/admin/metadata/status` memakai sesi admin, lalu coba satu upload legal sebelum beberapa upload terbatas. Health backend tidak bergantung pada provider. Untuk berhenti: ubah enable menjadi `false`, recreate, lalu pastikan worker disabled; metadata/game/save yang sudah ada tetap tersedia. Jangan gunakan `docker compose down -v` sebagai rollback.
+
+Runbook lengkap (kuota, retry, shutdown/lease, backup/restore, rollback skema 13, batas format, privasi/atribusi) dan bukti penutupan: [M6 ScreenScraper](../doc/milestone-6-screenscraper-operasi.md). Verifikasi Docker/HTTPS nyata tidak diasumsikan dari tes Node/konfigurasi.
 
 ### Cache perangkat ROM/BIOS (IndexedDB)
 
@@ -238,7 +248,7 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml logs
 
 4. Periksa versi **0.5.0** di Pengaturan, login, save/progres dan pemulihannya. Rilis 0.3.1 tidak mengubah skema SQLite (**6**), engine (**4.2.3**), atau format save. Jangan paksa downgrade database aktif; rollback memakai backup ke folder baru.
 
-**Pengembangan setelah 0.3.1:** role admin dan katalog memakai skema **9**, tanpa mengubah format save/engine. CLI terbaru membuat backup **format 2** akun/save/metadata skema 9, tanpa berkas ROM/BIOS/cover dan tanpa syarat katalog kosong. Verify/restore format 1 skema 7/8/9 dengan katalog kosong tetap diterima. Format 2 memerlukan aplikasi baru; aplikasi lama menolaknya. Untuk skema 6 gunakan aplikasi lama, lalu migrasikan hasil restore memakai server baru. Jangan paksa downgrade atau ubah nomor skema/manifest manual.
+**Pengembangan terkini:** skema **13** mencakup metadata ScreenScraper/provenance/override/gate worker, tanpa mengubah format save/engine. CLI membuat backup **format 2** akun/save/metadata, tanpa berkas ROM/BIOS/cover dan tanpa syarat katalog kosong. Tugas/cache/lease/cooldown provider dinormalisasi pada snapshot saja; restore tidak menjalankan scan otomatis. Verify/restore format 2 skema 9–13 dan format 1 skema 7/8/9 dengan katalog kosong tetap didukung. Sumber diverifikasi sebelum migrasi hasil restore; aplikasi lama tidak boleh dipakai pada database skema baru. Untuk skema 6 gunakan aplikasi lama terlebih dahulu. Jangan paksa downgrade atau ubah nomor skema/manifest manual.
 
 ## 7. Reset akun admin
 

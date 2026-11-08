@@ -78,7 +78,8 @@ async function open(page: Page, enabled = true) {
   await cdp.send('Network.enable'); await cdp.send('Network.setCacheDisabled', { cacheDisabled: true })
   await page.goto(address + '/library')
   await page.addScriptTag({ content: bundle })
-  if (enabled) await page.evaluate(() => window.playerAssetTest.setCache(true))
+  // Legacy URL-path scenarios require an explicit opt-out after the default-on rollout.
+  await page.evaluate(enabled => typeof indexedDB === 'undefined' ? undefined : window.playerAssetTest.setCache(enabled), enabled)
 }
 async function select(page: Page, entry = game, firmwareId?: string) {
   if (new URL(page.url()).pathname !== '/library') await page.getByRole('link', { name: 'Library game', exact: true }).click()
@@ -215,7 +216,7 @@ test('M3 local/server BIOS combinations and no BIOS keep local bytes out of the 
   expect((await page.evaluate(() => window.playerAssetTest.stats())).count).toBe(2)
 })
 
-test('M3 default/toggle off retains URL path; budget fallback downloads once and never claims stored', async ({ page }) => {
+test('M3 explicit toggle off retains URL path; budget fallback downloads once and never claims stored', async ({ page }) => {
   await open(page, false)
   await launch(page)
   await expect(page.locator('.player-asset-notice')).toHaveCount(0)
@@ -558,7 +559,9 @@ test('M4 HTTP LAN settings opt-in and real NES miss/hit work without secure-cont
   expect(capabilities.secure).toBe(false); expect(capabilities.subtle).toBe(false)
   await expect(page.getByRole('region', { name: 'Cache ROM dan BIOS backend' })).toContainText('Estimasi ruang browser tidak tersedia')
   const toggle = page.getByRole('switch', { name: 'Gunakan cache ROM/BIOS backend' })
-  await expect(toggle).toBeEnabled(); await toggle.click(); await expect(toggle).toBeChecked()
+  await expect(toggle).toBeEnabled(); await expect(toggle).toBeChecked()
+  await toggle.click(); await expect(toggle).not.toBeChecked()
+  await toggle.click(); await expect(toggle).toBeChecked()
   async function launchGuest() {
     // This fixture deliberately does not opt HTTP network accounts in. Preserve
     // the real application's explicit confirmation instead of bypassing auth.

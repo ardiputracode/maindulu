@@ -16,9 +16,12 @@ async function open(page: Page) {
 }
 const panel = (page: Page) => page.getByRole('region', { name: 'Cache ROM dan BIOS backend' })
 
-test('M4 defaults off; toggle persists, budget is explicit, metadata survives document reload', async ({ page }) => {
+test('M6 defaults on for new profiles; toggle persists, budget is explicit, metadata survives document reload', async ({ page }) => {
   await open(page)
   const toggle = page.getByRole('switch', { name: 'Gunakan cache ROM/BIOS backend' })
+  await expect(toggle).toBeChecked()
+  await toggle.click(); await expect(toggle).not.toBeChecked()
+  await open(page)
   await expect(toggle).not.toBeChecked()
   await toggle.click(); await expect(toggle).toBeChecked()
   await page.evaluate(() => window.cacheSettingsTest.seed())

@@ -13,6 +13,7 @@ import { createCatalogStorage } from '../server/catalog/storage.mjs'
 import { createCatalogRepository } from '../server/catalog/repository.mjs'
 import { createDataBackup, restoreDataBackup, verifyDataBackup } from '../server/data-backup.mjs'
 import { recoverCatalogStorage } from '../server/catalog/recovery.mjs'
+import { metadataDetail } from '../server/metadata/queue.mjs'
 
 async function setup(t) {
   const c = { db: null }
@@ -75,6 +76,101 @@ test('M5 backup normalizes provider gate only in snapshot and still accepts sche
   assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM metadata_jobs').get().n, 0)
   assert.equal(c.db.prepare('SELECT next_at FROM metadata_provider_state').get().next_at, 0)
+})
+
+// Reconstruct historical source shape, never migrate a backup just to verify it.
+async function historicalMetadataBackup(c, version, name) {
+  const target = join(c.root, name)
+  const manifest = await createDataBackup(c.config, target)
+  const path = join(target, 'maindulu.sqlite')
+  const db = new DatabaseSync(path)
+  db.exec('DROP TABLE metadata_provider_state;')
+  if (version === 9) {
+    db.exec('DROP TABLE game_metadata_field_sources; DROP TABLE game_metadata; DROP TABLE metadata_jobs; DROP TABLE provider_cache; DROP TABLE catalog_revision;')
+    for (const table of ['game_metadata_field_sources', 'game_metadata', 'metadata_jobs', 'provider_cache']) delete manifest.counts[table]
+  } else {
+    db.exec('ALTER TABLE metadata_jobs DROP COLUMN request_method; ALTER TABLE metadata_jobs DROP COLUMN request_json;')
+    if (version === 10) db.exec('ALTER TABLE metadata_jobs DROP COLUMN candidate_json; ALTER TABLE metadata_jobs DROP COLUMN candidate_at;')
+  }
+  db.exec(`DELETE FROM schema_migrations WHERE version > ${version}; PRAGMA user_version = ${version};`)
+  db.close()
+  manifest.schemaVersion = version
+  delete manifest.counts.metadata_provider_state
+  const updateManifest = async () => {
+    const bytes = await readFile(path)
+    const entry = manifest.files.find(file => file.path === 'maindulu.sqlite')
+    entry.size = bytes.length; entry.checksum = createHash('sha256').update(bytes).digest('hex')
+    await writeFile(join(target, 'manifest.json'), JSON.stringify(manifest))
+    return bytes
+  }
+  await updateManifest()
+  return { target, path, manifest, updateManifest }
+}
+
+for (const version of [9, 10, 11, 12]) test(`M6 format-2 schema-${version} catalog backup verifies before migration and restores stable IDs without scan`, async t => {
+  const c = await setup(t)
+  const game = await c.publish()
+  c.close()
+  const old = await historicalMetadataBackup(c, version, `schema${version}-metadata`)
+  const original = await readFile(old.path)
+  assert.deepEqual(await verifyDataBackup(c.config, old.target), old.manifest)
+  const restored = join(c.root, `restored-${version}`)
+  await restoreDataBackup(c.config, old.target, restored)
+  const check = new DatabaseSync(join(restored, 'maindulu.sqlite'), { readOnly: true })
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, version)
+  assert.equal(check.prepare('SELECT id FROM games').get().id, game.id)
+  check.close()
+  c.db = await openDatabase(restored)
+  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
+  assert.equal(c.db.prepare('SELECT title FROM games').get().title, game.title)
+  const detail = metadataDetail(c.db, game)
+  assert.equal(detail.status, 'disabled')
+  assert.equal(detail.preview.fields.title.current, game.title)
+  if (version === 9) for (const field of ['title', 'description', 'cover']) {
+    assert.equal(detail.preview.fields[field].source, 'manual')
+    assert.equal(detail.preview.fields[field].locked, true)
+  }
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM metadata_jobs').get().n, 0)
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM provider_cache').get().n, 0)
+  assert.equal(c.db.prepare('SELECT lease_token FROM metadata_provider_state').get().lease_token, null)
+  assert.deepEqual(await readFile(old.path), original)
+})
+
+for (const version of [9, 12]) test(`M6 schema-${version} verification rejects hidden newer metadata tables before restore`, async t => {
+  const c = await setup(t)
+  c.close()
+  const old = await historicalMetadataBackup(c, version, `hidden-${version}`)
+  const db = new DatabaseSync(old.path)
+  db.exec(`CREATE TABLE ${version === 9 ? 'metadata_jobs' : 'metadata_provider_state'} (secret TEXT);`)
+  db.close()
+  await old.updateManifest()
+  await assert.rejects(verifyDataBackup(c.config, old.target), /tidak sesuai versi skema/)
+  await assert.rejects(restoreDataBackup(c.config, old.target, join(c.root, 'must-not-restore')), /tidak sesuai versi skema/)
+})
+
+for (const version of [10, 12]) test(`M6 schema-${version} verification rejects hidden newer job request columns`, async t => {
+  const c = await setup(t)
+  c.close()
+  const old = await historicalMetadataBackup(c, version, `hidden-column-${version}`)
+  const db = new DatabaseSync(old.path)
+  db.exec('ALTER TABLE metadata_jobs ADD COLUMN request_json TEXT;')
+  db.close()
+  await old.updateManifest()
+  await assert.rejects(verifyDataBackup(c.config, old.target), /kolom yang tidak sesuai versi skema/)
+})
+
+test('M6 format-1 schema-9 backup cannot hide pending catalog cleanup', async t => {
+  const c = await setup(t)
+  c.close()
+  const old = await historicalMetadataBackup(c, 9, 'format1-cleanup-9')
+  old.manifest.formatVersion = 1
+  delete old.manifest.catalogAssets
+  const db = new DatabaseSync(old.path)
+  db.prepare('INSERT INTO catalog_cleanup (folder, storage_key, next_at) VALUES (?, ?, ?)').run('games', randomUUID() + '.bin', 1)
+  db.close()
+  old.manifest.counts.catalog_cleanup = 1
+  await old.updateManifest()
+  await assert.rejects(verifyDataBackup(c.config, old.target), /reservasi\/cleanup/)
 })
 
 test('metadata-only backups include active/deleted catalog metadata but deliberately exclude all catalog asset bytes and orphans', async t => {

@@ -60,6 +60,13 @@ test('HTTP cache revalidates real ROM/BIOS across sessions and browser restart; 
       })
       const page = context.pages()[0] ?? await context.newPage()
       page.on('pageerror', error => errors.push(error.message))
+      // Isolate HTTP cache validation from the separate default-on IndexedDB
+      // resolver. Persist the user's opt-out in this disposable browser profile.
+      await page.goto('/pengaturan')
+      const toggle = page.getByRole('switch', { name: 'Gunakan cache ROM/BIOS backend' })
+      await expect(toggle).toBeEnabled()
+      if (await toggle.getAttribute('aria-checked') === 'true') await toggle.click()
+      await expect(toggle).not.toBeChecked()
       return { context, page }
     }
     async function setupGame(page: Page) {
