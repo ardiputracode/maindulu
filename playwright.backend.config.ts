@@ -4,7 +4,7 @@ import config from './playwright.config'
 
 export default defineConfig({
   ...config,
-  testMatch: ['backend.spec.ts', 'app.spec.ts', 'account.spec.ts', 'server-saves.spec.ts', 'server-game-saves.spec.ts', 'catalog-api.spec.ts', 'catalog-cache.spec.ts', 'asset-cache-storage.spec.ts', 'server-assets.spec.ts', 'catalog-indexeddb-cache.spec.ts', 'catalog-indexeddb-restart.spec.ts', 'catalog-indexeddb-deployment.spec.ts', 'asset-cache-settings.spec.ts', 'admin-catalog.spec.ts', 'library.spec.ts'],
+  testMatch: ['backend.spec.ts', 'app.spec.ts', 'account.spec.ts', 'server-saves.spec.ts', 'server-game-saves.spec.ts', 'catalog-api.spec.ts', 'catalog-cache.spec.ts', 'asset-cache-storage.spec.ts', 'server-assets.spec.ts', 'catalog-indexeddb-cache.spec.ts', 'catalog-indexeddb-restart.spec.ts', 'catalog-indexeddb-deployment.spec.ts', 'asset-cache-settings.spec.ts', 'admin-catalog.spec.ts', 'library.spec.ts', 'metadata.spec.ts'],
   projects: [{ name: 'node-backend' }],
   use: { ...config.use, baseURL: 'http://localhost:4174' },
   webServer: {

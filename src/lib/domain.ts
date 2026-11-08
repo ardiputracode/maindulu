@@ -11,6 +11,7 @@ export type Game = {
   releaseDate?: string; releasePrecision?: 'year' | 'month' | 'day'; genre?: string;
   developer?: string; publisher?: string; players?: string; regionLanguage?: string;
   providerGameId?: string; metadataRevision?: number;
+  coverRevision?: string; metadataStatus?: 'pending' | 'ready' | 'disabled' | 'review';
 }
 
 export type Bios = { id: string; name: string; consoleId: string; url: string; sha256?: string; size?: number; fileName?: string; description?: string; distributionRights?: string }

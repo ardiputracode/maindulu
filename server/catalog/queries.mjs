@@ -3,7 +3,8 @@ export function catalogDto(kind, row) {
     description: row.description, createdAt: row.created_at, updatedAt: row.updated_at }
   return kind === 'games'
     ? { ...common, title: row.title, source: 'server', license: row.license, url: `/games/${row.id}/rom/${encodeURIComponent(row.original_name)}`,
-        ...(row.cover_storage_key ? { cover: `/games/${row.id}/cover` } : {}),
+        ...(row.cover_storage_key ? { cover: `/games/${row.id}/cover`, coverRevision: row.cover_sha256 } : {}),
+        ...(row.scan_status ? { metadataStatus: ['queued', 'running', 'retry_wait'].includes(row.scan_status) ? 'pending' : row.scan_status === 'succeeded' ? 'ready' : row.scan_status === 'disabled' ? 'disabled' : 'review' } : {}),
         ...(row.metadata_revision ? { metadataRevision: row.metadata_revision } : {}),
         ...(row.release_date ? { releaseDate: row.release_date, releasePrecision: row.release_precision } : {}),
         ...Object.fromEntries(['genre', 'developer', 'publisher', 'players'].filter(field => row[field]).map(field => [field, row[field]])),
@@ -22,7 +23,7 @@ export function queryCatalog(db, kind, v) {
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
   const order = v.sort === 'title' ? `${name} COLLATE NOCASE, id` : 'created_at DESC, id'
   const from = kind === 'games' ? 'games LEFT JOIN game_metadata ON game_metadata.game_id = games.id' : 'bios'
-  const fields = kind === 'games' ? 'games.*, game_metadata.release_date, game_metadata.release_precision, game_metadata.genre, game_metadata.developer, game_metadata.publisher, game_metadata.players, game_metadata.region_language, game_metadata.provider_game_id, game_metadata.metadata_revision' : 'bios.*'
+  const fields = kind === 'games' ? "games.*, game_metadata.release_date, game_metadata.release_precision, game_metadata.genre, game_metadata.developer, game_metadata.publisher, game_metadata.players, game_metadata.region_language, game_metadata.provider_game_id, game_metadata.metadata_revision, (SELECT status FROM metadata_jobs WHERE game_id = games.id ORDER BY generation DESC LIMIT 1) AS scan_status" : 'bios.*'
   return {
     rows: db.prepare(`SELECT ${fields} FROM ${from} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...values, v.pageSize, (v.page - 1) * v.pageSize),
     total: db.prepare(`SELECT COUNT(*) AS n FROM ${from} ${where}`).get(...values).n,

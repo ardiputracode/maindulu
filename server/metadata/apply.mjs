@@ -28,14 +28,14 @@ export function metadataPreview(db, gameId, candidate) {
       locked: source ? source.locked === 1 : (field === 'title' || field === 'description' ? true : !!current), source: source?.source ?? 'manual' }
   }
   const coverSource = sources.get('cover')
-  fields.cover = { current: !!game.cover_storage_key, proposed: null,
+  fields.cover = { current: !!game.cover_storage_key, proposed: candidate?.metadata?.media?.some(m => m.type === 'box-2D') ? true : null,
     locked: coverSource ? coverSource.locked === 1 : !!game.cover_storage_key, source: coverSource?.source ?? 'manual' }
   return { revision: meta.metadata_revision, fields }
 }
 
 // All checks and writes are in one short SQLite transaction. A stale lease,
 // generation, asset, revision or override cannot publish metadata or a cover.
-export function applyVerifiedMetadata(db, storage, { job, candidate, expectedRevision, cover = null, selectedFields = null, authorize = () => {} }) {
+export function applyVerifiedMetadata(db, storage, { job, candidate, expectedRevision, cover = null, selectedFields = null, manual = false, authorize = () => {} }) {
   if (selectedFields !== null && (!Array.isArray(selectedFields) || !selectedFields.length || selectedFields.some(f => f !== 'cover' && !Object.hasOwn(textFields, f)))) throw new Error('Field metadata tidak valid.')
   if (cover && (!storage.ownsFile(cover.file, 'covers') || !['image/png', 'image/jpeg', 'image/webp'].includes(cover.type))) throw new Error('Cover tidak aman.')
   return transaction(db, () => {
@@ -55,22 +55,22 @@ export function applyVerifiedMetadata(db, storage, { job, candidate, expectedRev
     const now = Date.now()
     for (const [field, [table, column]] of Object.entries(textFields)) {
       const item = preview.fields[field]
-      if (!item.proposed || item.locked || (selectedFields && !selectedFields.includes(field)) || item.current === item.proposed) continue
+      if (!item.proposed || (!manual && item.locked) || (selectedFields && !selectedFields.includes(field))) continue
       db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${table === 'games' ? 'id' : 'game_id'} = ?`).run(item.proposed, job.game_id)
-      db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, ?, 'screenscraper', 0, ?)`).run(job.game_id, sourceField(field), now)
+      db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, ?, ?, ?, ?)`).run(job.game_id, sourceField(field), manual ? 'manual' : 'screenscraper', manual ? 1 : 0, now)
       changes.push(field)
     }
-    if (cover && !preview.fields.cover.locked && (!selectedFields || selectedFields.includes('cover'))) {
+    if (cover && (manual || !preview.fields.cover.locked) && (!selectedFields || selectedFields.includes('cover'))) {
       if (game.cover_storage_key) enqueueCleanup(db, 'covers', game.cover_storage_key)
       db.prepare('UPDATE games SET cover_storage_key = ?, cover_type = ?, cover_size = ?, cover_sha256 = ? WHERE id = ?')
         .run(cover.file.key, cover.type, cover.file.size, cover.file.sha256, job.game_id)
-      db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', 'screenscraper', 0, ?)`).run(job.game_id, now)
+      db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', ?, ?, ?)`).run(job.game_id, manual ? 'manual' : 'screenscraper', manual ? 1 : 0, now)
       changes.push('cover')
     }
     // Record provenance even if every field was locked/absent.
-    db.prepare(`UPDATE game_metadata SET provider_game_id = ?, match_method = 'hash', fetched_at = ?, applied_at = ?,
+    db.prepare(`UPDATE game_metadata SET provider_game_id = ?, match_method = ?, fetched_at = ?, applied_at = ?,
       metadata_revision = metadata_revision + 1, updated_at = ? WHERE game_id = ?`)
-      .run(candidate.id, now, now, now, job.game_id)
+      .run(candidate.id, manual ? 'manual' : 'hash', now, now, now, job.game_id)
     if (changes.length) {
       db.prepare('UPDATE games SET updated_at = ? WHERE id = ?').run(now, job.game_id)
       db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()

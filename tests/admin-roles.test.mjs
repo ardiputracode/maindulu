@@ -144,6 +144,7 @@ test('multipart opt-in checks admin, origin and CSRF before parsing, without cha
 
 test('version-6 migration preserves credentials, active sessions and both save types', async t => {
   const c = await setup(t)
+  c.app.database.exec('DROP TABLE metadata_provider_state;')
   const owner = await register(c.app)
   const headers = { ...authHeaders(owner), 'x-save-user': owner.user.id, 'content-type': 'application/octet-stream' }
   const state = Buffer.alloc(700); state.write('RASTATE')

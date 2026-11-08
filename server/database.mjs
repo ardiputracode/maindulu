@@ -258,6 +258,20 @@ const migrations = [
     // filename fallback existed before M5: lock these historical titles.
     sql: `UPDATE game_metadata_field_sources SET source = 'manual', locked = 1 WHERE field = 'title' AND source = 'filename';`,
   },
+  {
+    version: 13,
+    name: 'metadata-review-requests-and-shared-provider-gate',
+    sql: `ALTER TABLE metadata_jobs ADD COLUMN request_method TEXT NOT NULL DEFAULT 'hash' CHECK(request_method IN ('hash', 'name', 'apply'));
+    ALTER TABLE metadata_jobs ADD COLUMN request_json TEXT CHECK(request_json IS NULL OR length(request_json) <= 4096);
+    CREATE TABLE metadata_provider_state (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      lease_token TEXT,
+      lease_expires_at INTEGER,
+      next_at INTEGER NOT NULL DEFAULT 0,
+      paused_reason TEXT
+    ) STRICT;
+    INSERT INTO metadata_provider_state(id) VALUES (1);`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

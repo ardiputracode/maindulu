@@ -35,6 +35,7 @@ async function setup(t) {
 
 test('catalog migration from schema 7 preserves accounts, roles, sessions and every save table', async t => {
   const c = await setup(t)
+  c.db.exec('DROP TABLE metadata_provider_state;')
   c.db.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?)').run('test-token', c.actor, 1, Date.now() + 100000)
   c.db.prepare('INSERT INTO saves VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), c.actor, 'old-server-game', 'nes', 'fceumm', 1, 'old title', '{}', 2, 0, 'a'.repeat(64), null, 3)
   c.db.prepare('INSERT INTO game_saves VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), c.actor, 'local-nes-' + 'b'.repeat(64), 'nes', 'fceumm', 'old local', '{}', 1, 0, 'a'.repeat(64), null, 3)
@@ -45,7 +46,7 @@ test('catalog migration from schema 7 preserves accounts, roles, sessions and ev
   c.db.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   c.close()
   c.db = await openDatabase(c.config.dataDir)
-  assert.equal(schemaVersion, 12)
+  assert.equal(schemaVersion, 13)
   assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
   for (const name of tables) assert.deepEqual(c.db.prepare(`SELECT * FROM ${name}`).all(), before[name], name)
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM games').get().n, 0)
@@ -54,6 +55,7 @@ test('catalog migration from schema 7 preserves accounts, roles, sessions and ev
 
 test('failed catalog migration rolls back new tables and schema version without changing old accounts', async t => {
   const c = await setup(t)
+  c.db.exec('DROP TABLE metadata_provider_state;')
   const before = c.db.prepare('SELECT * FROM users').get()
   c.db.exec("DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7; CREATE TABLE bios (marker TEXT); INSERT INTO bios VALUES ('operator-owned');")
   c.close()
@@ -128,7 +130,7 @@ test('duplicates are separate by console and kind; tombstones require explicit s
 test('catalog mutations validate metadata, immutable fields, SQL constraints and latest admin role', async t => {
   const c = await setup(t)
   const stage = await c.stage()
-  for (const extra of [{ title: '' }, { title: 'x'.repeat(201) }, { consoleId: 'other' }, { description: 'x'.repeat(10001) }, { license: 'x'.repeat(2001) }, { role: 'admin' }, { createdBy: c.actor }, { storage_key: '../db' }, { fileName: '../firmware.bin' }]) {
+  for (const extra of [{ title: '\n' }, { title: 'x'.repeat(201) }, { consoleId: 'other' }, { description: 'x'.repeat(10001) }, { license: 'x'.repeat(2001) }, { role: 'admin' }, { createdBy: c.actor }, { storage_key: '../db' }, { fileName: '../firmware.bin' }]) {
     await assert.rejects(c.repo.publish('games', c.actor, metadata('games', extra), stage), error => error.code === 'INVALID_CATALOG')
   }
   const row = await c.repo.publish('games', c.actor, metadata(), stage)

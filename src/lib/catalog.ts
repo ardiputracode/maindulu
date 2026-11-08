@@ -9,8 +9,9 @@ export type CatalogEntry = {
   releaseDate?: string; releasePrecision?: 'year' | 'month' | 'day'; genre?: string;
   developer?: string; publisher?: string; players?: string; regionLanguage?: string;
   providerGameId?: string; metadataRevision?: number;
+  coverRevision?: string; metadataStatus?: 'pending' | 'ready' | 'disabled' | 'review';
 }
-export type CatalogPage = { items: CatalogEntry[]; page: number; pageSize: number; total: number }
+export type CatalogPage = { items: CatalogEntry[]; page: number; pageSize: number; total: number; revision?: number }
 export class CatalogRequestError extends Error {
   readonly status: number
   constructor(status: number, message: string) { super(message); this.name = 'CatalogRequestError'; this.status = status }
@@ -25,6 +26,9 @@ export function readCatalogEntry(value: unknown, kind: CatalogKind): CatalogEntr
     typeof value.description !== 'string' || !integer(value.createdAt) || !integer(value.updatedAt) || !isSafeLocalUrl(value.url) ||
     (value.cover !== undefined && !isSafeLocalUrl(value.cover))) return null
   const label = kind === 'games' ? value.title : value.name
+  if (value.metadataStatus !== undefined && !['pending', 'ready', 'disabled', 'review'].includes(String(value.metadataStatus))) return null
+  if (value.coverRevision !== undefined && (typeof value.coverRevision !== 'string' || !/^[a-f0-9]{64}$/.test(value.coverRevision))) return null
+  if (value.metadataRevision !== undefined && (!integer(value.metadataRevision) || value.metadataRevision < 1)) return null
   if (typeof label !== 'string' || !label.trim() || label.length > 200 ||
     (kind === 'games' ? typeof value.license !== 'string' : typeof value.distributionRights !== 'string')) return null
   return value as CatalogEntry
@@ -35,6 +39,7 @@ export function readCatalogPage(value: unknown, kind: CatalogKind): CatalogPage 
     !integer(value.pageSize) || value.pageSize < 1 || value.pageSize > 100 || !integer(value.total) ||
     value.items.length > value.pageSize || value.items.length > value.total) return null
   if (value.items.some(item => !readCatalogEntry(item, kind))) return null
+  if (value.revision !== undefined && (!integer(value.revision) || value.revision < 1)) return null
   return value as CatalogPage
 }
 
@@ -58,16 +63,27 @@ export async function catalogRequest(path: string, signal?: AbortSignal): Promis
 // Fetch metadata only, in bounded API pages. Never reuse the 100-item saved-list
 // parser, nor download/hash ROM or firmware bytes to build the library.
 export async function loadCatalog(kind: CatalogKind, query = '', signal?: AbortSignal): Promise<CatalogEntry[]> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { return await loadCatalogSnapshot(kind, query, signal) }
+    catch (error) { if (!(error instanceof SnapshotChanged) || attempt === 2) throw error }
+  }
+  throw new Error('Katalog terus berubah. Coba lagi.')
+}
+class SnapshotChanged extends Error {}
+async function loadCatalogSnapshot(kind: CatalogKind, query: string, signal?: AbortSignal): Promise<CatalogEntry[]> {
   const entries: CatalogEntry[] = [], ids = new Set<string>()
   let total: number | undefined
+  let revision: number | undefined
   for (let page = 1; ; page++) {
     const params = new URLSearchParams(query)
     params.set('page', String(page)); params.set('pageSize', '100')
     const result = readCatalogPage(await catalogRequest(`/api/${kind}?${params}`, signal), kind)
-    if (!result || result.page !== page || result.pageSize !== 100 || (total !== undefined && total !== result.total)) throw new Error('Katalog berubah atau respons tidak sesuai. Muat ulang katalog.')
+    if (!result || result.page !== page || result.pageSize !== 100) throw new Error('Katalog atau respons tidak sesuai.')
+    if (page > 1 && (total !== result.total || revision !== result.revision)) throw new SnapshotChanged('Katalog berubah saat dimuat. Coba lagi.')
+    revision = result.revision
     total = result.total
     for (const item of result.items) {
-      if (ids.has(item.id)) throw new Error('Katalog berubah saat dimuat. Muat ulang katalog.')
+      if (ids.has(item.id)) throw new SnapshotChanged('Katalog berubah saat dimuat. Muat ulang katalog.')
       ids.add(item.id); entries.push(item)
     }
     if (entries.length === total) return entries

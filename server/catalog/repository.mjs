@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { transaction } from '../auth/mutations.mjs'
 import { enqueueCleanup } from './maintenance.mjs'
+import { CatalogHttpError } from './errors.mjs'
 
 const consoles = new Set(['nes', 'snes', 'gb', 'gba', 'megadrive', 'psx'])
 const types = new Set(['image/png', 'image/jpeg', 'image/webp'])
@@ -31,7 +32,10 @@ function metadata(kind, value, patch = false) {
   const allowed = patch ? [title, 'description', rights] : [title, 'consoleId', 'fileName', 'description', rights]
   if (Object.keys(value).some(key => !allowed.includes(key))) throw invalid()
   const result = {}
-  if (!patch || Object.hasOwn(value, title)) result[title] = text(value[title], 200, true)
+  if (!patch || Object.hasOwn(value, title)) {
+    if (typeof value[title] === 'string' && /[\r\n\t]/.test(value[title])) throw invalid()
+    result[title] = text(value[title] ?? (kind === 'games' && !patch ? '' : undefined), 200, kind !== 'games' || patch)
+  }
   for (const [key, max] of [['description', 10000], [rights, 2000]]) {
     if (!patch || Object.hasOwn(value, key)) result[key] = text(value[key] ?? '', max)
   }
@@ -71,7 +75,7 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
   return {
     get,
     list(kind) { return db.prepare(`SELECT * FROM ${table(kind)} WHERE deleted_at IS NULL ORDER BY created_at DESC, id`).all() },
-    async publish(kind, actor, value, stage, { cover = null, restoreId } = {}) {
+    async publish(kind, actor, value, stage, { cover = null, restoreId, scanMetadata = true } = {}) {
       table(kind); authorize(actor)
       const v = metadata(kind, value)
       if (!storage.ownsStage(stage, kind) || (restoreId !== undefined && (typeof restoreId !== 'string' || !uuid.test(restoreId)))) throw invalid()
@@ -102,6 +106,8 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
         if (restoreId !== undefined && (!previous || previous.id !== restoreId)) throw invalid()
         const id = previous?.id ?? randomUUID()
         const now = Date.now()
+        const titleWasProvided = kind !== 'games' || !!v.title.trim()
+        if (kind === 'games' && !v.title.trim()) v.title = v.fileName.replace(/\.[^.]+$/, '').replace(/_/g, ' ').trim().slice(0, 200) || 'Game'
         if (previous) {
           enqueueCleanup(db, kind, previous.storage_key)
           if (kind === 'games' && previous.cover_storage_key && (!missing || cover !== null)) enqueueCleanup(db, 'covers', previous.cover_storage_key)
@@ -117,9 +123,8 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
           const nowMeta = Date.now()
           db.prepare(`INSERT OR IGNORE INTO game_metadata (game_id, metadata_revision, created_at, updated_at) VALUES (?, 1, ?, ?)`).run(id, nowMeta, nowMeta)
           if (!previous) {
-            // Current upload UI requires an explicit title. It belongs to admin;
-            // only M5's explicit filename fallback may be auto-replaced.
-            db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'manual', 1, ?)`).run(id, nowMeta)
+            if (titleWasProvided) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'manual', 1, ?)`).run(id, nowMeta)
+            else db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'filename', 0, ?)`).run(id, nowMeta)
             if (v.description) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'description', 'manual', 1, ?)`).run(id, nowMeta)
             else db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'description', 'filename', 0, ?)`).run(id, nowMeta)
             if (coverFile) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', 'manual', 1, ?)`).run(id, nowMeta)
@@ -128,14 +133,14 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
           db.prepare(`UPDATE metadata_jobs SET status = 'cancelled', updated_at = ? WHERE game_id = ? AND status IN ('queued', 'running', 'retry_wait', 'paused')`).run(nowMeta, id)
           const generation = (db.prepare('SELECT COALESCE(MAX(generation), 0) + 1 AS g FROM metadata_jobs WHERE game_id = ?').get(id)?.g) || 1
           db.prepare(`INSERT INTO metadata_jobs (id, game_id, asset_fingerprint, generation, phase, status, attempts, next_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 'identifying', 'queued', 0, ?, ?, ?)`)
-            .run(randomUUID(), id, `${file.sha256}:${file.size}`, generation, nowMeta, nowMeta, nowMeta)
+            VALUES (?, ?, ?, ?, 'identifying', ?, 0, ?, ?, ?)`)
+            .run(randomUUID(), id, `${file.sha256}:${file.size}`, generation, scanMetadata && !previous ? 'queued' : 'disabled', nowMeta, nowMeta, nowMeta)
         }
         db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
         return get(kind, id)
       })
     },
-    async update(kind, actor, id, value, { cover } = {}) {
+    async update(kind, actor, id, value, { cover, expectedRevision } = {}) {
       table(kind); authorize(actor)
       const v = metadata(kind, value, true)
       if (cover !== undefined && kind !== 'games') throw invalid()
@@ -148,10 +153,11 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
         authorize(actor)
         const row = get(kind, id)
         if (!row) throw new CatalogError('CATALOG_NOT_FOUND', 'Entri katalog tidak ditemukan.')
+        if (kind === 'games' && expectedRevision !== undefined && db.prepare('SELECT metadata_revision FROM game_metadata WHERE game_id = ?').get(id)?.metadata_revision !== expectedRevision) throw new CatalogHttpError(409, 'METADATA_CONFLICT', 'Metadata berubah. Tutup dan buka ulang form sebelum menyimpan.')
         if (fields && row.cover_storage_key) enqueueCleanup(db, 'covers', row.cover_storage_key)
         const title = kind === 'games' ? 'title' : 'name'
         const rights = kind === 'games' ? 'license' : 'distribution_rights'
-        const changedFields = [title, 'description'].filter(field => Object.hasOwn(v, field) && v[field] !== row[field])
+        const changedFields = [title, 'description'].filter(field => Object.hasOwn(v, field))
         db.prepare(`UPDATE ${kind} SET ${title} = ?, description = ?, ${rights} = ?, updated_at = ? WHERE id = ?`)
           .run(v[title] ?? row[title], v.description ?? row.description, v[kind === 'games' ? 'license' : 'distributionRights'] ?? row[rights], Date.now(), id)
         if (fields) db.prepare('UPDATE games SET cover_storage_key = ?, cover_type = ?, cover_size = ?, cover_sha256 = ? WHERE id = ?').run(...fields, id)

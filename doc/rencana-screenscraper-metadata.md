@@ -1,6 +1,6 @@
 # Rencana Implementasi Metadata Otomatis ScreenScraper
 
-Status: **M0–M4 selesai (M1 `607e6e1`, M2 `fc76b05`, M3 `2655fde`, M4 `7e9fc11`).** Auto-apply aman dan penyimpanan cover lokal aktif; scan otomatis menjadwalkan tugas setelah upload. 396 tes lulus, build lulus. Disusun pada 2026-11-05, diperbarui 2026-11-07.
+Status: **M0–M5 selesai dalam cakupan implementasi/offline (M1 `607e6e1`, M2 `fc76b05`, M3 `2655fde`, M4 `7e9fc11`; bukti M5 pada laporan terlampir).** Verifikasi M5: 406 tes unit/integrasi, build, 31 tes browser backend, serta 3 tes statis dev + 3 produksi lulus. Fitur tetap default off; aktivasi operasional menunggu M6. [Bukti dan batas M5](milestone-5-screenscraper-ui.md). Disusun pada 2026-11-05, diperbarui 2026-11-08.
 
 **Penutupan M0:** cover PNG region `us` berukuran 875.141 byte dan 705×700 piksel berhasil didecode melalui endpoint tetap, tanpa disimpan; `preferredNameListed`/`preferredSynopsisListed` true. Anomali dua ID ROM valid berbeda tetap dicatat sebagai peringatan, bukan dianggap sudah hilang. **66 tes M0, seluruh suite 383 tes, dan build lulus.** [Bukti akhir dan batas penutupan §13](milestone-0-screenscraper-contract.md#13-penutupan-m0-untuk-pribadilan--2026-11-07). Bagian berikut mempertahankan riwayat putaran sebelumnya; keterangan “masih menunggu” di riwayat itu bukan status akhir.
 
@@ -151,18 +151,18 @@ Keputusan, sumber, batas operasional, fixture, dan hasil aktual: [laporan M0 Scr
 
 **Target:** pengguna melihat alur upload dulu lalu scan otomatis, beserta kontrol untuk kegagalan dan hasil yang perlu ditinjau.
 
-- [ ] Form upload game cukup mewajibkan ROM dan console; judul sementara dihasilkan dari basename aman dengan batas 200 karakter dan fallback nonkosong. Judul opsional yang benar-benar diisi admin diberi sumber manual, berbeda dari hasil autofill UI. Form BIOS tetap seperti sekarang.
-- [ ] Server juga membentuk fallback judul, bukan hanya frontend. Sesuaikan allowlist/jumlah field multipart, validator/repository, DTO, dan client bila menambah pilihan scan; jangan mengendurkan body limit API akun/save.
-- [ ] Tampilkan pilihan scan otomatis yang mengikuti kesiapan backend. Jika fitur nonaktif, upload tetap berhasil tanpa scan dan tanpa pesan seolah-olah scan sudah dijadwalkan.
-- [ ] Pisahkan progress pengiriman/publikasi dari scan. Setelah publikasi: “Game berhasil diunggah dan sudah bisa dimainkan. Metadata sedang menunggu scan.” Halaman admin tidak perlu menunggu worker selesai.
-- [ ] Tampilkan label status berbahasa Indonesia pada Manage Game, detail hasil, warning cover, dan waktu percobaan berikutnya bila relevan. Library cukup menampilkan status publik ringkas tanpa error/config/kuota internal.
-- [ ] Sediakan “Scan ulang”, retry sesuai kondisi, pencarian nama manual, pilihan kandidat, preview perubahan, dan penerapan field terpilih. Retry admin tidak boleh melewati cooldown/kuota atau membuat tugas aktif ganda. Rescan tidak diam-diam melepas override.
-- [ ] Sesuaikan form edit agar mengirim field yang benar-benar berubah/keputusan eksplisit, bukan otomatis mengunci semua field hanya karena form sekarang mengirim judul/deskripsi/lisensi sekaligus.
-- [ ] Gunakan polling metadata ringan saat halaman terlihat, dengan backoff, abort cleanup, jeda saat hidden/offline, dan refresh saat fokus kembali. Hindari WebSocket/SSE untuk MVP dan jangan polling byte ROM/BIOS.
-- [ ] Refresh katalog berdasarkan revision secara terkoordinasi. Library sekarang memuat beberapa halaman lalu merge/sort di browser; perubahan judul saat pagination dapat menyebabkan duplikasi/skip. Deteksi revision berubah dan ulangi snapshot secara terbatas, bukan menampilkan hasil setengah lama/setengah baru.
-- [ ] Jangan mengosongkan grid setiap polling. Pertahankan query/filter/halaman, tangani perpindahan hasil setelah judul berubah, dan beri pemberitahuan pembaruan yang tidak mencuri fokus. URL cover yang sama harus menampilkan cover baru tanpa mengubah kebijakan cache ROM.
-- [ ] Metadata favorit/riwayat server diperbarui berdasarkan ID stabil pada titik refresh yang sesuai; jangan menghapus record lokal, menaikkan batas daftar tersimpan, mengganti judul sesi yang sedang berjalan secara paksa, atau menulis ulang metadata save lama.
-- [ ] Mode statis tidak melakukan request scan/provider; backend lama tanpa capability baru tetap bisa menampilkan katalog. Preserve 401/403, aksesibilitas dialog, navigasi mobile, dan fallback saat backend tidak tersedia.
+- [x] Form upload game cukup mewajibkan ROM dan console; judul sementara dihasilkan dari basename aman dengan batas 200 karakter dan fallback nonkosong. Judul opsional yang benar-benar diisi admin diberi sumber manual, berbeda dari hasil autofill UI. Form BIOS tetap seperti sekarang.
+- [x] Server juga membentuk fallback judul, bukan hanya frontend. Sesuaikan allowlist/jumlah field multipart, validator/repository, DTO, dan client bila menambah pilihan scan; jangan mengendurkan body limit API akun/save.
+- [x] Tampilkan pilihan scan otomatis yang mengikuti kesiapan backend. Jika fitur nonaktif, upload tetap berhasil tanpa scan dan tanpa pesan seolah-olah scan sudah dijadwalkan.
+- [x] Pisahkan progress pengiriman/publikasi dari scan. Setelah publikasi: “Game berhasil diunggah dan sudah bisa dimainkan. Metadata sedang menunggu scan.” Halaman admin tidak perlu menunggu worker selesai.
+- [x] Tampilkan label status berbahasa Indonesia pada Manage Game, detail hasil, warning cover, dan waktu percobaan berikutnya bila relevan. Library cukup menampilkan status publik ringkas tanpa error/config/kuota internal.
+- [x] Sediakan “Scan ulang”, retry sesuai kondisi, pencarian nama manual, pilihan kandidat, preview perubahan, dan penerapan field terpilih. Retry admin tidak boleh melewati cooldown/kuota atau membuat tugas aktif ganda. Rescan tidak diam-diam melepas override.
+- [x] Sesuaikan form edit agar mengirim field yang benar-benar berubah/keputusan eksplisit, bukan otomatis mengunci semua field hanya karena form sekarang mengirim judul/deskripsi/lisensi sekaligus.
+- [x] Gunakan polling metadata ringan saat halaman terlihat, dengan backoff, abort cleanup, jeda saat hidden/offline, dan refresh saat fokus kembali. Hindari WebSocket/SSE untuk MVP dan jangan polling byte ROM/BIOS.
+- [x] Refresh katalog berdasarkan revision secara terkoordinasi. Library sekarang memuat beberapa halaman lalu merge/sort di browser; perubahan judul saat pagination dapat menyebabkan duplikasi/skip. Deteksi revision berubah dan ulangi snapshot secara terbatas, bukan menampilkan hasil setengah lama/setengah baru.
+- [x] Jangan mengosongkan grid setiap polling. Pertahankan query/filter/halaman, tangani perpindahan hasil setelah judul berubah, dan beri pemberitahuan pembaruan yang tidak mencuri fokus. URL cover yang sama harus menampilkan cover baru tanpa mengubah kebijakan cache ROM.
+- [x] Metadata favorit/riwayat server diperbarui berdasarkan ID stabil pada titik refresh yang sesuai; jangan menghapus record lokal, menaikkan batas daftar tersimpan, mengganti judul sesi yang sedang berjalan secara paksa, atau menulis ulang metadata save lama.
+- [x] Mode statis tidak melakukan request scan/provider; backend lama tanpa capability baru tetap bisa menampilkan katalog. Preserve 401/403, aksesibilitas dialog, navigasi mobile, dan fallback saat backend tidak tersedia.
 
 Usulan kontrak API; nama final mengikuti pola proyek saat implementasi:
 
@@ -178,6 +178,8 @@ Usulan kontrak API; nama final mengikuti pola proyek saat implementasi:
 Endpoint apply hanya menerima referensi kandidat yang tersimpan dan terikat pada game/generation/sistem serta field allowlist; bukan URL cover atau respons provider arbitrer dari client. Detail status privat memakai `no-store`; endpoint publik tidak membocorkan keberadaan game terhapus atau antrean privat.
 
 **Kriteria selesai:** browser membuktikan upload → langsung terlihat/playable → status scan → judul/cover berubah otomatis tanpa reload manual. Kegagalan, review kandidat, edit manual saat scan, beberapa tab, pagination/filter, mode statis, dan sesi non-admin ditangani dengan benar.
+
+**Penutupan M5 (2026-11-08):** kriteria di atas dibuktikan lewat backend nyata, provider tiruan, dan engine NES lokal. Skema 13 menambahkan request antrean dan gate provider bersama; backup/restore ikut diperbarui, termasuk penerimaan backup skema 12. Penerapan manual adalah persetujuan eksplisit per field atas kandidat tersimpan, bukan pelonggaran bukti auto-apply. [Matriks bukti, command, percobaan gagal dan batas](milestone-5-screenscraper-ui.md). Bukan aktivasi produksi atau penutupan M6.
 
 **Area utama:** `src/components/AdminCatalog.tsx`, `src/components/Library.tsx`, `src/components/GameCard.tsx`, `src/App.tsx`, `src/lib/admin-catalog.ts`, `src/lib/catalog.ts`, `src/lib/backend.ts`, `src/styles.css`, route metadata backend baru.
 

@@ -46,6 +46,37 @@ test('empty current catalogs preserve account/save backup behavior and include e
   assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
 })
 
+test('M5 backup normalizes provider gate only in snapshot and still accepts schema-12 backups before migration', async t => {
+  const c = await setup(t)
+  await c.publish()
+  c.db.prepare("UPDATE metadata_provider_state SET lease_token = 'old-worker', lease_expires_at = ?, next_at = ?, paused_reason = 'quota_exhausted' WHERE id = 1").run(Date.now() + 60000, Date.now() + 86400000)
+  c.close()
+  const target = join(c.root, 'm5-backup')
+  const manifest = await createDataBackup(c.config, target)
+  await verifyDataBackup(c.config, target)
+  const source = new DatabaseSync(join(c.config.dataDir, 'maindulu.sqlite'))
+  assert.equal(source.prepare('SELECT lease_token FROM metadata_provider_state').get().lease_token, 'old-worker')
+  source.close()
+  const path = join(target, 'maindulu.sqlite')
+  const legacy = new DatabaseSync(path)
+  assert.deepEqual({ ...legacy.prepare('SELECT * FROM metadata_provider_state').get() }, { id: 1, lease_token: null, lease_expires_at: null, next_at: 0, paused_reason: null })
+  legacy.exec('DROP TABLE metadata_provider_state; ALTER TABLE metadata_jobs DROP COLUMN request_method; ALTER TABLE metadata_jobs DROP COLUMN request_json; DELETE FROM schema_migrations WHERE version > 12; PRAGMA user_version = 12;')
+  legacy.close()
+  const bytes = await readFile(path)
+  manifest.schemaVersion = 12
+  delete manifest.counts.metadata_provider_state
+  manifest.files.find(file => file.path === 'maindulu.sqlite').size = bytes.length
+  manifest.files.find(file => file.path === 'maindulu.sqlite').checksum = createHash('sha256').update(bytes).digest('hex')
+  await writeFile(join(target, 'manifest.json'), JSON.stringify(manifest))
+  await verifyDataBackup(c.config, target)
+  const restored = join(c.root, 'm5-restored')
+  await restoreDataBackup(c.config, target, restored)
+  c.db = await openDatabase(restored)
+  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM metadata_jobs').get().n, 0)
+  assert.equal(c.db.prepare('SELECT next_at FROM metadata_provider_state').get().next_at, 0)
+})
+
 test('metadata-only backups include active/deleted catalog metadata but deliberately exclude all catalog asset bytes and orphans', async t => {
   for (const scenario of ['games', 'bios', 'tombstone', 'metadata-only', 'orphan-game', 'orphan-bios', 'orphan-cover']) {
     await t.test(scenario, async t => {
@@ -94,6 +125,7 @@ test('schema-7 backups verify and restore without source migration; application 
   // Reconstruct the real milestone-1 shape: no catalog tables/migration/counts.
   const path = join(source, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
+  legacy.exec('DROP TABLE metadata_provider_state;')
   legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   legacy.close()
   const original = await readFile(path)
@@ -108,6 +140,7 @@ test('schema-7 backups verify and restore without source migration; application 
   delete manifest.counts.game_metadata_field_sources
   delete manifest.counts.metadata_jobs
   delete manifest.counts.provider_cache
+  delete manifest.counts.metadata_provider_state
   manifest.files[0] = { path: 'maindulu.sqlite', size: original.length, checksum: createHash('sha256').update(original).digest('hex') }
   await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
   assert.deepEqual(await verifyDataBackup(c.config, source), manifest)
@@ -124,6 +157,7 @@ test('schema-7 backups verify and restore without source migration; application 
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM games').get().n, 0)
   assert.deepEqual(await readFile(path), original)
   const sourceDb = new DatabaseSync(join(c.config.dataDir, 'maindulu.sqlite'))
+  sourceDb.exec('DROP TABLE metadata_provider_state;')
   sourceDb.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   sourceDb.close()
   await assert.rejects(createDataBackup(c.config, join(c.root, 'legacy-source-refused')), /Versi skema backup/)
@@ -161,6 +195,7 @@ test('schema-8 empty backups verify/restore without migration or ignoring new co
   const manifest = await createDataBackup(c.config, source)
   const path = join(source, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
+  legacy.exec('DROP TABLE metadata_provider_state;')
   legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DELETE FROM schema_migrations WHERE version >= 9; PRAGMA user_version = 8;')
   legacy.close()
   const original = await readFile(path)
@@ -173,6 +208,7 @@ test('schema-8 empty backups verify/restore without migration or ignoring new co
   delete manifest.counts.game_metadata_field_sources
   delete manifest.counts.metadata_jobs
   delete manifest.counts.provider_cache
+  delete manifest.counts.metadata_provider_state
   manifest.files[0] = { path: 'maindulu.sqlite', size: original.length, checksum: createHash('sha256').update(original).digest('hex') }
   await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
   assert.deepEqual(await verifyDataBackup(c.config, source), manifest)

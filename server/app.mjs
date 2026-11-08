@@ -18,7 +18,7 @@ const pages = ['/', '/index.html', '/console', '/library', '/riwayat', '/favorit
 const assetDirectories = new Set(['assets', 'vendor', 'player', 'catalog', 'games', 'bios', 'covers'])
 const backendMarker = '<meta name="maindulu-backend" content="enabled" />'
 
-export async function createApp({ env = process.env, root, logger = false } = {}) {
+export async function createApp({ env = process.env, root, logger = false, metadataDependencies } = {}) {
   const config = await readConfig(env, root)
   let html
   try {
@@ -66,13 +66,13 @@ export async function createApp({ env = process.env, root, logger = false } = {}
   app.get('/api/health', async (_request, reply) => {
     try { db.prepare('SELECT 1').get() }
     catch { return reply.code(503).send({ error: 'Penyimpanan server belum tersedia.' }) }
-    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: true, biosCatalog: true } }
+    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: true, biosCatalog: true, metadata: true } }
   })
   try {
     const storage = await createCatalogStorage(config)
     const security = registerAuth(app, config)
     registerAdmin(app, security)
-    registerCatalog(app, config, security, storage)
+    registerCatalog(app, config, security, storage, metadataDependencies)
     registerSaves(app, config, security)
     registerGameSaves(app, config, security)
     registerSaveBackups(app, config, security)

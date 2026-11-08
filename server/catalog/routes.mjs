@@ -8,21 +8,22 @@ import { registerCatalogAssets } from './assets.mjs'
 import { createMetadataWorker } from '../metadata/worker.mjs'
 import { CatalogHttpError, invalidCatalog } from './errors.mjs'
 import { transaction } from '../auth/mutations.mjs'
-import { applyVerifiedMetadata, metadataPreview } from '../metadata/apply.mjs'
-import { assessScreenScraperEvidence } from '../metadata/screenscraper-policy.mjs'
+import { enqueueMetadata, metadataDetail } from '../metadata/queue.mjs'
+import { getScreenScraperConfigStatus } from '../metadata/screenscraper.mjs'
 
 const overhead = 128 * 1024
 const oversized = () => new CatalogHttpError(413, 'UPLOAD_TOO_LARGE', 'Upload melebihi batas ukuran atau jumlah bagian yang diizinkan.')
 const notFound = () => new CatalogHttpError(404, 'CATALOG_NOT_FOUND', 'Entri katalog tidak ditemukan.')
 
-export function registerCatalog(app, config, security, storage) {
+export function registerCatalog(app, config, security, storage, metadataDependencies = {}) {
   const db = app.database
   const repository = createCatalogRepository(db, storage)
   const maintenance = createCatalogMaintenance(db, storage, config, app.log)
   const operations = new Set()
-  const worker = createMetadataWorker({ db, config, storage, maintenance, logger: app.log })
+  const worker = createMetadataWorker({ db, config, storage, maintenance, logger: app.log, ...metadataDependencies })
   const dto = (kind, row) => catalogDto(kind, kind === 'games' ? {
     ...row, ...db.prepare('SELECT * FROM game_metadata WHERE game_id = ?').get(row.id),
+    scan_status: db.prepare('SELECT status FROM metadata_jobs WHERE game_id = ? ORDER BY generation DESC LIMIT 1').get(row.id)?.status,
   } : row)
   app.decorate('catalog', { storage, repository, maintenance, worker })
   worker.start()
@@ -92,7 +93,7 @@ export function registerCatalog(app, config, security, storage) {
         fields = Object.create(null)
         const files = new Set()
         request.raw.on('data', count)
-        for await (const part of request.parts({ preservePath: true, limits: { files: kind === 'games' && !patch ? 2 : 1, fields: 6, parts: 8, fieldNameSize: 60, fieldSize: 40000, headerPairs: 100, fileSize: patch ? catalogLimits.covers : catalogLimits[kind] } })) {
+        for await (const part of request.parts({ preservePath: true, limits: { files: kind === 'games' && !patch ? 2 : 1, fields: 7, parts: 9, fieldNameSize: 60, fieldSize: 40000, headerPairs: 100, fileSize: patch ? catalogLimits.covers : catalogLimits[kind] } })) {
           check()
           if (part.type === 'field') {
             if (part.fieldnameTruncated || part.valueTruncated || typeof part.value !== 'string' || Object.hasOwn(fields, part.fieldname)) throw invalidCatalog('Field multipart berulang, terpotong, atau tidak valid.')
@@ -129,12 +130,13 @@ export function registerCatalog(app, config, security, storage) {
       const coverValue = cover ? { stage: cover.stage, type: await validateCover(storage, cover.stage) } : v.removeCover ? null : undefined
       check()
       let row
-      if (patch) row = await repo.update(kind, actor, request.params.id, v.metadata, { cover: coverValue })
+      if (patch) row = await repo.update(kind, actor, request.params.id, v.metadata, { cover: coverValue, expectedRevision: v.expectedRevision })
       else {
         const primary = kind === 'games' ? rom : firmware
         if (!primary) throw invalidCatalog('Berkas ROM/BIOS wajib dipilih.')
         v.metadata.fileName = fileName(kind, primary.name, v.metadata.consoleId)
-        row = await repo.publish(kind, actor, v.metadata, primary.stage, { cover: coverValue ?? null, restoreId: v.restoreId })
+        row = await repo.publish(kind, actor, v.metadata, primary.stage, { cover: coverValue ?? null, restoreId: v.restoreId,
+          scanMetadata: v.scanMetadata && getScreenScraperConfigStatus(config.screenscraper).ready })
       }
       return reply.code(patch || v.restoreId ? 200 : 201).send({ item: dto(kind, row) })
     } catch (error) { failed = true; reply.header('Connection', 'close'); throw error }
@@ -205,8 +207,10 @@ export function registerCatalog(app, config, security, storage) {
     })
     for (const kind of ['games', 'bios']) {
       api.get(`/api/${kind}`, async request => {
-        const { rows, ...page } = queryCatalog(db, kind, listQuery(request.query))
-        return { items: rows.map(row => catalogDto(kind, row)), ...page }
+        return transaction(db, () => {
+          const { rows, ...page } = queryCatalog(db, kind, listQuery(request.query))
+          return { items: rows.map(row => catalogDto(kind, row)), ...page, revision: db.prepare('SELECT revision FROM catalog_revision WHERE id = 1').get().revision }
+        })
       })
       api.get(`/api/${kind}/:id`, async request => {
         if (!validId(request.params.id)) throw notFound()
@@ -241,11 +245,7 @@ export function registerCatalog(app, config, security, storage) {
       if (!validId(request.params.id)) throw notFound()
       const game = repository.get('games', request.params.id)
       if (!game) throw notFound()
-      const job = db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ? ORDER BY generation DESC LIMIT 1').get(game.id)
-      let candidate = null
-      try { candidate = JSON.parse(job?.candidate_json ?? 'null')?.candidates?.[0] ?? null } catch { /* damaged candidate is not applicable */ }
-      return { gameId: game.id, generation: job?.generation ?? null, status: job?.status ?? null, reason: job?.error_code ?? null,
-        preview: metadataPreview(db, game.id, candidate) }
+      return metadataDetail(db, game)
     })
     api.post('/api/admin/games/:id/metadata/unlock', { onRequest: async request => { security.protectAdmin(request) } }, async request => {
       if (!validId(request.params.id)) throw notFound()
@@ -267,23 +267,49 @@ export function registerCatalog(app, config, security, storage) {
     })
     api.post('/api/admin/games/:id/metadata/apply', { onRequest: async request => { security.protectAdmin(request) } }, async request => {
       if (!validId(request.params.id)) throw notFound()
-      const { generation, expectedRevision, fields } = request.body ?? {}
-      if (!Number.isSafeInteger(generation) || generation < 1 || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1
-        || !Array.isArray(fields) || !fields.length || fields.length > 9
-        || fields.some(field => !['title', 'description', 'releaseDate', 'genre', 'developer', 'publisher', 'players', 'regionLanguage'].includes(field))) throw invalidCatalog('Pilihan metadata/revisi tidak valid.')
       const game = repository.get('games', request.params.id)
       if (!game) throw notFound()
-      const job = db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ? AND generation = ?').get(game.id, generation)
-      if (!job || job.status !== 'needs_review' || job.asset_fingerprint !== `${game.sha256}:${game.size}`) throw new CatalogHttpError(409, 'METADATA_CONFLICT', 'Kandidat tidak lagi berlaku.')
-      let payload
-      try { payload = JSON.parse(job.candidate_json) } catch { throw invalidCatalog('Kandidat metadata tidak valid.') }
-      const input = { method: payload?.method, consoleId: game.console_id, fileName: game.original_name,
-        size: payload?.fingerprint?.size, md5: payload?.fingerprint?.md5, sha1: payload?.fingerprint?.sha1 }
-      if (!assessScreenScraperEvidence(input, payload?.candidates).verified || payload.systemId !== payload.candidates[0].systemId) throw new CatalogHttpError(409, 'METADATA_EVIDENCE', 'Kandidat memerlukan peninjauan tanpa penerapan otomatis.')
-      const result = applyVerifiedMetadata(db, storage, { job: { ...job, storage_key: game.storage_key }, candidate: payload.candidates[0],
-        expectedRevision, selectedFields: fields, authorize: () => security.requireAdmin(request) })
-      if (!result) throw new CatalogHttpError(409, 'METADATA_CONFLICT', 'Game atau metadata berubah. Muat ulang preview.')
-      return { ...result, gameId: game.id }
+      const { generation, expectedRevision, fields, candidateId } = request.body ?? {}
+      return enqueueMetadata(db, config, game, { method: 'apply', generation, expectedRevision, fields, candidateId }, () => security.requireAdmin(request))
+    })
+    api.get('/api/admin/metadata/status', { onRequest: async request => { security.protectAdmin(request) } }, async () => {
+      const screenScraper = getScreenScraperConfigStatus(config.screenscraper)
+      const queue = db.prepare(`SELECT
+        SUM(CASE WHEN status IN ('queued', 'retry_wait') THEN 1 ELSE 0 END) AS pending,
+        SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running,
+        SUM(CASE WHEN status = 'needs_review' THEN 1 ELSE 0 END) AS needsReview,
+        SUM(CASE WHEN status IN ('failed', 'paused') THEN 1 ELSE 0 END) AS problem,
+        MIN(CASE WHEN status IN ('queued', 'retry_wait') THEN next_at END) AS oldestNextAt
+        FROM metadata_jobs`).get()
+      return {
+        ready: screenScraper.ready,
+        screenscraper: screenScraper,
+        worker: { enabled: worker.isEnabled() },
+        cooldownUntil: db.prepare('SELECT next_at FROM metadata_provider_state WHERE id = 1').get().next_at,
+        queue: {
+          pending: Number(queue?.pending || 0),
+          running: Number(queue?.running || 0),
+          needsReview: Number(queue?.needsReview || 0),
+          problem: Number(queue?.problem || 0),
+          oldestPendingMs: queue?.oldestNextAt ? Math.max(0, Date.now() - queue.oldestNextAt) : null,
+        },
+      }
+    })
+    api.post('/api/admin/games/:id/metadata/scan', { onRequest: async request => { security.protectAdmin(request) } }, async request => {
+      if (!validId(request.params.id)) throw notFound()
+      const game = repository.get('games', request.params.id)
+      if (!game) throw notFound()
+      return enqueueMetadata(db, config, game, {}, () => security.requireAdmin(request))
+    })
+    api.post('/api/admin/games/:id/metadata/search', { onRequest: async request => { security.protectAdmin(request) } }, async request => {
+      if (!validId(request.params.id)) throw notFound()
+      const game = repository.get('games', request.params.id)
+      if (!game) throw notFound()
+      return enqueueMetadata(db, config, game, { method: 'name', query: request.body?.query }, () => security.requireAdmin(request))
+    })
+    api.get('/api/catalog/revision', async () => {
+      const row = db.prepare('SELECT revision FROM catalog_revision WHERE id = 1').get()
+      return { revision: Number(row?.revision || 1) }
     })
   })
   registerCatalogAssets(app, repository, storage)

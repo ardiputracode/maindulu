@@ -81,7 +81,7 @@ async function copy(source, target) {
 function inspectDatabase(db, { legacy = false, catalogMetadata = false, allowOperational = false } = {}) {
   db.exec('PRAGMA trusted_schema = OFF; PRAGMA query_only = ON;')
   const version = db.prepare('PRAGMA user_version').get().user_version
-  if (version !== schemaVersion && !(legacy && [7, 8, 9, 10, 11].includes(version))) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
+  if (version !== schemaVersion && !(legacy && [7, 8, 9, 10, 11, 12].includes(version))) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
   if (db.prepare('PRAGMA integrity_check').all().some(row => row.integrity_check !== 'ok') || db.prepare('PRAGMA foreign_key_check').all().length) fail('Integritas SQLite backup gagal.')
   if (version === 7) {
     if (db.prepare("SELECT name FROM sqlite_master WHERE name IN ('games', 'bios', 'catalog_cleanup', 'catalog_uploads', 'catalog_capacity')").all().length) fail('Katalog backup skema 7 tidak cocok; tabel katalog tidak boleh ada pada skema ini.')
@@ -94,6 +94,7 @@ function inspectDatabase(db, { legacy = false, catalogMetadata = false, allowOpe
     else if (db.prepare('SELECT 1 FROM catalog_cleanup UNION ALL SELECT 1 FROM catalog_uploads LIMIT 1').get()) fail('Katalog backup format 1 memiliki reservasi/cleanup yang belum kosong.')
   }
   if (catalogMetadata && !allowOperational && version >= 10 && db.prepare('SELECT 1 FROM metadata_jobs UNION ALL SELECT 1 FROM provider_cache LIMIT 1').get()) fail('Backup metadata tidak boleh membawa tugas operasional/cache provider aktif.')
+  if (version >= 13 && !allowOperational && db.prepare('SELECT 1 FROM metadata_provider_state WHERE lease_token IS NOT NULL OR lease_expires_at IS NOT NULL OR next_at != 0 OR paused_reason IS NOT NULL').get()) fail('Backup tidak boleh membawa lease/cooldown provider.')
   const installationId = db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get()?.value
   if (typeof installationId !== 'string') fail('Identitas instalasi backup tidak valid.')
   const files = new Map()
@@ -112,6 +113,7 @@ function inspectDatabase(db, { legacy = false, catalogMetadata = false, allowOpe
   if (version >= 8) for (const table of ['games', 'bios']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
   if (version >= 9) for (const table of ['catalog_cleanup', 'catalog_uploads']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
   if (version >= 10) for (const table of ['metadata_jobs', 'provider_cache', 'game_metadata', 'game_metadata_field_sources']) counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
+  if (version >= 13) counts.metadata_provider_state = db.prepare('SELECT COUNT(*) AS n FROM metadata_provider_state').get().n
   return { installationId, files, counts, version }
 }
 
@@ -140,7 +142,7 @@ async function verify(folder) {
   const actual = await tree(folder)
   if ((await safeEntry(join(folder, 'manifest.json'))).size > 64 * 1024 * 1024) fail('Manifest backup terlalu besar.')
   const manifest = JSON.parse(await readFile(join(folder, 'manifest.json'), 'utf8'))
-  if (manifest?.format !== 'maindulu-data-backup' || ![1, 2].includes(manifest.formatVersion) || ![7, 8, 9, 10, 11, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
+  if (manifest?.format !== 'maindulu-data-backup' || ![1, 2].includes(manifest.formatVersion) || ![7, 8, 9, 10, 11, 12, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
   const catalogMetadata = manifest.formatVersion === 2
   if (catalogMetadata && (manifest.schemaVersion < 10 || manifest.catalogAssets !== 'excluded')) fail('Format/versi manifest backup metadata harus menyatakan bahwa ROM/BIOS/cover tidak disertakan.')
   const files = new Map()
@@ -200,6 +202,7 @@ export async function createDataBackup(config, input) {
     const snapshot = new DatabaseSync(join(stage, databaseName))
     try {
       snapshot.exec('PRAGMA journal_mode = DELETE; BEGIN IMMEDIATE; DELETE FROM catalog_uploads; DELETE FROM catalog_cleanup; UPDATE catalog_capacity SET generation = 0 WHERE id = 1; DELETE FROM metadata_jobs; DELETE FROM provider_cache; COMMIT;')
+      snapshot.exec('UPDATE metadata_provider_state SET lease_token = NULL, lease_expires_at = NULL, next_at = 0, paused_reason = NULL;')
       info = inspectDatabase(snapshot, { catalogMetadata: true })
     } finally { snapshot.close() }
     await chmod(join(stage, databaseName), 0o600)
@@ -270,6 +273,7 @@ export async function restoreDataBackup(config, input, destination) {
       const hasTable = name => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name)
       if (hasTable('metadata_jobs')) db.exec('DELETE FROM metadata_jobs;')
       if (hasTable('provider_cache')) db.exec('DELETE FROM provider_cache;')
+      if (hasTable('metadata_provider_state')) db.exec('UPDATE metadata_provider_state SET lease_token = NULL, lease_expires_at = NULL, next_at = 0, paused_reason = NULL;')
       inspectDatabase(db, { legacy: true, catalogMetadata: manifest.formatVersion === 2 })
     } finally { db.close() }
     await sync(join(stage, databaseName))

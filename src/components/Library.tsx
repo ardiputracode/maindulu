@@ -5,9 +5,10 @@ import { catalogGame, libraryGames, loadCatalog, mergeCatalog } from '../lib/cat
 import type { BackendState } from '../lib/backend'
 import type { ConsoleInfo, Game } from '../lib/domain'
 
-export default function Library({ builtin, consoles, backend, onBackendRetry, renderCards }: {
+export default function Library({ builtin, consoles, backend, onBackendRetry, renderCards, live }: {
   builtin: Game[]; consoles: ConsoleInfo[]; backend: BackendState; onBackendRetry: () => void;
   renderCards: (games: Game[]) => React.ReactNode;
+  live?: { games: Game[]; error: string; loaded: boolean; notice: string; retry: () => void };
 }) {
   const [params, setParams] = useSearchParams()
   const [uploaded, setUploaded] = useState<Game[]>([])
@@ -21,26 +22,26 @@ export default function Library({ builtin, consoles, backend, onBackendRetry, re
   const page = Number.isSafeInteger(rawPage) && rawPage > 0 && rawPage <= 1000000 ? rawPage : 1
   const query = new URLSearchParams({ ...(q.trim() ? { q: q.trim() } : {}), ...(consoles.some(c => c.id === consoleId) ? { console: consoleId } : {}), sort }).toString()
   useEffect(() => {
-    setUploaded([]); setError(''); setLoading(dynamic)
-    if (!dynamic) return
+    setError(''); setLoading(dynamic && !live)
+    if (!dynamic || live) return
     const controller = new AbortController()
     void loadCatalog('games', query, controller.signal).then(items => {
       if (!controller.signal.aborted) setUploaded(items.map(catalogGame).filter(g => consoles.some(c => c.id === g.consoleId)))
     }).catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Katalog belum dapat dimuat.') })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [dynamic, query, consoles, attempt])
-  const retry = () => { if (backend.status === 'unavailable') onBackendRetry(); else setAttempt(n => n + 1) }
+  }, [dynamic, query, consoles, attempt, !!live])
+  const retry = () => { if (backend.status === 'unavailable') onBackendRetry(); else if (live) live.retry(); else setAttempt(n => n + 1) }
   const change = (key: string, value: string) => setParams(previous => {
     const next = new URLSearchParams(previous)
     if (value) next.set(key, value); else next.delete(key)
     if (key !== 'page') next.delete('page')
     return next
   }, { replace: key === 'q' })
-  const games = libraryGames(mergeCatalog(builtin, uploaded), q, consoleId, sort)
+  const games = libraryGames(mergeCatalog(builtin, dynamic ? (live?.games ?? uploaded).filter(g => consoles.some(c => c.id === g.consoleId)) : []), q, consoleId, sort)
   const pages = Math.max(1, Math.ceil(games.length / 12))
-  const busy = loading || backend.status === 'checking'
-  const failure = backend.status === 'unavailable' ? 'Backend katalog tidak dapat dihubungi. Mode statis tidak diaktifkan otomatis. Periksa koneksi dan coba lagi.' : error
+  const busy = loading || (live && !live.loaded && !live.error) || backend.status === 'checking'
+  const failure = backend.status === 'unavailable' ? 'Backend katalog tidak dapat dihubungi. Mode statis tidak diaktifkan otomatis. Periksa koneksi dan coba lagi.' : live?.error ?? error
   return <section aria-label="Library game">
     <div className="page-heading"><div><span className="eyebrow">KOLEKSI UNTUK JEDA MAINMU</span><h1>Library game.</h1><p>Temukan game server dan demo bawaan. ROM milikmu tetap bisa dibuka langsung dari perangkat.</p></div></div>
     <div className="library-filters">
@@ -49,7 +50,9 @@ export default function Library({ builtin, consoles, backend, onBackendRetry, re
       <label>Urutan<select value={sort} onChange={e => change('sort', e.target.value)}><option value="newest">Terbaru</option><option value="title">Judul A–Z</option></select></label>
       <button className="button secondary small" onClick={retry} disabled={busy}><RefreshCw size={16} />Muat ulang katalog</button>
     </div>
-    {busy ? <p role="status">Memuat Library…</p> : failure ? <div className="empty-state"><h2>Katalog belum tersedia.</h2><p role="alert">{failure}</p><button className="button primary" onClick={retry}>Coba lagi</button></div> : <>
+    {live?.notice && <p role="status">{live.notice}</p>}
+    {failure && live?.loaded && <p role="alert">{failure} Daftar sebelumnya tetap ditampilkan.</p>}
+    {busy ? <p role="status">Memuat Library…</p> : failure && !live?.loaded ? <div className="empty-state"><h2>Katalog belum tersedia.</h2><p role="alert">{failure}</p><button className="button primary" onClick={retry}>Coba lagi</button></div> : <>
       <div className="list-toolbar"><span>{games.length} permainan · halaman {page} dari {pages}</span></div>
       {games.length && page <= pages ? renderCards(games.slice((page - 1) * 12, page * 12)) : <div className="empty-state"><h2>{page > pages ? 'Halaman ini tidak tersedia.' : 'Belum ketemu judulnya.'}</h2><p>Ubah pencarian/filter atau buka ROM sendiri.</p><button className="button secondary" onClick={() => setParams({})}>Reset filter</button></div>}
       <nav className="admin-pagination" aria-label="Halaman Library"><button className="button secondary small" disabled={page <= 1} onClick={() => change('page', String(page - 1))}>Sebelumnya</button><span>Halaman {page}</span><button className="button secondary small" disabled={page >= pages} onClick={() => change('page', String(page + 1))}>Berikutnya</button></nav>

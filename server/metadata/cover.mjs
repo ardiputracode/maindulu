@@ -9,7 +9,7 @@ const id = /^[1-9][0-9]{0,19}$/
 const mimeFormats = { 'image/png': 'png', 'image/jpeg': 'jpeg', 'image/webp': 'webp' }
 
 export class CoverError extends Error {
-  constructor(code) { super(code); this.name = 'CoverError'; this.code = code }
+  constructor(code, httpStatus = null, retryAfterMs = 0) { super(code); this.name = 'CoverError'; this.code = code; this.httpStatus = httpStatus; this.retryAfterMs = retryAfterMs }
 }
 
 // Use IPv4 only: no IPv6 (including IPv4-mapped) destination can be connected.
@@ -78,7 +78,11 @@ export async function downloadScreenScraperCover(config, { gameId, systemId, reg
         response = res
         if (signal?.aborted) return abort('COVER_CANCELLED')
         if (res.statusCode === 404) { res.destroy(); return finish(null, null) }
-        if (res.statusCode !== 200) { res.destroy(); return finish(new CoverError('COVER_HTTP')) }
+        if (res.statusCode !== 200) {
+          const retry = res.headers['retry-after']
+          const ms = typeof retry === 'string' && /^\d+$/.test(retry) ? Number(retry) * 1000 : typeof retry === 'string' ? Date.parse(retry) - Date.now() : 0
+          res.destroy(); return finish(new CoverError('COVER_HTTP', res.statusCode, Math.max(0, Math.min(ms || 0, 7 * 86400000))))
+        }
         const type = res.headers['content-type']?.split(';')[0]?.trim().toLowerCase()
         if (!Object.hasOwn(mimeFormats, type) || (res.headers['content-encoding'] && res.headers['content-encoding'] !== 'identity')) {
           res.destroy(); return finish(new CoverError('COVER_TYPE'))

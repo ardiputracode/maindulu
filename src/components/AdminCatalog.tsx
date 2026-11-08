@@ -3,6 +3,9 @@ import { Link, NavLink, Route, Routes, useSearchParams } from 'react-router-dom'
 import { ArrowRight, HardDrive, Plus, RefreshCw, ShieldCheck } from 'lucide-react'
 import Dialog from './Dialog'
 import { adminRequest, catalogLabel, CatalogClientError, mutateCatalog, readAdminPage } from '../lib/admin-catalog'
+import MetadataReview from './MetadataReview'
+import { metadataReady } from '../lib/metadata'
+import { useVisiblePolling } from '../lib/useVisiblePolling'
 import type { AdminEntry, AdminPage, CatalogKind, UploadProgress } from '../lib/admin-catalog'
 import type { AccountState } from '../lib/account'
 import type { BackendState } from '../lib/backend'
@@ -56,7 +59,7 @@ export default function AdminCatalog({ backend, account, consoles, onLogin, onRe
     <p className="notice">Backup menyimpan akun, save/progres, dan metadata katalog; tidak menyertakan berkas ROM, BIOS, atau cover. Jika aset hilang setelah restore, upload ulang berkas yang sama dan konfirmasi ID lama.</p>
     <Routes>
       <Route index element={<><div className="admin-links">{(['games', 'bios'] as const).map(kind => <Link key={kind} to={`/admin/${kind}`} className="admin-panel"><HardDrive size={24} /><h2>{kind === 'games' ? 'Manage Game' : 'Manage BIOS'}</h2><p>{kind === 'games' ? 'Upload ROM dan cover, edit metadata, atau hapus game.' : 'Upload firmware dan arsip BIOS, edit metadata, atau hapus BIOS.'}</p><span className="text-link">Buka pengelolaan <ArrowRight size={16} /></span></Link>)}</div><p className="page-footnote">Role akun tetap dikelola melalui terminal, bukan halaman ini.</p></>} />
-      <Route path="games" element={backend.status === 'online' && backend.health.capabilities.gameCatalog ? <CatalogManager key="games" kind="games" consoles={consoles} userId={user.id} onDenied={denied} /> : <p>API katalog game tidak tersedia pada backend ini.</p>} />
+      <Route path="games" element={backend.status === 'online' && backend.health.capabilities.gameCatalog ? <CatalogManager key="games" kind="games" consoles={consoles} userId={user.id} onDenied={denied} metadataEnabled={backend.health.capabilities.metadata === true} /> : <p>API katalog game tidak tersedia pada backend ini.</p>} />
       <Route path="bios" element={backend.status === 'online' && backend.health.capabilities.biosCatalog ? <CatalogManager key="bios" kind="bios" consoles={consoles} userId={user.id} onDenied={denied} /> : <p>API katalog BIOS tidak tersedia pada backend ini.</p>} />
       <Route path="*" element={<Link to="/admin">Kembali ke ringkasan admin</Link>} />
     </Routes>
@@ -67,7 +70,7 @@ function AdminNotice({ title, text, onRetry, action = 'Periksa lagi' }: { title:
   return <div className="empty-state"><h1>{title}</h1><p>{text}</p>{onRetry && <button className="button primary" onClick={onRetry}>{action}</button>}</div>
 }
 
-function CatalogManager({ kind, consoles, userId, onDenied }: { kind: CatalogKind; consoles: ConsoleInfo[]; userId: string; onDenied: (error: unknown) => void }) {
+function CatalogManager({ kind, consoles, userId, onDenied, metadataEnabled = false }: { kind: CatalogKind; consoles: ConsoleInfo[]; userId: string; onDenied: (error: unknown) => void; metadataEnabled?: boolean }) {
   const [params, setParams] = useSearchParams()
   const [result, setResult] = useState<AdminPage | null>(null)
   const [loading, setLoading] = useState(true)
@@ -76,13 +79,19 @@ function CatalogManager({ kind, consoles, userId, onDenied }: { kind: CatalogKin
   const [retry, setRetry] = useState(0)
   const [editing, setEditing] = useState<AdminEntry | 'new' | null>(null)
   const [deleting, setDeleting] = useState<AdminEntry | null>(null)
+  const [review, setReview] = useState<AdminEntry | null>(null)
+  const [ready, setReady] = useState(false)
+  useVisiblePolling(metadataEnabled && kind === 'games', async signal => {
+    try { const next = await metadataReady(signal); if (!signal.aborted) setReady(next) }
+    catch (e) { if (!signal.aborted) { setReady(false); onDenied(e) }; throw e }
+  })
   const uploadButton = useRef<HTMLButtonElement>(null)
   const focusAfterClose = useRef(false)
   useEffect(() => {
     // Reloading removes list rows (and their dialog triggers). Restore focus to
     // a persistent toolbar control instead of leaving keyboard users on body.
-    if (!editing && !deleting && focusAfterClose.current) { focusAfterClose.current = false; uploadButton.current?.focus() }
-  }, [editing, deleting])
+    if (!editing && !deleting && !review && focusAfterClose.current) { focusAfterClose.current = false; uploadButton.current?.focus() }
+  }, [editing, deleting, review])
   const q = params.get('q') || '', consoleId = params.get('console') || '', status = params.get('status') || 'active'
   const rawPage = Number(params.get('page') || 1)
   const page = Number.isSafeInteger(rawPage) && rawPage > 0 && rawPage <= 1000000 ? rawPage : 1
@@ -93,7 +102,7 @@ function CatalogManager({ kind, consoles, userId, onDenied }: { kind: CatalogKin
     const controller = new AbortController()
     let disposed = false
     const timer = setTimeout(() => controller.abort(), 15000)
-    setLoading(true); setError(''); setResult(null)
+    setLoading(true); setError('')
     void adminRequest(`/api/admin/${kind}?${query}`, { signal: controller.signal }).then(data => {
       const parsed = readAdminPage(data, kind)
       if (!parsed) throw new Error('Respons daftar katalog tidak sesuai.')
@@ -106,6 +115,13 @@ function CatalogManager({ kind, consoles, userId, onDenied }: { kind: CatalogKin
     setParams(previous => { const next = new URLSearchParams(previous); if (value) next.set(key, value); else next.delete(key); if (key !== 'page') next.delete('page'); return next }, { replace: key === 'q' })
   }
   const reload = () => setRetry(n => n + 1)
+  useVisiblePolling(metadataEnabled && !editing && !deleting, async signal => {
+    try {
+      const parsed = readAdminPage(await adminRequest(`/api/admin/${kind}?${query}`, { signal }), kind)
+      if (!parsed) throw new Error('Respons daftar katalog tidak sesuai.')
+      if (!signal.aborted) setResult(parsed)
+    } catch (e) { if (!signal.aborted) deniedRef.current(e); throw e }
+  })
   const changed = (text: string) => { focusAfterClose.current = true; setEditing(null); setDeleting(null); setNotice(text); reload() }
   const label = kind === 'games' ? 'game' : 'BIOS'
   return <>
@@ -119,18 +135,21 @@ function CatalogManager({ kind, consoles, userId, onDenied }: { kind: CatalogKin
         <div className="admin-item-heading"><h3>{catalogLabel(item)}</h3><span className="slot-badge">{item.deletedAt === null ? 'Aktif' : 'Terhapus'}</span></div>
         <p>{consoles.find(c => c.id === item.consoleId)?.name || item.consoleId} · {bytes(item.size)}</p>
         <dl><dt>{kind === 'games' ? 'ROM' : 'Firmware / arsip'}</dt><dd>{item.fileName}</dd><dt>Diunggah</dt><dd>{new Date(item.createdAt).toLocaleString('id-ID')}</dd><dt>Berkas</dt><dd>{fileStates[item.fileStatus]}</dd>{kind === 'games' && <><dt>Cover</dt><dd>{fileStates[item.coverStatus || 'none']}</dd></>}<dt>Pembersihan</dt><dd>{item.cleanupPending ? 'Menunggu / akan dicoba ulang' : 'Tidak ada antrean'}</dd><dt>SHA-256</dt><dd className="admin-hash">{item.sha256}</dd></dl>
-        {item.deletedAt === null ? <><div className="account-actions"><button className="button secondary small" onClick={() => setEditing(item)}>Edit metadata</button><button className="button secondary small" onClick={() => setDeleting(item)}>Hapus {label}</button></div>{item.fileStatus === 'missing' && <p className="field-hint">Berkas hilang. Gunakan Upload {label} untuk mengirim ulang byte yang sama pada console yang sama, lalu konfirmasi Pulihkan ID lama. Save pengguna tidak perlu dipindahkan. Cover dapat diunggah ulang melalui Edit metadata.</p>}</> : <p className="field-hint">Untuk memulihkan ID dan hubungan save lama, upload ulang berkas yang sama pada console yang sama lalu konfirmasi pemulihan.</p>}
+        {item.metadataStatus && <p>{item.metadataStatus === 'pending' ? 'Metadata sedang diproses' : item.metadataStatus === 'ready' ? 'Metadata selesai' : item.metadataStatus === 'review' ? 'Metadata perlu ditinjau' : 'Scan nonaktif'}</p>}
+        {item.deletedAt === null ? <><div className="account-actions"><button className="button secondary small" onClick={() => setEditing(item)}>Edit metadata</button>{kind === 'games' && metadataEnabled && <button className="button secondary small" onClick={() => setReview(item)}>Review / scan metadata</button>}<button className="button secondary small" onClick={() => setDeleting(item)}>Hapus {label}</button></div>{item.fileStatus === 'missing' && <p className="field-hint">Berkas hilang. Gunakan Upload {label} untuk mengirim ulang byte yang sama pada console yang sama, lalu konfirmasi Pulihkan ID lama. Save pengguna tidak perlu dipindahkan. Cover dapat diunggah ulang melalui Edit metadata.</p>}</> : <p className="field-hint">Untuk memulihkan ID dan hubungan save lama, upload ulang berkas yang sama pada console yang sama lalu konfirmasi pemulihan.</p>}
       </article>)}</div>
       <nav className="admin-pagination" aria-label="Halaman katalog admin"><button className="button secondary small" disabled={page <= 1} onClick={() => filter('page', String(page - 1))}>Sebelumnya</button><span>Halaman {page}</span><button className="button secondary small" disabled={page * result.pageSize >= result.total} onClick={() => filter('page', String(page + 1))}>Berikutnya</button></nav>
     </>}
-    {editing && <CatalogForm kind={kind} item={editing === 'new' ? undefined : editing} consoles={consoles} userId={userId} onClose={() => { focusAfterClose.current = true; setEditing(null); reload() }} onSaved={changed} onDenied={onDenied} onUncertain={reload} />}
+    {review && <MetadataReview id={review.id} title={catalogLabel(review)} userId={userId} ready={ready} onClose={() => { focusAfterClose.current = true; setReview(null); reload() }} onDenied={onDenied} />}
+    {editing && <CatalogForm kind={kind} item={editing === 'new' ? undefined : editing} scanReady={ready} consoles={consoles} userId={userId} onClose={() => { focusAfterClose.current = true; setEditing(null); reload() }} onSaved={changed} onDenied={onDenied} onUncertain={reload} />}
     {deleting && <DeleteCatalog kind={kind} item={deleting} userId={userId} onClose={() => setDeleting(null)} onSaved={changed} onDenied={onDenied} onUncertain={reload} />}
   </>
 }
 
-function CatalogForm({ kind, item, consoles, userId, onClose, onSaved, onDenied, onUncertain }: {
+function CatalogForm({ kind, item, consoles, userId, onClose, onSaved, onDenied, onUncertain, scanReady = false }: {
   kind: CatalogKind; item?: AdminEntry; consoles: ConsoleInfo[]; userId: string; onClose: () => void;
   onSaved: (text: string) => void; onDenied: (error: unknown) => void; onUncertain: () => void;
+  scanReady?: boolean;
 }) {
   const game = kind === 'games', label = game ? 'game' : 'BIOS'
   const [title, setTitle] = useState(item ? catalogLabel(item) : '')
@@ -143,6 +162,7 @@ function CatalogForm({ kind, item, consoles, userId, onClose, onSaved, onDenied,
   const [error, setError] = useState('')
   const [restoreId, setRestoreId] = useState<string>()
   const [progress, setProgress] = useState<UploadProgress | null>(null)
+  const [scan, setScan] = useState(true)
   const operation = useRef<AbortController | null>(null)
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; operation.current?.abort() } }, [])
@@ -152,7 +172,7 @@ function CatalogForm({ kind, item, consoles, userId, onClose, onSaved, onDenied,
     if (operation.current) return
     setError('')
     const consoleInfo = consoles.find(c => c.id === consoleId)
-    if (!title.trim()) return setError('Nama atau judul wajib diisi.')
+    if ((kind !== 'games' || item) && !title.trim()) return setError('Nama atau judul wajib diisi.')
     if (!consoleInfo) return setError('Pilih console yang didukung.')
     if (!item && !file) return setError('Pilih berkas ROM/BIOS terlebih dahulu.')
     if (!item && file) { const issue = game ? validateRom(file, consoleInfo) : validateBios(file); if (issue) return setError(issue) }
@@ -162,6 +182,12 @@ function CatalogForm({ kind, item, consoles, userId, onClose, onSaved, onDenied,
     setProgress({ phase: 'preparing' })
     try {
       const fields: Record<string, unknown> = { [game ? 'title' : 'name']: title.trim(), description, [game ? 'license' : 'distributionRights']: rights }
+      if (item) {
+        if (title.trim() === catalogLabel(item)) delete fields[game ? 'title' : 'name']
+        if (description === item.description) delete fields.description
+        if (rights === (item.license ?? item.distributionRights ?? '')) delete fields[game ? 'license' : 'distributionRights']
+        if (game && item.metadataRevision) fields.expectedRevision = item.metadataRevision
+      } else if (game) fields.scanMetadata = scanReady && scan
       if (!item) { fields.consoleId = consoleId; if (restoring && restoreId) fields.restoreId = restoreId }
       if (item && game) fields.removeCover = removeCover
       let body: FormData | Record<string, unknown> = fields
@@ -171,8 +197,9 @@ function CatalogForm({ kind, item, consoles, userId, onClose, onSaved, onDenied,
         if (!item && file) body.append(game ? 'rom' : 'bios', file)
         if (cover) body.append('cover', cover)
       }
-      await mutateCatalog(kind, userId, item ? 'PATCH' : 'POST', item?.id, body, controller.signal, next => { if (mounted.current) setProgress(next) })
-      if (mounted.current) onSaved(restoring ? 'ID lama berhasil dipulihkan. Metadata lama dipertahankan; edit metadata jika diperlukan.' : item ? 'Metadata berhasil diperbarui. ID dan save pengguna tidak berubah.' : `${game ? 'Game' : 'BIOS'} berhasil diterbitkan.`)
+      const response = await mutateCatalog(kind, userId, item ? 'PATCH' : 'POST', item?.id, body, controller.signal, next => { if (mounted.current) setProgress(next) })
+      const scheduled = !!response && typeof response === 'object' && 'item' in response && !!response.item && typeof response.item === 'object' && 'metadataStatus' in response.item && response.item.metadataStatus === 'pending'
+      if (mounted.current) onSaved(restoring ? 'ID lama berhasil dipulihkan. Metadata lama dipertahankan; scan ulang hanya melalui tindakan eksplisit.' : item ? 'Metadata berhasil diperbarui. ID dan save pengguna tidak berubah.' : game ? `Game berhasil diunggah dan sudah bisa dimainkan. ${scheduled ? 'Metadata sedang menunggu scan.' : 'Scan otomatis tidak dijadwalkan.'}` : 'BIOS berhasil diterbitkan.')
     } catch (e) {
       if (!mounted.current) return
       setError(controller.signal.aborted ? 'Permintaan dibatalkan. Penerbitan mungkin sudah selesai; periksa daftar sebelum mengulang.' : message(e))
@@ -184,7 +211,8 @@ function CatalogForm({ kind, item, consoles, userId, onClose, onSaved, onDenied,
     <form className="account-form" onSubmit={e => { e.preventDefault(); void submit() }}>
       <p>{item ? 'ROM/firmware dan console tidak dapat diganti. Identitas game dan save tetap.' : 'Hanya upload berkas yang berhak kamu distribusikan. Aset aktif bersifat publik.'}</p>
       <fieldset disabled={busy}>
-        <label htmlFor="admin-title">{game ? 'Judul game' : 'Nama BIOS'}</label><input id="admin-title" required maxLength={200} value={title} onChange={e => setTitle(e.target.value)} />
+        <label htmlFor="admin-title">{game ? 'Judul game' : 'Nama BIOS'}</label><input id="admin-title" required={kind !== 'games' || !!item} maxLength={200} value={title} onChange={e => setTitle(e.target.value)} />
+        {game && !item && <><p className="field-hint">Opsional: kosongkan untuk memakai nama berkas sementara. Judul yang kamu isi akan dikunci sebagai pilihan admin.</p><label className="account-check"><input type="checkbox" checked={scanReady && scan} disabled={!scanReady} onChange={e => setScan(e.target.checked)} />Scan metadata otomatis</label><p>{scanReady ? 'Nama berkas, ukuran, dan hash dibagikan ke ScreenScraper; byte ROM tidak dikirim. Metadata dan cover disajikan lokal dengan atribusi ScreenScraper.' : 'Scan tidak tersedia. Upload dan bermain tetap berfungsi.'}</p></>}
         <label htmlFor="admin-console">Console</label><select id="admin-console" required disabled={!!item || busy} value={consoleId} onChange={e => { setConsoleId(e.target.value); resetRestore() }}><option value="">Pilih console</option>{consoles.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         {!item && <><label htmlFor="admin-file">{game ? 'Berkas ROM' : 'Berkas BIOS / arsip'}</label><input id="admin-file" type="file" required accept={game ? undefined : '.bin,.rom,.bios,.img,.zip,.7z,.rar'} onChange={e => { setFile(e.target.files?.[0]); resetRestore() }} /><p>Maksimum {game ? '768 MiB ROM' : '32 MiB BIOS'}. {game ? 'Arsip satu game diperbolehkan.' : 'Nama firmware raw hanya huruf ASCII, angka, titik, garis bawah, atau minus. Pertahankan nama firmware yang diharapkan core.'}</p></>}
         {game && <><label htmlFor="admin-cover">Cover opsional</label><input id="admin-cover" type="file" accept="image/png,image/jpeg,image/webp" onChange={e => { setCover(e.target.files?.[0]); setRemoveCover(false) }} /><p>PNG/JPEG/WebP, maksimum 8 MiB dan 4096 × 4096 piksel, tanpa animasi. SVG/HTML ditolak.</p>{item?.cover && <label className="account-check"><input type="checkbox" checked={removeCover} disabled={!!cover} onChange={e => setRemoveCover(e.target.checked)} />Hapus cover saat ini</label>}</>}

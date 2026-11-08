@@ -549,7 +549,7 @@ test('BIOS supports multiple choices, immutable firmware names, deletion and sam
 
 test('multipart rejects missing, empty, excess, duplicate and unsafe files/metadata without publishing', async t => {
   const c = await setup(t)
-  for (const fields of [{ title: '' }, { title: 'x'.repeat(201) }, { description: 'x'.repeat(10001) }, { consoleId: 'other' }, { createdBy: c.actor }, { role: 'admin' }, { storageKey: 'x' }, { restoreId: 'bad' }]) assert.equal((await c.upload('games', fields)).statusCode, 400, JSON.stringify(fields).slice(0, 80))
+  for (const fields of [{ title: '\n' }, { title: 'x'.repeat(201) }, { description: 'x'.repeat(10001) }, { consoleId: 'other' }, { createdBy: c.actor }, { role: 'admin' }, { storageKey: 'x' }, { restoreId: 'bad' }]) assert.equal((await c.upload('games', fields)).statusCode, 400, JSON.stringify(fields).slice(0, 80))
   for (const files of [[], [{ field: 'rom', name: 'empty.nes', bytes: Buffer.alloc(0) }], [{ field: 'rom', name: '../escape.nes', bytes: rom }], [{ field: 'rom', name: 'NUL.nes', bytes: rom }], [{ field: 'rom', name: 'wrong.exe', bytes: rom }], [{ field: 'extra', name: 'x.nes', bytes: rom }], [{ field: 'rom', name: 'x.nes', bytes: rom }, { field: 'rom', name: 'y.nes', bytes: rom }]]) {
     const response = await c.upload('games', {}, files)
     assert.equal(response.statusCode, 400, response.body)
@@ -603,7 +603,7 @@ test('multipart bounds cover bytes, duplicate scalar fields, parser fields/files
   const c = await setup(t)
   assert.equal((await c.upload('games', {}, [{ field: 'rom', name: 'x.nes', bytes: rom }, { field: 'cover', name: 'x.png', bytes: Buffer.alloc(8 * 1024 * 1024 + 1) }])).statusCode, 413)
   assert.equal((await c.upload('games', {}, [{ field: 'rom', name: 'x.nes', bytes: rom }, { field: 'cover', name: 'x.png', bytes: await png() }, { field: 'extra', name: 'x.bin', bytes: rom }])).statusCode, 413)
-  const fields = multipart(Object.fromEntries(Array.from({ length: 7 }, (_, i) => ['field' + i, 'x'])))
+  const fields = multipart(Object.fromEntries(Array.from({ length: 8 }, (_, i) => ['field' + i, 'x'])))
   assert.equal((await c.app.inject({ method: 'POST', url: '/api/admin/games', headers: { ...c.headers, 'content-type': fields.type }, payload: fields.payload })).statusCode, 413)
   const boundary = await c.upload('games', {}, undefined, { 'content-type': 'multipart/form-data' })
   assert.equal(boundary.statusCode, 400, boundary.body)
@@ -720,6 +720,7 @@ test('schema-9 migration preserves a populated schema-8 catalog, firmware names,
   const sessions = c.app.database.prepare('SELECT * FROM sessions').all()
   await c.app.close(); c.app = null
   let db = await openDatabase(join(c.root, 'data'))
+  db.exec('DROP TABLE metadata_provider_state;')
   db.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DELETE FROM schema_migrations WHERE version >= 9; PRAGMA user_version = 8;')
   db.close()
   c.app = await createApp({ root: c.root, env: c.env })

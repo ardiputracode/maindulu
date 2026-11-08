@@ -9,10 +9,12 @@ export default function GameCard({ game, consoleInfo, favorite, onFavorite, onOp
   return <article className="game-card">
     <div className={`game-cover ${!game.cover ? 'local-cover' : ''}`}>
       <button className="cover-open" onClick={onOpen} aria-label={`Mainkan ${game.title}`}>
-        {game.cover ? <img src={game.cover} alt="" loading="lazy" /> : <><ConsoleArt family={consoleInfo?.family || 'nes'} /><span>KENANGAN MILIKMU</span></>}
+        {game.cover ? <img src={game.coverRevision ? `${game.cover}?v=${encodeURIComponent(game.coverRevision)}` : game.cover} alt="" loading="lazy" /> : <><ConsoleArt family={consoleInfo?.family || 'nes'} /><span>KENANGAN MILIKMU</span></>}
         <span className="cover-play"><Play size={23} fill="currentColor" /></span>
       </button>
       <span className="game-source">{game.source === 'local' ? 'ROM LOKAL' : game.id === 'jalan-pulang-v1' ? 'MAINDULU ORIGINAL' : 'KOLEKSI SERVER'}</span>
+      {game.metadataStatus === 'pending' && <span className="metadata-badge">Metadata sedang diproses</span>}
+      {game.metadataStatus === 'review' && <span className="metadata-badge">Metadata belum lengkap</span>}
       <button className={`favorite-button ${favorite ? 'is-favorite' : ''}`} onClick={onFavorite} aria-label={`${favorite ? 'Hapus' : 'Tambahkan'} ${game.title} ${favorite ? 'dari' : 'ke'} favorit`} aria-pressed={favorite}><Heart size={17} fill={favorite ? 'currentColor' : 'none'} /></button>
     </div>
     <div className="game-info"><div><span className="game-console">{consoleInfo?.shortName || game.consoleId}</span><button className="game-name" onClick={onOpen}>{game.title}</button><span className="game-detail">{showTime ? relativeTime(game.lastPlayed) : game.source === 'local' ? 'Pilih kembali ROM untuk bermain' : game.license || 'Game server · periksa hak penggunaan'}</span></div><button className="icon-button play-arrow" onClick={onOpen} aria-label={`Buka ${game.title}`}>{game.source === 'local' ? <Upload size={19} /> : <ArrowUpRight size={22} />}</button></div>

@@ -57,6 +57,12 @@ Overlay tersusun vertikal dan responsif; tutup dengan tombol **×** atau **Escap
 
 Untuk mencoba dari HP di Wi-Fi yang sama, buka `http://IP-KOMPUTER:5173`. Server dev/preview mendengarkan pada semua interface. Membuka ROM lokal juga bekerja lewat HTTP jaringan: SHA-256 memiliki fallback JavaScript yang dibundel lokal, dan ID sesi memakai `crypto.getRandomValues` bila `randomUUID` tidak tersedia. Tidak perlu mematikan pengamanan browser. Gunakan HTTP hanya di jaringan tepercaya; HTTPS tetap disarankan untuk deployment publik.
 
+### Metadata otomatis ScreenScraper (belum dirilis)
+
+M5 metadata selesai dalam cakupan pengujian offline; **fitur tetap default nonaktif dan aktivasi menunggu M6**. Upload game cukup ROM + console; judul kosong menjadi nama berkas sementara. Saat backend siap, admin dapat memilih scan otomatis, lalu memakai **Review / scan metadata** untuk status, kandidat, preview/apply per field, dan unlock. Library/favorit/riwayat memperbarui metadata tanpa mengubah identitas ROM/save atau sesi yang sedang dimainkan.
+
+Scan hanya untuk ROM upload katalog, bukan Buka ROM lokal atau BIOS. Nama berkas, ukuran, hash, dan sistem dibagikan ke **ScreenScraper**; byte ROM/BIOS tidak dikirim. Metadata/cover disajikan lokal dan bukan bukti hak distribusi. Arsip/disc belum eligible auto-apply hash. Backup tidak menyertakan byte cover/ROM/BIOS atau tugas scan aktif. [Bukti M5, API, batas, dan kompatibilitas skema 13](doc/milestone-5-screenscraper-ui.md).
+
 ## Yang tersedia
 
 - Beranda, Jelajahi console, Terakhir dimainkan, Favoritku, Cara bermain, Pengaturan.

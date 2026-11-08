@@ -27,13 +27,14 @@ export function metadataFields(kind, input, patch = false) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalidCatalog()
   const title = kind === 'games' ? 'title' : 'name'
   const rights = kind === 'games' ? 'license' : 'distributionRights'
-  const allowed = patch ? [title, rights, 'description', ...(kind === 'games' ? ['removeCover'] : [])] : [title, rights, 'description', 'consoleId', 'restoreId']
+  const allowed = patch ? [title, rights, 'description', ...(kind === 'games' ? ['removeCover', 'expectedRevision'] : [])] : [title, rights, 'description', 'consoleId', 'restoreId', ...(kind === 'games' ? ['scanMetadata'] : [])]
   if (Object.keys(input).some(key => !allowed.includes(key))) throw invalidCatalog('Field metadata tidak dikenal atau tidak dapat diubah.')
   const result = {}
   for (const [key, max] of [[title, 200], ['description', 10000], [rights, 2000]]) {
     if (patch && !Object.hasOwn(input, key)) continue
-    const value = input[key] ?? (key === title ? null : '')
-    if (typeof value !== 'string' || value.length > max || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value) || (key === title && (!value.trim() || /[\r\n\t]/.test(value)))) throw invalidCatalog(`Field ${key} tidak valid atau terlalu panjang.`)
+    const value = input[key] ?? (key === title && kind !== 'games' ? null : '')
+    const emptyTitleAllowed = kind === 'games' && key === title && !patch
+    if (typeof value !== 'string' || value.length > max || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value) || (key === title && !emptyTitleAllowed && (!value.trim() || /[\r\n\t]/.test(value))) || (emptyTitleAllowed && /[\r\n\t]/.test(value))) throw invalidCatalog(`Field ${key} tidak valid atau terlalu panjang.`)
     result[key] = value.trim()
   }
   if (!patch) {
@@ -42,7 +43,11 @@ export function metadataFields(kind, input, patch = false) {
     if (input.restoreId !== undefined && !validId(input.restoreId)) throw invalidCatalog('ID pemulihan tidak valid.')
   }
   if (input.removeCover !== undefined && ![true, false, 'true', 'false'].includes(input.removeCover)) throw invalidCatalog('Pilihan penghapusan cover tidak valid.')
-  return { metadata: result, restoreId: input.restoreId, removeCover: input.removeCover === true || input.removeCover === 'true' }
+  if (input.scanMetadata !== undefined && ![true, false, 'true', 'false'].includes(input.scanMetadata)) throw invalidCatalog('Pilihan scan tidak valid.')
+  const expectedRevision = input.expectedRevision === undefined ? undefined : Number(input.expectedRevision)
+  if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1)) throw invalidCatalog('Revisi metadata tidak valid.')
+  return { metadata: result, restoreId: input.restoreId, removeCover: input.removeCover === true || input.removeCover === 'true',
+    scanMetadata: input.scanMetadata !== false && input.scanMetadata !== 'false', expectedRevision }
 }
 
 export async function validateCover(storage, stage) {

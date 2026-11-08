@@ -317,7 +317,9 @@ export class ScreenScraperClient {
     if (statusError) {
       clearTimeout(timeout)
       if (signal) signal.removeEventListener('abort', abortHandler)
-      throw new ScreenScraperError(statusError, { httpStatus: response.status })
+      const retry = response.headers?.get?.('retry-after')
+      const retryAfterMs = retry && /^\d+$/.test(retry) ? Number(retry) * 1000 : retry ? Date.parse(retry) - this.now() : 0
+      throw new ScreenScraperError(statusError, { httpStatus: response.status, retryAfterMs: Math.max(0, Math.min(retryAfterMs || 0, 7 * 86400000)) })
     }
     let buffer
     try {
