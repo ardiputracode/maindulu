@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { screenScraperLimits, screenScraperSystems, screenScraperTarget } from './screenscraper-policy.mjs'
+import { screenScraperQuota } from './quota.mjs'
 
 export const SCREENSCRAPER_BASE_URL = 'https://api.screenscraper.fr/api2'
 export const SCREENSCRAPER_ENDPOINTS = Object.freeze({
@@ -80,7 +81,7 @@ export class ScreenScraperError extends Error {
   constructor(code, details = {}) {
     super(safeMessage(code))
     this.name = 'ScreenScraperError'
-    this.code = code
+    this.code = Object.hasOwn(MESSAGES, code) ? code : 'provider_error'
     this.details = redactDetails(details)
   }
 }
@@ -106,6 +107,7 @@ const MESSAGES = Object.freeze({
   invalid_target: 'Target sistem/format ROM tidak valid.',
   invalid_fingerprint: 'Fingerprint ROM tidak valid.',
   provider_error: 'ScreenScraper mengembalikan kegagalan HTTP.',
+  quota_unknown: 'Kuota ScreenScraper belum dapat diverifikasi. Scan dijeda.',
 })
 
 function safeMessage(code) {
@@ -114,11 +116,7 @@ function safeMessage(code) {
 
 function redactDetails(details) {
   const result = {}
-  for (const [key, value] of Object.entries(details || {})) {
-    if (/url|secret|password|token|cookie|credential|query/i.test(key)) continue
-    if (typeof value === 'string' && value.length > 256) result[key] = `${value.slice(0, 32)}…`
-    else result[key] = value
-  }
+  for (const key of ['httpStatus', 'retryAfterMs']) if (Number.isSafeInteger(details?.[key]) && details[key] >= 0) result[key] = details[key]
   return result
 }
 
@@ -245,16 +243,20 @@ function normalizeResponse(json, requestedSystemId) {
   return Object.freeze({ candidates, rawCount: rawGames.length })
 }
 
-async function readResponseBytes(response, maxBytes) {
+async function readResponseBytes(response, maxBytes, signal) {
   if (!response.body || typeof response.body.getReader !== 'function') {
     const buffer = Buffer.from(await response.arrayBuffer())
     if (buffer.byteLength > maxBytes) throw new ScreenScraperError('response_too_large')
     return buffer
   }
   const reader = response.body.getReader()
+  const cancel = () => { void reader.cancel().catch(() => {}) }
+  signal?.addEventListener('abort', cancel, { once: true })
   const chunks = []
   let total = 0
+  try {
   while (true) {
+    signal?.throwIfAborted()
     const { done, value } = await reader.read()
     if (done) break
     const chunk = Buffer.from(value)
@@ -266,6 +268,7 @@ async function readResponseBytes(response, maxBytes) {
     chunks.push(chunk)
   }
   return Buffer.concat(chunks)
+  } finally { signal?.removeEventListener('abort', cancel); reader.releaseLock() }
 }
 
 export class ScreenScraperClient {
@@ -290,54 +293,45 @@ export class ScreenScraperClient {
 
   async request(endpoint, params, { signal } = {}) {
     this.ensureReady()
+    if (!Object.values(SCREENSCRAPER_ENDPOINTS).includes(endpoint)) throw new ScreenScraperError('invalid_target')
     const url = buildUrl(endpoint, { ...authParams(this.config), ...params })
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
-    const abortHandler = () => controller.abort()
-    if (signal) {
-      if (signal.aborted) controller.abort()
-      else signal.addEventListener('abort', abortHandler, { once: true })
-    }
-    let response
+    let rejectAbort, response
+    const aborted = new Promise((_, reject) => { rejectAbort = reject })
+    const abortHandler = () => { controller.abort(); rejectAbort(new ScreenScraperError('timeout')) }
+    const timeout = setTimeout(abortHandler, this.timeoutMs)
+    signal?.addEventListener('abort', abortHandler, { once: true })
+    if (signal?.aborted) abortHandler()
     try {
-      response = await this.fetchImpl(url, { method: 'GET', signal: controller.signal, redirect: 'error', credentials: 'omit',
-        cache: 'no-store', referrerPolicy: 'no-referrer', headers: { accept: 'application/json' } })
+      controller.signal.throwIfAborted()
+      const pending = Promise.resolve(this.fetchImpl(url, { method: 'GET', signal: controller.signal, redirect: 'error', credentials: 'omit',
+        cache: 'no-store', referrerPolicy: 'no-referrer', headers: { accept: 'application/json' } }))
+      pending.then(late => { if (controller.signal.aborted) void late.body?.cancel().catch(() => {}) }, () => {})
+      response = await Promise.race([pending, aborted])
+      if (response.redirected || response.url && response.url !== url.href) throw new ScreenScraperError('transport')
+      const statusError = classifyHttpStatus(response.status)
+      if (statusError) {
+        const retry = response.headers?.get?.('retry-after')
+        const retryAfterMs = retry && /^\d+$/.test(retry) ? Number(retry) * 1000 : retry ? Date.parse(retry) - this.now() : 0
+        throw new ScreenScraperError(statusError, { httpStatus: response.status, retryAfterMs: Math.max(0, Math.min(retryAfterMs || 0, 7 * 86400000)) })
+      }
+      const buffer = await Promise.race([readResponseBytes(response, this.config.maxResponseBytes || DEFAULT_MAX_BYTES, controller.signal), aborted])
+      let text, json
+      try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer); json = JSON.parse(text) }
+      catch { throw new ScreenScraperError('invalid_json') }
+      return json
     } catch (error) {
-      clearTimeout(timeout)
-      if (signal) signal.removeEventListener('abort', abortHandler)
-      if (controller.signal.aborted) throw new ScreenScraperError('timeout')
-      throw new ScreenScraperError('transport')
+      controller.abort()
+      throw error instanceof ScreenScraperError ? error : new ScreenScraperError('transport')
+    } finally {
+      clearTimeout(timeout); signal?.removeEventListener('abort', abortHandler)
+      if (response?.body && !response.body.locked) void response.body.cancel().catch(() => {})
     }
-    if (response.redirected || response.url && response.url !== url.href) {
-      clearTimeout(timeout)
-      if (signal) signal.removeEventListener('abort', abortHandler)
-      throw new ScreenScraperError('transport')
-    }
-    const statusError = classifyHttpStatus(response.status)
-    if (statusError) {
-      clearTimeout(timeout)
-      if (signal) signal.removeEventListener('abort', abortHandler)
-      const retry = response.headers?.get?.('retry-after')
-      const retryAfterMs = retry && /^\d+$/.test(retry) ? Number(retry) * 1000 : retry ? Date.parse(retry) - this.now() : 0
-      throw new ScreenScraperError(statusError, { httpStatus: response.status, retryAfterMs: Math.max(0, Math.min(retryAfterMs || 0, 7 * 86400000)) })
-    }
-    let buffer
-    try {
-      buffer = await readResponseBytes(response, this.config.maxResponseBytes || DEFAULT_MAX_BYTES)
-    } catch (error) {
-      clearTimeout(timeout)
-      if (signal) signal.removeEventListener('abort', abortHandler)
-      throw error instanceof ScreenScraperError ? error : new ScreenScraperError('response_too_large')
-    }
-    clearTimeout(timeout)
-    if (signal) signal.removeEventListener('abort', abortHandler)
-    let text
-    try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer) }
-    catch { throw new ScreenScraperError('invalid_json') }
-    let json
-    try { json = JSON.parse(text) }
-    catch { throw new ScreenScraperError('invalid_json') }
-    return json
+  }
+
+  async accountQuota({ signal } = {}) {
+    const json = await this.request(SCREENSCRAPER_ENDPOINTS.userInfo, {}, { signal })
+    return screenScraperQuota(json?.response?.ssuser)
   }
 
   async searchByHash(input = {}) {
@@ -350,10 +344,11 @@ export class ScreenScraperClient {
     if (!md5 || !sha1) throw new ScreenScraperError('invalid_fingerprint')
     const json = await this.request(SCREENSCRAPER_ENDPOINTS.gameInfo, {
       systemeid: target.systemId,
-      rommd5: md5,
-      romsha1: sha1,
+      romtype: 'rom',
+      romnom: input.fileName ? basename(input.fileName.replace(/\\\\/g, '/')) : undefined,
       romtaille: input.size,
-      romnom: input.fileName ? cleanRomName(input.fileName) : undefined,
+      md5,
+      sha1,
     }, { signal: input.signal })
     const normalized = normalizeResponse(json, target.systemId)
     return Object.freeze({ method: 'hash', systemId: target.systemId, candidates: normalized.candidates })

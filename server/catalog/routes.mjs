@@ -279,19 +279,20 @@ export function registerCatalog(app, config, security, storage, metadataDependen
         SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running,
         SUM(CASE WHEN status = 'needs_review' THEN 1 ELSE 0 END) AS needsReview,
         SUM(CASE WHEN status IN ('failed', 'paused') THEN 1 ELSE 0 END) AS problem,
-        MIN(CASE WHEN status IN ('queued', 'retry_wait') THEN next_at END) AS oldestNextAt
+        MIN(CASE WHEN status IN ('queued', 'retry_wait') THEN created_at END) AS oldestCreatedAt
         FROM metadata_jobs`).get()
       return {
         ready: screenScraper.ready,
         screenscraper: screenScraper,
-        worker: { enabled: worker.isEnabled() },
+        worker: worker.status(),
+        pausedReason: db.prepare('SELECT paused_reason FROM metadata_provider_state WHERE id = 1').get().paused_reason,
         cooldownUntil: db.prepare('SELECT next_at FROM metadata_provider_state WHERE id = 1').get().next_at,
         queue: {
           pending: Number(queue?.pending || 0),
           running: Number(queue?.running || 0),
           needsReview: Number(queue?.needsReview || 0),
           problem: Number(queue?.problem || 0),
-          oldestPendingMs: queue?.oldestNextAt ? Math.max(0, Date.now() - queue.oldestNextAt) : null,
+          oldestPendingMs: queue?.oldestCreatedAt ? Math.max(0, Date.now() - queue.oldestCreatedAt) : null,
         },
       }
     })

@@ -37,7 +37,11 @@ test('M2 hash search normalizes response and redacts errors', async () => {
   const sha1 = createHash('sha1').update('abc').digest('hex')
   const fetchImpl = async (url) => {
     assert.match(String(url), /jeuInfos\.php/)
-    assert.match(String(url), /rommd5=/)
+    assert.match(String(url), /md5=/)
+    assert.match(String(url), /sha1=/)
+    assert.match(String(url), /romtype=rom/)
+    assert.match(String(url), /romtaille=/)
+    assert.doesNotMatch(String(url), /rommd5=|romsha1=/)
     return new Response(JSON.stringify({ response: { jeu: { id: '1', systeme: { id: '9' }, notgame: 'false', rom: { id: '2', romsize: '3', rommd5: md5, romsha1: sha1, romtotalsupport: '1' }, noms: [{ region: 'wor', text: 'T' }] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
   const config = readScreenScraperConfig({ MAIN_DULU_SCREENSCRAPER_ENABLED: 'true', MAIN_DULU_SCREENSCRAPER_DEV_ID: 'd', MAIN_DULU_SCREENSCRAPER_DEV_PASSWORD: 'dp', MAIN_DULU_SCREENSCRAPER_USER: 'u', MAIN_DULU_SCREENSCRAPER_PASSWORD: 'p' })

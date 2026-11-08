@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { transaction } from '../auth/mutations.mjs'
-import { createScreenScraperClient, computeRomHashes, ScreenScraperError } from './screenscraper.mjs'
+import { createScreenScraperClient, computeRomHashes, resolveScreenScraperSystem, ScreenScraperError } from './screenscraper.mjs'
+import { metadataCacheKey, readMetadataCache, writeMetadataCache, pruneMetadata } from './cache.mjs'
 import { assessScreenScraperEvidence } from './screenscraper-policy.mjs'
 import { downloadScreenScraperCover, selectScreenScraperCover, CoverError } from './cover.mjs'
 import { applyVerifiedMetadata, metadataPreview } from './apply.mjs'
@@ -11,16 +12,23 @@ import { screenScraperLimits } from './screenscraper-policy.mjs'
 
 const LEASE_MS = 60_000
 const POLL_MS = 250
-const MAX_ATTEMPTS = 5
+const MAX_ATTEMPTS = screenScraperLimits.maxAttempts
 
 function nowMs() { return Date.now() }
 
-function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
+// Fence injected/late I/O as well as real transports; never await an ignored abort.
+async function abortable(promise, signal) {
+  signal.throwIfAborted()
+  let abort
+  const cancelled = new Promise((_, reject) => { abort = () => reject(new ScreenScraperError('disabled')); signal.addEventListener('abort', abort, { once: true }) })
+  try { return await Promise.race([promise, cancelled]) }
+  finally { signal.removeEventListener('abort', abort) }
+}
 
 function classifyError(code) {
   if (code === 'not_found') return { status: 'not_found', retryable: false }
   if (code === 'unsupported_format' || code === 'invalid_target' || code === 'invalid_fingerprint') return { status: 'unsupported', retryable: false }
-  if (code === 'auth_rejected' || code === 'forbidden' || code === 'not_configured' || code === 'disabled') return { status: 'paused', retryable: false }
+  if (['auth_rejected', 'forbidden', 'not_configured', 'disabled', 'quota_unknown', 'client_rejected'].includes(code)) return { status: 'paused', retryable: false }
   if (code === 'rate_limited' || code === 'quota_exhausted' || code === 'search_quota_exhausted' || code === 'provider_closed' || code === 'client_rejected') return { status: 'retry_wait', retryable: true }
   if (code === 'timeout' || code === 'transport' || code === 'invalid_json' || code === 'invalid_envelope' || code === 'response_too_large' || code === 'provider_error' || code === 'bad_request') return { status: 'retry_wait', retryable: true }
   return { status: 'failed', retryable: false }
@@ -39,6 +47,19 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
   let stopping = false
   let currentAbort = null
   let timer = null
+  let active = null
+  let quota = null
+  let lastPrune = 0
+  const metrics = { completed: 0, cacheHits: 0, cacheMisses: 0, outcomes: {}, phases: {} }
+  let phaseStarted = 0, currentPhase = null
+
+  function recordPhase() {
+    if (!currentPhase) return
+    const durationMs = Math.max(0, Date.now() - phaseStarted)
+    const previous = metrics.phases[currentPhase] ?? { count: 0, totalMs: 0, maxMs: 0 }
+    metrics.phases[currentPhase] = { count: previous.count + 1, totalMs: previous.totalMs + durationMs, maxMs: Math.max(previous.maxMs, durationMs) }
+    currentPhase = null
+  }
 
   function isEnabled() {
     return config?.screenscraper?.enabled === true && (config?.screenscraper?.missing?.length ?? 0) === 0
@@ -68,6 +89,10 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
         db.prepare(`UPDATE metadata_jobs SET status = 'cancelled', error_code = 'STALE_ASSET', updated_at = ? WHERE id = ?`).run(now, row.id)
         return null
       }
+      if (row.generation !== db.prepare('SELECT MAX(generation) AS g FROM metadata_jobs WHERE game_id = ?').get(row.game_id).g || row.attempts >= MAX_ATTEMPTS) {
+        db.prepare("UPDATE metadata_jobs SET status = 'failed', error_code = 'STALE_OR_EXHAUSTED', lease_token = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?").run(now, row.id)
+        return null
+      }
 
       const token = randomUUID()
       const leaseExpires = now + LEASE_MS
@@ -82,6 +107,7 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
   }
 
   function setPhase(job, phase) {
+    recordPhase(); currentPhase = phase; phaseStarted = Date.now(); job.phase = phase
     const now = nowMs()
     db.prepare(`UPDATE metadata_jobs SET phase = ?, lease_expires_at = ?, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`)
       .run(phase, now + LEASE_MS, now, job.id, job.lease_token)
@@ -91,7 +117,8 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
     signal.throwIfAborted()
     const row = db.prepare('SELECT j.*, g.sha256, g.size, g.deleted_at FROM metadata_jobs j JOIN games g ON g.id = j.game_id WHERE j.id = ?').get(job.id)
     const latest = db.prepare('SELECT MAX(generation) AS g FROM metadata_jobs WHERE game_id = ?').get(job.game_id).g
-    if (!isEnabled() || !row || row.deleted_at !== null || row.status !== 'running' || row.lease_token !== job.lease_token || row.lease_expires_at <= nowMs() || latest !== job.generation || `${row.sha256}:${row.size}` !== job.asset_fingerprint) throw new ScreenScraperError('disabled')
+    const gate = db.prepare('SELECT lease_token, lease_expires_at FROM metadata_provider_state WHERE id = 1').get()
+    if (stopping || !isEnabled() || !row || row.deleted_at !== null || row.status !== 'running' || row.lease_token !== job.lease_token || row.lease_expires_at <= nowMs() || gate.lease_token !== job.lease_token || gate.lease_expires_at <= nowMs() || latest !== job.generation || `${row.sha256}:${row.size}` !== job.asset_fingerprint) throw new ScreenScraperError('disabled')
   }
 
   function finishJob(job, patch) {
@@ -122,6 +149,9 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
   async function processJob(job) {
     const controller = new AbortController()
     currentAbort = controller
+    setPhase(job, 'identifying')
+    const checkEnabled = setInterval(() => { if (stopping || !isEnabled()) controller.abort() }, 100)
+    checkEnabled.unref()
     const heartbeat = setInterval(() => {
       if (!stopping && !controller.signal.aborted) {
         db.prepare(`UPDATE metadata_jobs SET lease_expires_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`).run(nowMs() + LEASE_MS, job.id, job.lease_token)
@@ -149,12 +179,42 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
       const expectedRevision = manual ? request.expectedRevision : db.prepare('SELECT metadata_revision FROM game_metadata WHERE game_id = ?').get(game.id)?.metadata_revision
       checkCurrent(job, controller.signal)
       let hashes = {}, result
+      const client = clientFactory(config.screenscraper)
+      let intervalMs = screenScraperLimits.minRequestIntervalMs
+      let quotaChecked = false
+      async function lookup(key, requestLookup) {
+        const cached = readMetadataCache(db, key)
+        if (cached) { metrics.cacheHits++; return cached }
+        metrics.cacheMisses++
+        // A fresh account preflight for every uncached lookup, under the shared
+        // lease. Tests may inject a client with no network/quota implementation.
+        if (client.accountQuota) {
+          quota = await abortable(client.accountQuota({ signal: controller.signal }), controller.signal)
+          quotaChecked = true
+          intervalMs = quota.intervalMs
+          if (quota.remaining < 2 || quota.negativeRemaining < 1) throw new ScreenScraperError('quota_exhausted')
+          await delay(intervalMs, undefined, { signal: controller.signal })
+        }
+        checkCurrent(job, controller.signal)
+        let value
+        try { value = await abortable(requestLookup(), controller.signal) }
+        catch (error) {
+          if (!(error instanceof ScreenScraperError) || error.code !== 'not_found') throw error
+          value = { method: job.request_method, systemId: key.systemId, candidates: [] }
+        }
+        checkCurrent(job, controller.signal)
+        writeMetadataCache(db, key, value)
+        return value
+      }
       if (manual) {
         result = JSON.parse(job.candidate_json)
       } else if (job.request_method === 'name') {
         setPhase(job, 'lookup')
-        result = await clientFactory(config.screenscraper).searchByName({ consoleId: game.console_id, fileName: game.original_name, query: request.query, signal: controller.signal })
+        const target = resolveScreenScraperSystem(game.console_id, game.original_name)
+        result = await lookup(metadataCacheKey(target.systemId, {}, game.original_name, request.query), () => client.searchByName({ consoleId: game.console_id, fileName: game.original_name, query: request.query, signal: controller.signal }))
       } else {
+      const target = resolveScreenScraperSystem(game.console_id, game.original_name)
+      if (!target.hashLookup) throw new ScreenScraperError('unsupported_format')
       setPhase(job, 'identifying')
       const file = await storage.open('games', game.storage_key)
       try {
@@ -164,15 +224,14 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
 
       setPhase(job, 'lookup')
       checkCurrent(job, controller.signal)
-      const client = clientFactory(config.screenscraper)
-      result = await client.searchByHash({
+      result = await lookup(metadataCacheKey(target.systemId, hashes, game.original_name), () => client.searchByHash({
         consoleId: game.console_id,
         fileName: game.original_name,
         size: hashes.size,
         md5: hashes.md5,
         sha1: hashes.sha1,
         signal: controller.signal,
-      })
+      }))
       }
       checkCurrent(job, controller.signal)
 
@@ -181,7 +240,7 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
         fingerprint: { size: hashes.size, md5: hashes.md5, sha1: hashes.sha1 } })
 
       if (candidates.length === 0) {
-        finishJob(job, { status: 'not_found', phase: 'lookup', next_at: nowMs() + 7 * 24 * 60 * 60 * 1000 })
+        finishJob(job, { status: 'not_found', phase: 'lookup', next_at: nowMs() + screenScraperLimits.negativeCacheTtlMs })
         return
       }
       const evidence = assessScreenScraperEvidence({ method: result.method, consoleId: game.console_id,
@@ -200,10 +259,16 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
           try {
             if (!maintenance) throw new CoverError('COVER_CAPACITY')
             reservation = await maintenance.reserve(8 * 1024 * 1024)
-            if (!manual) await delay(screenScraperLimits.minRequestIntervalMs, undefined, { signal: controller.signal })
+            if (!quotaChecked && client.accountQuota) {
+              quota = await abortable(client.accountQuota({ signal: controller.signal }), controller.signal)
+              quotaChecked = true
+              intervalMs = quota.intervalMs
+              if (quota.remaining < 1) throw new ScreenScraperError('quota_exhausted')
+            }
+            await delay(intervalMs, undefined, { signal: controller.signal })
             checkCurrent(job, controller.signal)
-            const media = await downloadCover(config.screenscraper, { gameId: candidate.id, systemId: result.systemId,
-              region, signal: controller.signal })
+            const media = await abortable(downloadCover(config.screenscraper, { gameId: candidate.id, systemId: result.systemId,
+              region, signal: controller.signal }), controller.signal)
             if (media) {
               stage = await storage.stage('covers', (async function* () { yield media.bytes })())
               const type = await validateCover(storage, stage)
@@ -213,6 +278,7 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
               promoted = { file: await storage.promote(stage), type }
             }
           } catch (error) {
+            if (error instanceof ScreenScraperError || controller.signal.aborted) throw error
             warning = error instanceof CoverError ? error.code : 'COVER_UNAVAILABLE'
             if (error instanceof CoverError && [401, 403, 423, 426, 429, 430, 431].includes(error.httpStatus)) {
               const cooldown = [430, 431].includes(error.httpStatus) ? 86400000 : Math.max(30000, error.retryAfterMs)
@@ -246,7 +312,7 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
         ? nowMs() + backoffMs(attempts)
         : nowMs() + 24 * 60 * 60 * 1000
       if (['quota_exhausted', 'search_quota_exhausted'].includes(code)) nextAt = nowMs() + 24 * 60 * 60 * 1000
-      if (error.details?.retryAfterMs) nextAt = Math.max(nextAt, nowMs() + error.details.retryAfterMs)
+      if (error instanceof ScreenScraperError && error.details.retryAfterMs) nextAt = Math.max(nextAt, nowMs() + error.details.retryAfterMs)
       if (classified.retryable || classified.status === 'paused') db.prepare('UPDATE metadata_provider_state SET next_at = MAX(next_at, ?), paused_reason = ? WHERE id = 1 AND lease_token = ?')
         .run(classified.retryable ? nextAt : 0, classified.status === 'paused' ? code : null, job.lease_token)
       finishJob(job, {
@@ -257,10 +323,26 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
       // Never log a raw provider error: it may contain a URL with credentials.
       if (logger?.warn) logger.warn({ code: typeof code === 'string' && /^[A-Z_a-z]{1,64}$/.test(code) ? code : 'provider_error' }, 'metadata worker job failed')
     } finally {
+      clearInterval(checkEnabled)
       clearInterval(heartbeat)
+      recordPhase()
+      metrics.completed++
+      const outcome = db.prepare('SELECT status, error_code FROM metadata_jobs WHERE id = ?').get(job.id)
+      const key = outcome?.status ?? 'cancelled'
+      metrics.outcomes[key] = (metrics.outcomes[key] ?? 0) + 1
       currentAbort = null
-      db.prepare('UPDATE metadata_provider_state SET lease_token = NULL, lease_expires_at = NULL, next_at = MAX(next_at, ?) WHERE id = 1 AND lease_token = ?').run(nowMs() + screenScraperLimits.minRequestIntervalMs, job.lease_token)
+      db.prepare('UPDATE metadata_provider_state SET lease_token = NULL, lease_expires_at = NULL, next_at = MAX(next_at, ?) WHERE id = 1 AND lease_token = ?').run(nowMs() + (quota?.intervalMs ?? screenScraperLimits.minRequestIntervalMs), job.lease_token)
     }
+  }
+
+  async function processOne() {
+    if (!isEnabled() || active) return false
+    if (Date.now() - lastPrune > 60_000) { pruneMetadata(db); lastPrune = Date.now() }
+    const job = claimJob()
+    if (!job) return false
+    stopping = false
+    active = processJob(job)
+    try { await active; return true } finally { active = null }
   }
 
   async function tick() {
@@ -270,14 +352,12 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
       return
     }
     try {
-      const job = claimJob()
-      if (job) {
-        await processJob(job)
+      if (await processOne()) {
         if (!stopping && running) timer = setTimeout(() => { loopPromise = tick() }, 0)
         return
       }
-    } catch (error) {
-      if (logger?.error) logger.error(error, 'metadata worker tick failed')
+    } catch {
+      if (logger?.error) logger.error({ code: 'WORKER_FAILED' }, 'metadata worker tick failed')
     }
     if (!stopping && running) timer = setTimeout(() => { loopPromise = tick() }, POLL_MS)
   }
@@ -296,10 +376,11 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
     if (currentAbort) {
       try { currentAbort.abort() } catch { /* ignore */ }
     }
-    if (loopPromise) {
-      try { await Promise.race([loopPromise, sleep(5000)]) } catch { /* ignore */ }
-    }
+    // All network waits are abortable; wait for cleanup before SQLite closes.
+    if (active) { try { await active } catch { /* safe tick error only */ } }
+    if (loopPromise) { try { await loopPromise } catch { /* safe tick error only */ } }
   }
 
-  return { start, stop, isEnabled, processOne: async () => { if (!isEnabled()) return false; const job = claimJob(); if (!job) return false; await processJob(job); return true } }
+  return { start, stop, isEnabled, processOne, status: () => ({ enabled: isEnabled(), running, processing: active !== null,
+    quota: quota ? { ...quota } : null, metrics: structuredClone(metrics) }) }
 }

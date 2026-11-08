@@ -66,12 +66,12 @@ test('Docker context is deny-by-default with narrow source exceptions, not a bla
   const exceptions = rules.filter(s => s.startsWith('!'))
   assert.deepEqual(exceptions, [
     '!package.json', '!package-lock.json', '!index.html', '!vite.config.ts', '!tsconfig.json', '!tsconfig.app.json', '!tsconfig.node.json',
-    '!src/', '!src/**', '!public/', '!public/**', '!server/', '!server/*.mjs', '!server/auth/', '!server/auth/*.mjs', '!server/catalog/', '!server/catalog/*.mjs', '!scripts/', '!scripts/reset-account.mjs', '!scripts/set-account-role.mjs', '!scripts/data-backup.mjs', '!scripts/recover-catalog.mjs', '!scripts/build-player-assets.mjs',
+     '!src/', '!src/**', '!public/', '!public/**', '!server/', '!server/*.mjs', '!server/auth/', '!server/auth/*.mjs', '!server/catalog/', '!server/catalog/*.mjs', '!server/metadata/', '!server/metadata/*.mjs', '!scripts/', '!scripts/reset-account.mjs', '!scripts/set-account-role.mjs', '!scripts/data-backup.mjs', '!scripts/recover-catalog.mjs', '!scripts/build-player-assets.mjs',
     '!deploy/', '!deploy/Dockerfile', '!deploy/Dockerfile.backend', '!deploy/nginx.docker.conf', '!deploy/healthcheck.mjs',
   ])
   // Re-exclude children after admitting a parent directory; otherwise a negated
   // directory rule could accidentally admit every file below that directory.
-  for (const dir of ['scripts', 'deploy', 'server', 'server/auth', 'server/catalog']) assert.equal(rules[rules.indexOf('!' + dir + '/') + 1], dir + '/**')
+   for (const dir of ['scripts', 'deploy', 'server', 'server/auth', 'server/catalog', 'server/metadata']) assert.equal(rules[rules.indexOf('!' + dir + '/') + 1], dir + '/**')
   for (const rule of ['**/.env', '**/.env.*', '**/*.sqlite', '**/*.sqlite-*', '**/*.maindulu-lock', '**/*.partial-*', '**/node_modules', '**/.git']) assert.ok(rules.indexOf(rule) > rules.lastIndexOf(exceptions.at(-1)), rule)
   // These tests assert configuration contracts, not Docker's actual matcher or
   // image behavior. The daemon build/runtime checklist remains necessary.

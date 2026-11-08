@@ -39,6 +39,18 @@ export function selectScreenScraperCover(candidate) {
 // No media URL from provider, browser, or candidate is ever accepted. DNS is
 // resolved once, checked, then pinned to the *actual* TLS socket via lookup.
 export async function downloadScreenScraperCover(config, { gameId, systemId, region, signal }, deps = {}) {
+  const controller = new AbortController()
+  let rejectAbort
+  const cancelled = new Promise((_, reject) => { rejectAbort = reject })
+  const cancel = () => { controller.abort(); rejectAbort(new CoverError('COVER_CANCELLED')) }
+  const timer = setTimeout(() => { controller.abort(); rejectAbort(new CoverError('COVER_TIMEOUT')) }, deps.timeoutMs ?? screenScraperLimits.requestTimeoutMs)
+  signal?.addEventListener('abort', cancel, { once: true })
+  if (signal?.aborted) cancel()
+  try { return await Promise.race([downloadCover(config, { gameId, systemId, region, signal: controller.signal }, deps), cancelled]) }
+  finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel) }
+}
+
+async function downloadCover(config, { gameId, systemId, region, signal }, deps) {
   if (!id.test(gameId) || !id.test(systemId) || !screenScraperPreferences.regions.includes(region)) throw new CoverError('COVER_TARGET')
   if (signal?.aborted) throw new CoverError('COVER_CANCELLED')
   const url = new URL(`${SCREENSCRAPER_BASE_URL}/${SCREENSCRAPER_ENDPOINTS.media}`)

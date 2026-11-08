@@ -21,6 +21,9 @@ server/auth/**
 !server/catalog/
 server/catalog/**
 !server/catalog/*.mjs
+!server/metadata/
+server/metadata/**
+!server/metadata/*.mjs
 !scripts/
 scripts/**
 !scripts/reset-account.mjs

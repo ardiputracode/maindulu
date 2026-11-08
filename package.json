@@ -7,7 +7,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "start": "node server/index.mjs",
+    "start": "node --env-file-if-exists=.env server/index.mjs",
     "account:reset": "node scripts/reset-account.mjs",
     "account:role": "node scripts/set-account-role.mjs",
     "data:backup": "node scripts/data-backup.mjs backup",
