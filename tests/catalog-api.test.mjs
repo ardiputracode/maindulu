@@ -191,7 +191,7 @@ test('file validators survive metadata edits and differ for different ROM/BIOS c
     assert.equal(edited.statusCode, 200)
     assert.equal((await c.app.inject({ url: first.url, headers: { 'if-none-match': etag } })).statusCode, 304)
     const bytes = Buffer.from('different synthetic file')
-    const second = item(await c.upload(kind, {}, [{ field: kind === 'games' ? 'rom' : 'bios', name: first.fileName, bytes }]))
+    const second = item(await c.upload(kind, {}, [{ field: kind === 'games' ? 'rom' : 'bios', name: 'other-' + first.fileName, bytes }]))
     const response = await c.app.inject({ url: second.url, headers: { 'if-none-match': etag } })
     assert.equal(response.statusCode, 200)
     assert.equal(response.headers.etag, `"${hash(bytes)}"`)
@@ -205,7 +205,7 @@ test('matching validators cannot bypass deleted/missing/corrupt/unsafe ROM or BI
     const c = await setup(t)
     const value = item(await c.upload(kind))
     const row = c.app.catalog.repository.get(kind, value.id)
-    const path = join(c.root, 'data', kind, row.storage_key)
+    const path = await c.app.catalog.storage.pathFor(kind, row.storage_key)
     const etag = `"${value.sha256}"`
     if (failure === 'deleted') await c.remove(kind, value.id)
     else if (failure === 'missing') await rm(path)
@@ -431,7 +431,7 @@ test('a replaced storage reference while opening cannot validate the old ROM/BIO
 
 test('long and UTF-8 ROM/archive names remain downloadable within the documented basename limit', async t => {
   const c = await setup(t)
-  for (const [kind, name] of [['games', 'a'.repeat(236) + '.nes'], ['games', '漢'.repeat(236) + '.nes'], ['bios', 'b'.repeat(236) + '.bin'], ['bios', '漢'.repeat(236) + '.zip']]) {
+  for (const [kind, name] of [['games', 'a'.repeat(236) + '.nes'], ['games', '漢'.repeat(83) + '.nes'], ['bios', 'b'.repeat(236) + '.bin'], ['bios', '漢'.repeat(83) + '.zip']]) {
     const value = item(await c.upload(kind, {}, [{ field: kind === 'games' ? 'rom' : 'bios', name, bytes: Buffer.from(name) }]))
     assert.equal(value.fileName, name)
     const response = await c.app.inject(value.url)
@@ -443,7 +443,7 @@ test('long and UTF-8 ROM/archive names remain downloadable within the documented
 test('public/admin catalog pagination, literal search, sorting and status are bounded SQL queries', async t => {
   const c = await setup(t)
   for (const [title, consoleId] of [['Zebra', 'nes'], ['alpha 100%', 'snes'], ['Beta', 'nes']]) {
-    item(await c.upload('games', { title, consoleId }, [{ field: 'rom', name: 'fixture.zip', bytes: Buffer.from(title) }]))
+    item(await c.upload('games', { title, consoleId }, [{ field: 'rom', name: title + '.zip', bytes: Buffer.from(title) }]))
   }
   const list = (await c.app.inject('/api/games?sort=title&pageSize=2')).json()
   assert.equal(list.total, 3)
@@ -482,8 +482,8 @@ test('role revocation and session expiry/logout during finalization cannot commi
   for (const change of ['role', 'expiry', 'logout']) await t.test(change, async t => {
     const c = await setup(t)
     const promote = c.app.catalog.storage.promote
-    c.app.catalog.storage.promote = async value => {
-      const result = await promote(value)
+    c.app.catalog.storage.promote = async (value, options) => {
+      const result = await promote(value, options)
       if (change === 'role') c.app.database.exec("UPDATE users SET role = 'user'")
       else if (change === 'expiry') c.app.database.exec('UPDATE sessions SET expires_at = 0')
       else c.app.database.exec('DELETE FROM sessions')
@@ -502,8 +502,8 @@ test('duplicate uploads, tombstone restoration and metadata/cover edits preserve
   const results = await Promise.all([c.upload(), c.upload()])
   const game = item(results.find(v => v.statusCode === 201))
   const duplicate = results.find(v => v.statusCode === 409).json()
-  assert.equal(duplicate.code, 'CATALOG_DUPLICATE')
-  assert.equal(duplicate.existingId, game.id)
+  assert.ok(['CATALOG_DUPLICATE', 'CATALOG_FILENAME_CONFLICT'].includes(duplicate.code))
+  if (duplicate.code === 'CATALOG_DUPLICATE') assert.equal(duplicate.existingId, game.id)
   c.app.database.prepare('INSERT INTO saves VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), c.actor, game.id, 'nes', 'fceumm', 1, 'unchanged save', '{}', 1, 0, hash(rom), null, 1)
   const saved = c.app.database.prepare('SELECT * FROM saves').get()
   const edit = await c.app.inject({ method: 'PATCH', url: `/api/admin/games/${game.id}`, headers: c.headers, payload: { title: 'Edited', license: 'CC0 fixture' } })
@@ -576,7 +576,7 @@ test('covers require a complete bounded raster decode; MIME and filename do not 
   assert.deepEqual(await c.app.catalog.storage.entries('uploads'), [])
   for (const format of ['jpeg', 'webp']) {
     const bytes = await sharp(good).toFormat(format).toBuffer()
-    const game = item(await c.upload('games', { title: format }, [{ field: 'rom', name: 'x.nes', bytes: Buffer.from(format) }, { field: 'cover', name: 'cover.bin', bytes }]))
+    const game = item(await c.upload('games', { title: format }, [{ field: 'rom', name: format + '.nes', bytes: Buffer.from(format) }, { field: 'cover', name: 'cover.bin', bytes }]))
     assert.equal((await c.app.inject(game.cover)).headers['content-type'], `image/${format}`)
   }
 })
@@ -632,7 +632,7 @@ test('controlled disk-full, rename and database failures never leave active part
     else if (failure === 'database') c.app.database.exec("CREATE TRIGGER fail_publish BEFORE INSERT ON games BEGIN SELECT RAISE(ABORT, 'controlled database failure'); END;")
     else {
       const promote = storage.promote
-      storage.promote = value => value.kind === 'covers' ? Promise.reject(new Error('controlled second promotion failure')) : promote(value)
+      storage.promote = (value, options) => value.kind === 'covers' ? Promise.reject(new Error('controlled second promotion failure')) : promote(value, options)
     }
     const response = await c.upload('games', {}, [{ field: 'rom', name: 'x.nes', bytes: rom }, { field: 'cover', name: 'x.png', bytes: await png() }])
     assert.equal(response.statusCode, failure === 'disk' ? 507 : 500, response.body)
@@ -648,13 +648,14 @@ test('online cleanup retries after restart and never removes active references o
   const c = await setup(t)
   const game = item(await c.upload())
   const oldKey = c.app.catalog.repository.get('games', game.id).storage_key
+  const oldPath = await c.app.catalog.storage.pathFor('games', oldKey)
   const stage = await c.app.catalog.storage.stage('bios', [Buffer.from('another in-flight upload')])
   await c.remove('games', game.id)
   const remove = c.app.catalog.storage.removeUnreferenced
   c.app.catalog.storage.removeUnreferenced = async () => { throw new Error('controlled busy file') }
   await c.app.catalog.maintenance.cleanup()
   assert.equal(c.app.database.prepare('SELECT attempts FROM catalog_cleanup').get().attempts, 1)
-  assert.deepEqual(await readFile(join(c.root, 'data/games', oldKey)), rom)
+  assert.deepEqual(await readFile(oldPath), rom)
   c.app.catalog.storage.removeUnreferenced = remove
   const restored = item(await c.upload('games', { restoreId: game.id }), 200)
   const newKey = c.app.catalog.repository.get('games', game.id).storage_key
@@ -663,7 +664,8 @@ test('online cleanup retries after restart and never removes active references o
   await c.restart()
   c.app.database.exec('UPDATE catalog_cleanup SET next_at = 0')
   await c.app.catalog.maintenance.cleanup()
-  await assert.rejects(readFile(join(c.root, 'data/games', oldKey)), { code: 'ENOENT' })
+  await assert.rejects(c.app.catalog.storage.open('games', oldKey), { code: 'ENOENT' })
+  assert.deepEqual(await readFile(oldPath), rom) // Same physical filename, NEW ownership token.
   assert.deepEqual((await c.app.inject(restored.url)).rawPayload, rom)
   assert.equal(await readFile(join(c.root, 'data/uploads', stage.key), 'utf8'), 'another in-flight upload')
 })
@@ -683,7 +685,7 @@ test('delete and its persistent cleanup job roll back together if enqueueing fai
 test('shared reservations enforce cross-connection upload limits and include physical orphan/staging bytes in quota', async t => {
   const c = await setup(t, { MAIN_DULU_CATALOG_UPLOAD_LIMIT: '1', MAIN_DULU_CATALOG_QUOTA_BYTES: '1048576' })
   const second = await openDatabase(join(c.root, 'data'))
-  const storage = await createCatalogStorage(c.app.appConfig)
+  const storage = await createCatalogStorage(c.app.appConfig, second)
   const other = createCatalogMaintenance(second, storage, c.app.appConfig)
   try {
     const reservation = await other.reserve(1024)
@@ -694,7 +696,7 @@ test('shared reservations enforce cross-connection upload limits and include phy
       import { createCatalogMaintenance } from ${JSON.stringify(new URL('../server/catalog/maintenance.mjs', import.meta.url).href)};
       const config = ${JSON.stringify(c.app.appConfig)};
       const db = await openDatabase(config.dataDir);
-      const maintenance = createCatalogMaintenance(db, await createCatalogStorage(config), config);
+      const maintenance = createCatalogMaintenance(db, await createCatalogStorage(config, db), config);
       try { const lease = await maintenance.reserve(1024); lease.release(); console.log('unexpected admission'); }
       catch (error) { console.log(error.code); }
       finally { await maintenance.close(); db.close(); }
@@ -718,9 +720,13 @@ test('schema-9 migration preserves a populated schema-8 catalog, firmware names,
   const games = c.app.database.prepare('SELECT * FROM games').all()
   const firmware = c.app.database.prepare('SELECT * FROM bios').all()
   const sessions = c.app.database.prepare('SELECT * FROM sessions').all()
+  // Reconstruct the historical on-disk layout as well as the schema.
+  for (const [kind, row] of [['games', games[0]], ['bios', firmware[0]]]) {
+    await rename(await c.app.catalog.storage.pathFor(kind, row.storage_key), join(c.root, 'data', kind, row.storage_key))
+  }
   await c.app.close(); c.app = null
   let db = await openDatabase(join(c.root, 'data'))
-  db.exec('DROP TABLE metadata_provider_state;')
+  db.exec('DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   db.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DELETE FROM schema_migrations WHERE version >= 9; PRAGMA user_version = 8;')
   db.close()
   c.app = await createApp({ root: c.root, env: c.env })
@@ -743,7 +749,7 @@ test('asset endpoints reject wrong/encoded traversal names, missing files and ha
   }
   for (const url of ['/data/maindulu.sqlite', '/saves/secret.bin', `/games/${bios.id}/rom`, '/uploads/file.tmp', '/bios/maindulu.sqlite']) assert.equal((await c.app.inject(url)).statusCode, 404, url)
   const row = c.app.catalog.repository.get('bios', bios.id)
-  const path = join(c.root, 'data/bios', row.storage_key)
+  const path = await c.app.catalog.storage.pathFor('bios', row.storage_key)
   await link(path, join(c.root, 'linked-firmware'))
   assert.equal((await c.app.inject(bios.url)).statusCode, 503)
   await rm(join(c.root, 'linked-firmware'))
@@ -781,9 +787,9 @@ test('real HTTP aborted upload and route timeout release staging/reservations wi
 test('upload deadline also cancels finalization after the complete HTTP body has arrived', { timeout: 15000 }, async t => {
   const c = await setup(t, { MAIN_DULU_CATALOG_UPLOAD_TIMEOUT_MS: '1000' })
   const promote = c.app.catalog.storage.promote
-  c.app.catalog.storage.promote = async value => {
+  c.app.catalog.storage.promote = async (value, options) => {
     await new Promise(resolve => setTimeout(resolve, 1400))
-    return promote(value)
+    return promote(value, options)
   }
   const response = await c.upload()
   assert.equal(response.statusCode, 503, response.body)

@@ -31,8 +31,10 @@ export function createCatalogMaintenance(db, storage, config, log) {
       let physical = 0
       try {
         for (const folder of catalogFolders) for (const key of await storage.entries(folder)) {
-          const file = await openRegular(await storage.pathFor(folder, key))
-          try { physical += (await file.stat()).size } finally { await file.close() }
+          let file
+          try { file = await openRegular(await storage.pathFor(folder, key)); physical += (await file.stat()).size }
+          catch (error) { if (error.code !== 'ENOENT') throw error }
+          finally { await file?.close() }
         }
       } catch (error) {
         if (error.code === 'ENOENT') continue // Promotion/cleanup raced the sample.

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { transaction } from '../auth/mutations.mjs'
 import { enqueueCleanup } from './maintenance.mjs'
 import { CatalogHttpError } from './errors.mjs'
+import { safeStorageName } from './paths.mjs'
 
 const consoles = new Set(['nes', 'snes', 'gb', 'gba', 'megadrive', 'psx'])
 const types = new Set(['image/png', 'image/jpeg', 'image/webp'])
@@ -22,7 +23,7 @@ function text(value, max, required = false) {
 }
 export function safeOriginalName(value) {
   text(value, 240, true)
-  if (value !== value.trim() || /[/\\:*?"<>|\x00-\x1f\x7f]/.test(value) || /[. ]$/.test(value) || value === '.' || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(value)) throw invalid()
+  if (!safeStorageName(value)) throw invalid()
   return value
 }
 function metadata(kind, value, patch = false) {
@@ -61,9 +62,9 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
     return new CatalogError(row.deleted_at === null && !missing ? 'CATALOG_DUPLICATE' : 'CATALOG_RESTORE_REQUIRED',
       missing ? 'Metadata sudah ada, tetapi berkas hilang. Konfirmasi pemulihan ID lama dengan berkas yang sama.' : row.deleted_at === null ? 'Berkas sudah ada pada console ini.' : 'Berkas pernah dihapus; pemulihan ID lama harus dipilih secara eksplisit.', row.id)
   }
-  async function promote(kind, stage) {
+  async function promote(kind, stage, options) {
     if (!storage.ownsStage(stage, kind)) throw invalid()
-    const file = await storage.promote(stage)
+    const file = await storage.promote(stage, options)
     onPromoted(file)
     return file
   }
@@ -82,14 +83,11 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
       if (cover !== null && (!cover || kind !== 'games' || !types.has(cover.type) || !storage.ownsStage(cover.stage, 'covers'))) throw invalid()
       // Files are durable before publication. Errors leave at most unreferenced
       // server-generated files, reclaimed offline, never an active partial row.
-      const file = await promote(kind, stage)
-      const coverFile = cover ? { file: await promote('covers', cover.stage), type: cover.type } : null
-      const fields = coverFields(coverFile)
       // A metadata-only restore retains active rows but deliberately has no asset
       // files. Only an absent immutable key permits reattachment, never a valid,
       // damaged or unsafe existing file. Recheck the key under the transaction so
       // two concurrent restorations cannot both replace the same publication.
-      const observed = db.prepare(`SELECT * FROM ${kind} WHERE console_id = ? AND sha256 = ?`).get(v.consoleId, file.sha256)
+      const observed = db.prepare(`SELECT * FROM ${kind} WHERE console_id = ? AND sha256 = ?`).get(v.consoleId, stage.sha256)
       let missingKey
       if (observed?.deleted_at === null) {
         let previousFile
@@ -97,6 +95,18 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
         catch (error) { if (error.code === 'ENOENT') missingKey = observed.storage_key; else throw error }
         finally { await previousFile?.close() }
       }
+      if (observed && (observed.size !== stage.size || ((!missingKey && observed.deleted_at === null) || restoreId !== observed.id))) {
+        if (observed.size !== stage.size) throw invalid()
+        throw duplicate(observed, !!missingKey)
+      }
+      if (restoreId !== undefined && (!observed || observed.id !== restoreId)) throw invalid()
+      // Explicit tombstone restoration may retire the old physical filename;
+      // its ownership token fences delayed cleanup from the replacement.
+      if (observed && restoreId === observed.id) await storage.removeUnreferenced(kind, observed.storage_key)
+      const file = await promote(kind, stage, { consoleId: v.consoleId, fileName: missingKey ? observed.original_name : v.fileName,
+        replaceMissingKey: missingKey, check: () => authorize(actor) })
+      const coverFile = cover ? { file: await promote('covers', cover.stage), type: cover.type } : null
+      const fields = coverFields(coverFile)
       return transaction(db, () => {
         authorize(actor) // Role may have been revoked during asynchronous I/O.
         const previous = db.prepare(`SELECT * FROM ${kind} WHERE console_id = ? AND sha256 = ?`).get(v.consoleId, file.sha256)

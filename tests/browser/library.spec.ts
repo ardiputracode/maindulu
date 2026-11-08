@@ -175,7 +175,7 @@ test('admin UI upload is discoverable by a guest through the real API and plays 
 })
 
 test('Library pagination, URL search/order/filter, back navigation and mobile focus work without changing identities', async ({ page, site }) => {
-  for (let i = 0; i < 13; i++) await upload(page, site, 'games', `Koleksi ${String(i).padStart(2, '0')}`, Buffer.from(`Synthetic ROM ${i}`))
+  for (let i = 0; i < 13; i++) await upload(page, site, 'games', `Koleksi ${String(i).padStart(2, '0')}`, Buffer.from(`Synthetic ROM ${i}`), 'nes', `fixture-${i}.nes`)
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto(site.address + '/library?sort=title&console=nes')
   await expect(page.locator('.game-card')).toHaveCount(12)
@@ -202,7 +202,7 @@ test('Library pagination, URL search/order/filter, back navigation and mobile fo
 })
 
 test('all BIOS pages are offered only on their console, never auto-selected, and server BIOS works with a locally hashed ROM without upload', async ({ page, site }) => {
-  for (let i = 0; i < 101; i++) await upload(page, site, 'bios', `Firmware ${String(i).padStart(3, '0')}`, Buffer.from(`Synthetic firmware ${i}`))
+  for (let i = 0; i < 101; i++) await upload(page, site, 'bios', `Firmware ${String(i).padStart(3, '0')}`, Buffer.from(`Synthetic firmware ${i}`), 'nes', `disksys-${i}.rom`)
   await upload(page, site, 'bios', 'Firmware GBA', Buffer.from('Synthetic GBA'), 'gba', 'gba.bin')
   const writes: string[] = []
   page.on('request', request => { if (!['GET', 'HEAD'].includes(request.method())) writes.push(request.url()) })
@@ -217,7 +217,7 @@ test('all BIOS pages are offered only on their console, never auto-selected, and
   const frame = await startPlayer(page)
   const history = await page.evaluate(() => JSON.parse(localStorage.getItem('maindulu.history.v1') || '[]'))
   expect(history[0].id).toMatch(/^local-nes-[a-f0-9]{64}$/)
-  expect(await frame.locator('body').evaluate(() => (window as unknown as { EJS_emulator: { gameManager: { FS: { readdir: (path: string) => string[] } } } }).EJS_emulator.gameManager.FS.readdir('/'))).toContain('disksys.rom')
+  expect(await frame.locator('body').evaluate(() => (window as unknown as { EJS_emulator: { gameManager: { FS: { readdir: (path: string) => string[] } } } }).EJS_emulator.gameManager.FS.readdir('/'))).toContain('disksys-100.rom')
   // Logged-in accounts may sync save data, but neither ROM nor BIOS is uploaded.
   expect(writes.filter(url => /\/api\/admin\//.test(url))).toEqual([])
 })

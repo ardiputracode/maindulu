@@ -69,7 +69,7 @@ export async function createApp({ env = process.env, root, logger = false, metad
     return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: true, biosCatalog: true, metadata: true } }
   })
   try {
-    const storage = await createCatalogStorage(config)
+    const storage = await createCatalogStorage(config, db)
     const security = registerAuth(app, config)
     registerAdmin(app, security)
     registerCatalog(app, config, security, storage, metadataDependencies)

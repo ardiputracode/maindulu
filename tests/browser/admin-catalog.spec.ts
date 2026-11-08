@@ -1,6 +1,6 @@
 import { test as base, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash, randomUUID } from 'node:crypto'
@@ -62,6 +62,10 @@ test('admin logs in through UI, refreshes deep links and manages ROM/cover/metad
   await expect(article).toContainText(createHash('sha256').update(rom.buffer).digest('hex'))
   await page.screenshot({ path: test.info().outputPath('admin-games-desktop.png'), fullPage: true })
   const before = (await (await page.request.get(address + '/api/games')).json()).items[0]
+  const stored = site.app.catalog.repository.get('games', before.id)
+  const storedPath = await site.app.catalog.storage.pathFor('games', stored.storage_key)
+  expect(storedPath).toBe(join(site.app.appConfig.dataDir, 'roms', 'nes', rom.name))
+  expect(await readFile(storedPath)).toEqual(rom.buffer)
   expect((await page.request.get(address + before.cover)).status()).toBe(200)
   await article.getByRole('button', { name: 'Edit metadata' }).click()
   const replacement = await sharp({ create: { width: 3, height: 3, channels: 3, background: '#334455' } }).webp().toBuffer()
@@ -80,6 +84,7 @@ test('admin logs in through UI, refreshes deep links and manages ROM/cover/metad
   await expect(edited).toContainText('Tidak ada')
   const after = (await (await page.request.get(address + '/api/games/' + before.id)).json()).item
   expect(after.id).toBe(before.id); expect(after.sha256).toBe(before.sha256); expect(after.description).toBe('Deskripsi baru')
+  expect(await site.app.catalog.storage.pathFor('games', stored.storage_key)).toBe(storedPath)
   await edited.getByRole('button', { name: 'Hapus game', exact: true }).click()
   await expect(dialog).toContainText('Save, progres pengguna, dan akun tidak dihapus.')
   await dialog.getByRole('button', { name: 'Ya, hapus' }).click()
@@ -99,6 +104,9 @@ test('BIOS upload/edit/delete exposes hash, firmware filename, console filters a
   await expect(article).toContainText('disksys.rom')
   await expect(article).toContainText(`${firmware.buffer.length} B`)
   await expect(article).toContainText(createHash('sha256').update(firmware.buffer).digest('hex'))
+  const item = (await (await page.request.get(site.address + '/api/bios')).json()).items[0]
+  const stored = site.app.catalog.repository.get('bios', item.id)
+  expect(await site.app.catalog.storage.pathFor('bios', stored.storage_key)).toBe(join(site.app.appConfig.dataDir, 'bios', 'nes', firmware.name))
   await page.getByLabel('Filter console').selectOption('psx')
   await expect(article).toHaveCount(0)
   await page.getByLabel('Filter console').selectOption('nes')
@@ -113,6 +121,19 @@ test('BIOS upload/edit/delete exposes hash, firmware filename, console filters a
   await expect(dialog).toHaveCount(0)
   expect((await page.request.get(site.address + '/api/bios')).ok()).toBeTruthy()
   expect((await (await page.request.get(site.address + '/api/bios')).json()).total).toBe(0)
+})
+
+test('same platform filename with different bytes is explained in UI and cannot overwrite the first upload', async ({ page, site }) => {
+  await page.goto(site.address + '/admin/games')
+  let dialog = await openUpload(page, 'game', 'First')
+  await dialog.getByRole('button', { name: 'Upload game', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  dialog = await openUpload(page, 'game', 'Different', { ...rom, buffer: Buffer.from('different synthetic bytes') })
+  await dialog.getByRole('button', { name: 'Upload game', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('Nama berkas sudah dipakai')
+  const catalog = (await (await page.request.get(site.address + '/api/games')).json())
+  expect(catalog.total).toBe(1)
+  expect(await (await page.request.get(site.address + catalog.items[0].url)).body()).toEqual(rom.buffer)
 })
 
 test('duplicates are explained and deleted ROM requires explicit reupload restoration of the original ID', async ({ page, site }) => {
@@ -172,7 +193,7 @@ test('BIOS duplicates and explicit tombstone restoration preserve ID/hash and us
 
 test('admin list supports pagination/search/deep-link refresh and mobile keyboard dialog focus', async ({ page, site }) => {
   for (let i = 0; i < 13; i++) {
-    const response = await page.request.post(site.address + '/api/admin/games', { headers: site.headers, multipart: { title: `Game ${i}`, consoleId: 'nes', rom: { ...rom, buffer: Buffer.from(`Fixture ${i}`) } } })
+    const response = await page.request.post(site.address + '/api/admin/games', { headers: site.headers, multipart: { title: `Game ${i}`, consoleId: 'nes', rom: { ...rom, name: `fixture-${i}.nes`, buffer: Buffer.from(`Fixture ${i}`) } } })
     expect(response.status()).toBe(201)
   }
   await page.setViewportSize({ width: 390, height: 844 })

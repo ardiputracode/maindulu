@@ -210,6 +210,7 @@ function CatalogForm({ kind, item, consoles, userId, onClose, onSaved, onDenied,
   return <Dialog title={item ? `Edit metadata ${label}` : `Upload ${label}`} eyebrow="PENGELOLAAN KOLEKSI" onClose={onClose} busy={busy} className="admin-dialog">
     <form className="account-form" onSubmit={e => { e.preventDefault(); void submit() }}>
       <p>{item ? 'ROM/firmware dan console tidak dapat diganti. Identitas game dan save tetap.' : 'Hanya upload berkas yang berhak kamu distribusikan. Aset aktif bersifat publik.'}</p>
+      {!item && <p>Nama dan ekstensi berkas dipertahankan di folder platform. Nama yang sudah dipakai tidak ditimpa; ganti nama berkas sebelum upload jika isinya berbeda. Maksimum 240 karakter dan 255 byte UTF-8.</p>}
       <fieldset disabled={busy}>
         <label htmlFor="admin-title">{game ? 'Judul game' : 'Nama BIOS'}</label><input id="admin-title" required={kind !== 'games' || !!item} maxLength={200} value={title} onChange={e => setTitle(e.target.value)} />
         {game && !item && <><p className="field-hint">Opsional: kosongkan untuk memakai nama berkas sementara. Judul yang kamu isi akan dikunci sebagai pilihan admin.</p><label className="account-check"><input type="checkbox" checked={scanReady && scan} disabled={!scanReady} onChange={e => setScan(e.target.checked)} />Scan metadata otomatis</label><p>{scanReady ? 'Nama berkas, ukuran, dan hash dibagikan ke ScreenScraper; byte ROM tidak dikirim. Metadata dan cover disajikan lokal dengan atribusi ScreenScraper.' : 'Scan tidak tersedia. Upload dan bermain tetap berfungsi.'}</p></>}

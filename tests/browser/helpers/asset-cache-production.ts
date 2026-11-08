@@ -26,7 +26,7 @@ export async function productionFixture() {
     const db = app.getDecorator<DatabaseSync>('database'), actor = randomUUID()
     db.prepare('INSERT INTO users (id, username, password_hash, recovery_code_hash, created_at, role) VALUES (?, ?, ?, ?, ?, ?)')
       .run(actor, 'm5_admin', 'test-only', 'test-only', Date.now(), 'admin')
-    const storage = await createCatalogStorage(app.getDecorator('appConfig')), repo = createCatalogRepository(db, storage)
+    const storage = await createCatalogStorage(app.getDecorator('appConfig'), db), repo = createCatalogRepository(db, storage)
     const watched = new Set<string>()
     let phase = 'setup'
     const transfers = observeAssetTransfers(app.server, watched, () => phase)

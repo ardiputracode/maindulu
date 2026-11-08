@@ -10,13 +10,13 @@ export async function recoverCatalogStorage(config, { remove = false } = {}) {
   const release = await acquireDataLock(config.dataDir, true)
   let db
   try {
-    const storage = await createCatalogStorage(config)
     const database = await openRegular(join(config.dataDir, 'maindulu.sqlite'))
     await database.close()
     db = new DatabaseSync(join(config.dataDir, 'maindulu.sqlite'), { readOnly: !remove })
     db.exec(`PRAGMA trusted_schema = OFF; PRAGMA foreign_keys = ON; ${remove ? '' : 'PRAGMA query_only = ON;'}`)
     if (db.prepare('PRAGMA user_version').get().user_version !== schemaVersion) throw new Error('Versi skema recovery tidak cocok; buka dengan aplikasi yang sesuai terlebih dahulu.')
     if (db.prepare('PRAGMA integrity_check').all().some(row => row.integrity_check !== 'ok') || db.prepare('PRAGMA foreign_key_check').all().length) throw new Error('Integritas SQLite recovery gagal; jangan hapus berkas.')
+    const storage = await createCatalogStorage(config, db)
     const references = new Map()
     const rows = db.prepare(`SELECT 'games' AS folder, storage_key AS key, size, sha256 FROM games WHERE deleted_at IS NULL
       UNION ALL SELECT 'bios', storage_key, size, sha256 FROM bios WHERE deleted_at IS NULL
@@ -28,6 +28,7 @@ export async function recoverCatalogStorage(config, { remove = false } = {}) {
       if (previous && (previous.size !== row.size || previous.sha256 !== row.sha256)) throw new Error('Referensi katalog recovery tidak konsisten; jangan hapus berkas.')
       references.set(path, row)
     }
+    if (remove) db.exec("UPDATE catalog_asset_files SET state = 'ready' WHERE state = 'deleting'") // Exclusive data lock proves no live unlink owns the claim.
     const result = { active: references.size, damaged: [], unknown: [], unsafe: [], candidates: [], removed: [], failed: [] }
     for (const row of references.values()) {
       try { await storage.verify(row.folder, row) }
@@ -40,8 +41,10 @@ export async function recoverCatalogStorage(config, { remove = false } = {}) {
         if (!(folder === 'uploads' ? stagingKeyPattern : storageKeyPattern).test(key)) { result.unknown.push({ folder, key }); continue }
         if (references.has(folder + '/' + key)) continue
         try {
-          const file = await openRegular(await storage.pathFor(folder, key))
-          await file.close()
+          let file
+          try { file = await openRegular(await storage.pathFor(folder, key)) }
+          catch (error) { if (error.code !== 'ENOENT' || !db.prepare('SELECT 1 FROM catalog_asset_files WHERE folder = ? AND storage_key = ?').get(folder, key)) throw error }
+          finally { await file?.close() }
           result.candidates.push({ folder, key })
         } catch (error) { result.unsafe.push({ folder, key, message: error.message }) }
       }

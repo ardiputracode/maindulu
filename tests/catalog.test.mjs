@@ -25,7 +25,7 @@ async function setup(t) {
   c.db = await openDatabase(c.config.dataDir)
   c.actor = randomUUID()
   c.db.prepare('INSERT INTO users (id, username, password_hash, recovery_code_hash, created_at, role) VALUES (?, ?, ?, ?, ?, ?)').run(c.actor, 'catalog_admin', 'test-only', 'test-only', Date.now(), 'admin')
-  c.storage = await createCatalogStorage(c.config)
+  c.storage = await createCatalogStorage(c.config, c.db)
   c.repo = createCatalogRepository(c.db, c.storage)
   c.stage = (kind = 'games', data = bytes) => c.storage.stage(kind, Readable.from([data]))
   c.publish = async (kind = 'games', data = bytes, v = {}, options) => c.repo.publish(kind, c.actor, metadata(kind, v), await c.stage(kind, data), options)
@@ -35,7 +35,7 @@ async function setup(t) {
 
 test('catalog migration from schema 7 preserves accounts, roles, sessions and every save table', async t => {
   const c = await setup(t)
-  c.db.exec('DROP TABLE metadata_provider_state;')
+  c.db.exec('DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   c.db.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?)').run('test-token', c.actor, 1, Date.now() + 100000)
   c.db.prepare('INSERT INTO saves VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), c.actor, 'old-server-game', 'nes', 'fceumm', 1, 'old title', '{}', 2, 0, 'a'.repeat(64), null, 3)
   c.db.prepare('INSERT INTO game_saves VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), c.actor, 'local-nes-' + 'b'.repeat(64), 'nes', 'fceumm', 'old local', '{}', 1, 0, 'a'.repeat(64), null, 3)
@@ -46,7 +46,7 @@ test('catalog migration from schema 7 preserves accounts, roles, sessions and ev
   c.db.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   c.close()
   c.db = await openDatabase(c.config.dataDir)
-  assert.equal(schemaVersion, 13)
+  assert.equal(schemaVersion, 14)
   assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
   for (const name of tables) assert.deepEqual(c.db.prepare(`SELECT * FROM ${name}`).all(), before[name], name)
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM games').get().n, 0)
@@ -55,7 +55,7 @@ test('catalog migration from schema 7 preserves accounts, roles, sessions and ev
 
 test('failed catalog migration rolls back new tables and schema version without changing old accounts', async t => {
   const c = await setup(t)
-  c.db.exec('DROP TABLE metadata_provider_state;')
+  c.db.exec('DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   const before = c.db.prepare('SELECT * FROM users').get()
   c.db.exec("DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7; CREATE TABLE bios (marker TEXT); INSERT INTO bios VALUES ('operator-owned');")
   c.close()
@@ -94,7 +94,8 @@ test('game IDs and immutable bytes survive metadata/cover edits, deletion, resta
   c.close()
   await rm(join(c.root, 'dist'), { recursive: true }) // Only this test's disposable build fixture.
   c.db = await openDatabase(c.config.dataDir)
-  c.repo = createCatalogRepository(c.db, await createCatalogStorage(c.config))
+  c.storage = await createCatalogStorage(c.config, c.db)
+  c.repo = createCatalogRepository(c.db, c.storage)
   assert.equal(c.repo.get('games', row.id).title, 'Judul baru')
   await c.storage.verify('games', { key: row.storage_key, size: row.size, sha256: row.sha256 })
   c.repo.delete('games', c.actor, row.id)
@@ -102,7 +103,7 @@ test('game IDs and immutable bytes survive metadata/cover edits, deletion, resta
   assert.equal(c.repo.list('games').length, 0)
   assert.notEqual(c.repo.get('games', row.id, { includeDeleted: true }).deleted_at, null)
   assert.deepEqual(c.db.prepare('SELECT * FROM saves').get(), saved)
-  assert.deepEqual(await readFile(join(c.config.dataDir, 'games', row.storage_key)), bytes)
+  assert.deepEqual(await readFile(await c.storage.pathFor('games', row.storage_key)), bytes)
 })
 
 test('duplicates are separate by console and kind; tombstones require explicit same-ID restoration', async t => {
@@ -113,7 +114,7 @@ test('duplicates are separate by console and kind; tombstones require explicit s
     await assert.rejects(c.publish(kind), error => error.code === 'CATALOG_DUPLICATE')
     await c.publish(kind, bytes, { consoleId: 'snes' })
   }
-  await c.publish('bios', Buffer.from('second firmware option'))
+  await c.publish('bios', Buffer.from('second firmware option'), { fileName: 'other.rom' })
   assert.equal(c.repo.list('bios').filter(row => row.console_id === 'nes').length, 2)
   c.repo.delete('games', c.actor, game.id)
   await assert.rejects(c.publish(), error => error.code === 'CATALOG_RESTORE_REQUIRED' && error.id === game.id)
@@ -159,8 +160,8 @@ test('deleting a creator account does not cascade into either catalog', async t 
 test('role revocation during promotion cannot publish an active row', async t => {
   const c = await setup(t)
   const promote = c.storage.promote.bind(c.storage)
-  c.storage.promote = async stage => {
-    const file = await promote(stage)
+  c.storage.promote = async (stage, options) => {
+    const file = await promote(stage, options)
     c.db.prepare("UPDATE users SET role = 'user' WHERE id = ?").run(c.actor)
     return file
   }
@@ -176,7 +177,7 @@ test('firmware names stay metadata, never paths; unsafe and reserved basenames a
   const bios = await c.publish('bios', bytes, { fileName: 'SCPH1001.bin' })
   assert.equal(bios.original_name, 'SCPH1001.bin')
   assert.match(bios.storage_key, storageKeyPattern)
-  assert.equal((await readdir(join(c.config.dataDir, 'bios'))).includes('SCPH1001.bin'), false)
+  assert.equal(await c.storage.pathFor('bios', bios.storage_key), join(c.config.dataDir, 'bios', 'nes', 'SCPH1001.bin'))
 })
 
 test('storage hashes exact stream bytes and rejects empty, interrupted, excessive and forged uploads', async t => {
@@ -210,7 +211,7 @@ test('changed or missing staging and failed database commits never publish parti
   await assert.rejects(c.publish(), /controlled insert failure/)
   assert.equal(c.repo.list('games').length, 0)
   c.db.exec('DROP TRIGGER fail_catalog_insert')
-  const good = await c.publish()
+  const good = await c.publish('games', bytes, { fileName: 'good.nes' })
   await c.storage.verify('games', { key: good.storage_key, size: good.size, sha256: good.sha256 })
 })
 
@@ -240,11 +241,11 @@ test('catalog publication is unique across connections and separate competing pr
   const c = await setup(t)
   const second = await openDatabase(c.config.dataDir)
   try {
-    const storage = await createCatalogStorage(c.config)
+    const storage = await createCatalogStorage(c.config, second)
     const repo = createCatalogRepository(second, storage)
     const results = await Promise.allSettled([c.publish(), repo.publish('games', c.actor, metadata(), await storage.stage('games', Readable.from([bytes])))])
     assert.equal(results.filter(r => r.status === 'fulfilled').length, 1)
-    assert.equal(results.find(r => r.status === 'rejected').reason.code, 'CATALOG_DUPLICATE')
+    assert.ok(['CATALOG_DUPLICATE', 'CATALOG_FILENAME_CONFLICT'].includes(results.find(r => r.status === 'rejected').reason.code))
   } finally { second.close() }
   for (const kind of ['games', 'bios']) {
     const children = [0, 1].map(() => spawn(process.execPath, ['tests/helpers/catalog-publisher.mjs', JSON.stringify([c.config, c.actor, kind])], { stdio: ['ignore', 'pipe', 'pipe', 'ipc'] }))
@@ -261,8 +262,9 @@ test('catalog publication is unique across connections and separate competing pr
       const results = children.map(child => once(child, 'message').then(([message]) => message))
       for (const child of children) child.send('publish')
       const messages = await Promise.all(results)
-      assert.deepEqual(messages.map(m => m.code).sort(), ['CATALOG_DUPLICATE', 'created'].sort())
-      assert.equal(messages[0].id, messages[1].id)
+      assert.equal(messages.filter(m => m.code === 'created').length, 1)
+      assert.ok(messages.some(m => ['CATALOG_DUPLICATE', 'CATALOG_FILENAME_CONFLICT'].includes(m.code)))
+      if (messages.every(m => m.id)) assert.equal(messages[0].id, messages[1].id)
       for (const [i, exit] of exits.entries()) assert.equal((await exit)[0], 0, errors[i])
     } finally {
       for (const child of children) if (child.exitCode === null) child.kill()
@@ -275,14 +277,17 @@ test('offline recovery preserves active files and saves, reports damage/unknown/
   const c = await setup(t)
   const active = await c.publish()
   const firmware = await c.publish('bios')
-  const deleted = await c.publish('games', Buffer.from('deleted game'))
+  const deleted = await c.publish('games', Buffer.from('deleted game'), { fileName: 'deleted.nes' })
   c.repo.delete('games', c.actor, deleted.id)
   const staging = await c.stage()
   const orphan = randomUUID() + '.bin'
   await writeFile(join(c.config.dataDir, 'covers', orphan), 'orphan')
   await writeFile(join(c.config.dataDir, 'covers', 'operator-note.txt'), 'keep')
   const unsafe = randomUUID() + '.bin'
-  await link(join(c.config.dataDir, 'games', active.storage_key), join(c.config.dataDir, 'covers', unsafe))
+  const activePath = await c.storage.pathFor('games', active.storage_key)
+  const firmwarePath = await c.storage.pathFor('bios', firmware.storage_key)
+  const deletedPath = await c.storage.pathFor('games', deleted.storage_key)
+  await link(activePath, join(c.config.dataDir, 'covers', unsafe))
   for (const folder of ['saves', 'game-saves']) { await mkdir(join(c.config.dataDir, folder)); await writeFile(join(c.config.dataDir, folder, 'keep.bin'), 'keep save') }
   await assert.rejects(recoverCatalogStorage(c.config, { remove: true }), /Data sedang dipakai/)
   c.close()
@@ -292,16 +297,16 @@ test('offline recovery preserves active files and saves, reports damage/unknown/
   assert.equal(inspection.unsafe.length, 1)
   assert.equal(inspection.damaged.length, 1) // Active inode has an unsafe hard link.
   await rm(join(c.config.dataDir, 'covers', unsafe))
-  await rm(join(c.config.dataDir, 'bios', firmware.storage_key))
+  await rm(firmwarePath)
   const report = await recoverCatalogStorage(c.config, { remove: true })
   assert.equal(report.removed.length, 3)
   assert.equal(report.failed.length, 0)
   assert.deepEqual(report.damaged.map(r => r.key), [firmware.storage_key])
   assert.deepEqual(report.unknown, [{ folder: 'covers', key: 'operator-note.txt' }])
-  assert.deepEqual(await readFile(join(c.config.dataDir, 'games', active.storage_key)), bytes)
+  assert.deepEqual(await readFile(activePath), bytes)
   assert.equal(await readFile(join(c.config.dataDir, 'covers', 'operator-note.txt'), 'utf8'), 'keep')
   for (const folder of ['saves', 'game-saves']) assert.equal(await readFile(join(c.config.dataDir, folder, 'keep.bin'), 'utf8'), 'keep save')
-  for (const [folder, key] of [['uploads', staging.key], ['games', deleted.storage_key], ['covers', orphan]]) await assert.rejects(readFile(join(c.config.dataDir, folder, key)), { code: 'ENOENT' })
+  for (const path of [join(c.config.dataDir, 'uploads', staging.key), deletedPath, join(c.config.dataDir, 'covers', orphan)]) await assert.rejects(readFile(path), { code: 'ENOENT' })
   assert.equal((await recoverCatalogStorage(c.config, { remove: true })).removed.length, 0)
   c.db = await openDatabase(c.config.dataDir)
   assert.notEqual(c.db.prepare('SELECT * FROM games WHERE id = ?').get(deleted.id), undefined)
@@ -331,11 +336,12 @@ test('invalid database references abort recovery before deleting any staging or 
   const c = await setup(t)
   const active = await c.publish()
   const staging = await c.stage()
+  const activePath = await c.storage.pathFor('games', active.storage_key)
   c.db.prepare('UPDATE games SET storage_key = ? WHERE id = ?').run('../saves/keep.bin', active.id)
   c.close()
   await assert.rejects(recoverCatalogStorage(c.config, { remove: true }), /Referensi katalog recovery tidak valid/)
   assert.equal((await readFile(join(c.config.dataDir, 'uploads', staging.key))).length, bytes.length)
-  assert.deepEqual(await readFile(join(c.config.dataDir, 'games', active.storage_key)), bytes)
+  assert.deepEqual(await readFile(activePath), bytes)
 })
 
 test('real process termination leaves staging/final orphans recoverable and committed assets untouched', { timeout: 30000 }, async t => {
@@ -349,7 +355,7 @@ test('real process termination leaves staging/final orphans recoverable and comm
       import { createCatalogRepository } from './server/catalog/repository.mjs';
       const config = ${JSON.stringify(c.config)};
       const db = await openDatabase(config.dataDir);
-      const storage = await createCatalogStorage(config);
+      const storage = await createCatalogStorage(config, db);
       const stage = await storage.stage('games', Readable.from([Buffer.from(${JSON.stringify(phase)})]));
       let result = stage;
       if (${JSON.stringify(phase)} === 'final') result = await storage.promote(stage);
@@ -365,7 +371,7 @@ test('real process termination leaves staging/final orphans recoverable and comm
     const result = await recoverCatalogStorage(c.config, { remove: true })
     assert.equal(result.removed.length, phase === 'committed' ? 0 : 1)
     assert.equal(result.damaged.length, 0)
-    if (phase === 'committed') assert.equal(await readFile(join(c.config.dataDir, 'games', message.storage_key), 'utf8'), phase)
+    if (phase === 'committed') assert.equal(await readFile(join(c.config.dataDir, 'roms', 'nes', 'fixture.nes'), 'utf8'), phase)
   }
 })
 

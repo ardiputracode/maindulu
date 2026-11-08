@@ -24,9 +24,9 @@ async function adminFixture(t, metadataDependencies, enabled = false) {
   return { app, db, actor, headers }
 }
 
-async function publish(c, title = '', bytes = Buffer.from('abc')) {
+async function publish(c, title = '', bytes = Buffer.from('abc'), fileName = 'temporary_title.nes') {
   const stage = await c.app.catalog.storage.stage('games', (async function* () { yield bytes })())
-  return c.app.catalog.repository.publish('games', c.actor, { title, description: '', license: 'rights', consoleId: 'nes', fileName: 'temporary_title.nes' }, stage)
+  return c.app.catalog.repository.publish('games', c.actor, { title, description: '', license: 'rights', consoleId: 'nes', fileName }, stage)
 }
 function candidate(id = '123', title = 'Provider title') {
   const hash = alg => createHash(alg).update('abc').digest('hex')
@@ -102,7 +102,7 @@ test('M5 global quota cooldown cannot be bypassed by search, retries or a second
   let calls = 0
   const dependencies = { clientFactory: () => ({ searchByHash: async () => { calls++; throw new ScreenScraperError('quota_exhausted') } }) }
   const c = await adminFixture(t, dependencies, true)
-  const first = await publish(c), second = await publish(c, '', Buffer.from('xyz'))
+  const first = await publish(c), second = await publish(c, '', Buffer.from('xyz'), 'second.nes')
   const worker2 = createMetadataWorker({ db: c.db, storage: c.app.catalog.storage, config: c.app.appConfig, ...dependencies, logger: { warn() {} } })
   await c.app.catalog.worker.processOne()
   assert.equal(await worker2.processOne(), false); assert.equal(calls, 1)

@@ -272,6 +272,21 @@ const migrations = [
     ) STRICT;
     INSERT INTO metadata_provider_state(id) VALUES (1);`,
   },
+  {
+    version: 14,
+    name: 'platform-original-filename-storage',
+    // Ownership tokens remain immutable even when a physical filename is reused.
+    // Operational mapping is normalized away in metadata-only backup snapshots.
+    sql: `CREATE TABLE catalog_asset_files (
+      storage_key TEXT PRIMARY KEY,
+      folder TEXT NOT NULL CHECK(folder IN ('games', 'bios')),
+      platform TEXT NOT NULL CHECK(platform IN ('nes', 'snes', 'gb', 'gbc', 'gba', 'genesis', 'psx')),
+      file_name TEXT NOT NULL,
+      name_identity TEXT NOT NULL,
+      state TEXT NOT NULL CHECK(state IN ('reserved', 'ready', 'deleting')),
+      UNIQUE(folder, platform, name_identity)
+    ) STRICT;`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

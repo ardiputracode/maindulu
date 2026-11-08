@@ -198,7 +198,7 @@ test('M5 multi-page title changes retain URL filters/page and never render a mix
   const ids: string[] = []
   for (let i = 0; i < 101; i++) {
     const stage = await site.app.catalog.storage.stage('games', (async function* () { yield Buffer.from(`fixture ${i}`) })())
-    const row = await site.app.catalog.repository.publish('games', actor, { title: `Koleksi ${String(i).padStart(3, '0')}`, consoleId: 'nes', fileName: 'fixture.nes' }, stage, { scanMetadata: false })
+    const row = await site.app.catalog.repository.publish('games', actor, { title: `Koleksi ${String(i).padStart(3, '0')}`, consoleId: 'nes', fileName: `fixture-${i}.nes` }, stage, { scanMetadata: false })
     ids.push(row.id)
   }
   await page.goto(site.address + '/library?console=nes&sort=title&q=Koleksi&page=2')

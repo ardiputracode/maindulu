@@ -9,7 +9,7 @@ export const consoleExtensions = Object.freeze({
 })
 export const validId = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(?![\s\S])/.test(value)
 export function fileName(kind, name, consoleId) {
-  try { safeOriginalName(name) } catch { throw invalidCatalog('Nama berkas harus berupa basename yang aman.') }
+  try { safeOriginalName(name) } catch { throw invalidCatalog('Nama berkas harus berupa basename yang aman, maksimum 240 karakter dan 255 byte UTF-8.') }
   const ext = name.split('.').pop().toLowerCase()
   if (kind === 'bios') {
     if (!['bin', 'rom', 'bios', 'img', 'zip', '7z', 'rar'].includes(ext)) throw invalidCatalog('Format BIOS tidak didukung.')

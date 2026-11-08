@@ -22,7 +22,7 @@ async function setup(t) {
   c.db = await openDatabase(c.config.dataDir)
   c.actor = randomUUID()
   c.db.prepare('INSERT INTO users (id, username, password_hash, recovery_code_hash, created_at, role) VALUES (?, ?, ?, ?, ?, ?)').run(c.actor, 'backup_admin', 'test-only', 'test-only', Date.now(), 'admin')
-  c.storage = await createCatalogStorage(c.config)
+  c.storage = await createCatalogStorage(c.config, c.db)
   c.repo = createCatalogRepository(c.db, c.storage)
   c.publish = async (kind = 'games') => c.repo.publish(kind, c.actor, { [kind === 'games' ? 'title' : 'name']: 'Fixture', consoleId: 'nes', fileName: 'fixture.zip' }, await c.storage.stage(kind, Readable.from([Buffer.from('test bytes')])))
   c.close = () => { c.db.close(); c.db = null }
@@ -61,11 +61,12 @@ test('M5 backup normalizes provider gate only in snapshot and still accepts sche
   const path = join(target, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
   assert.deepEqual({ ...legacy.prepare('SELECT * FROM metadata_provider_state').get() }, { id: 1, lease_token: null, lease_expires_at: null, next_at: 0, paused_reason: null })
-  legacy.exec('DROP TABLE metadata_provider_state; ALTER TABLE metadata_jobs DROP COLUMN request_method; ALTER TABLE metadata_jobs DROP COLUMN request_json; DELETE FROM schema_migrations WHERE version > 12; PRAGMA user_version = 12;')
+  legacy.exec('DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state; ALTER TABLE metadata_jobs DROP COLUMN request_method; ALTER TABLE metadata_jobs DROP COLUMN request_json; DELETE FROM schema_migrations WHERE version > 12; PRAGMA user_version = 12;')
   legacy.close()
   const bytes = await readFile(path)
   manifest.schemaVersion = 12
   delete manifest.counts.metadata_provider_state
+  delete manifest.counts.catalog_asset_files
   manifest.files.find(file => file.path === 'maindulu.sqlite').size = bytes.length
   manifest.files.find(file => file.path === 'maindulu.sqlite').checksum = createHash('sha256').update(bytes).digest('hex')
   await writeFile(join(target, 'manifest.json'), JSON.stringify(manifest))
@@ -84,7 +85,7 @@ async function historicalMetadataBackup(c, version, name) {
   const manifest = await createDataBackup(c.config, target)
   const path = join(target, 'maindulu.sqlite')
   const db = new DatabaseSync(path)
-  db.exec('DROP TABLE metadata_provider_state;')
+  db.exec('DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   if (version === 9) {
     db.exec('DROP TABLE game_metadata_field_sources; DROP TABLE game_metadata; DROP TABLE metadata_jobs; DROP TABLE provider_cache; DROP TABLE catalog_revision;')
     for (const table of ['game_metadata_field_sources', 'game_metadata', 'metadata_jobs', 'provider_cache']) delete manifest.counts[table]
@@ -96,6 +97,7 @@ async function historicalMetadataBackup(c, version, name) {
   db.close()
   manifest.schemaVersion = version
   delete manifest.counts.metadata_provider_state
+  delete manifest.counts.catalog_asset_files
   const updateManifest = async () => {
     const bytes = await readFile(path)
     const entry = manifest.files.find(file => file.path === 'maindulu.sqlite')
@@ -182,7 +184,7 @@ test('metadata-only backups include active/deleted catalog metadata but delibera
         if (scenario === 'tombstone') c.repo.delete('games', c.actor, row.id)
         if (scenario === 'metadata-only') {
           // Missing ROM bytes do not prevent saving accounts/progress/metadata.
-          await unlink(join(c.config.dataDir, 'games', row.storage_key))
+          await unlink(await c.storage.pathFor('games', row.storage_key))
         }
       } else {
         const folder = { 'orphan-game': 'games', 'orphan-bios': 'bios', 'orphan-cover': 'covers' }[scenario]
@@ -221,7 +223,7 @@ test('schema-7 backups verify and restore without source migration; application 
   // Reconstruct the real milestone-1 shape: no catalog tables/migration/counts.
   const path = join(source, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
-  legacy.exec('DROP TABLE metadata_provider_state;')
+  legacy.exec('DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   legacy.close()
   const original = await readFile(path)
@@ -237,6 +239,7 @@ test('schema-7 backups verify and restore without source migration; application 
   delete manifest.counts.metadata_jobs
   delete manifest.counts.provider_cache
   delete manifest.counts.metadata_provider_state
+  delete manifest.counts.catalog_asset_files
   manifest.files[0] = { path: 'maindulu.sqlite', size: original.length, checksum: createHash('sha256').update(original).digest('hex') }
   await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
   assert.deepEqual(await verifyDataBackup(c.config, source), manifest)
@@ -253,7 +256,7 @@ test('schema-7 backups verify and restore without source migration; application 
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM games').get().n, 0)
   assert.deepEqual(await readFile(path), original)
   const sourceDb = new DatabaseSync(join(c.config.dataDir, 'maindulu.sqlite'))
-  sourceDb.exec('DROP TABLE metadata_provider_state;')
+  sourceDb.exec('DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   sourceDb.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   sourceDb.close()
   await assert.rejects(createDataBackup(c.config, join(c.root, 'legacy-source-refused')), /Versi skema backup/)
@@ -291,7 +294,7 @@ test('schema-8 empty backups verify/restore without migration or ignoring new co
   const manifest = await createDataBackup(c.config, source)
   const path = join(source, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
-  legacy.exec('DROP TABLE metadata_provider_state;')
+  legacy.exec('DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DELETE FROM schema_migrations WHERE version >= 9; PRAGMA user_version = 8;')
   legacy.close()
   const original = await readFile(path)
@@ -305,6 +308,7 @@ test('schema-8 empty backups verify/restore without migration or ignoring new co
   delete manifest.counts.metadata_jobs
   delete manifest.counts.provider_cache
   delete manifest.counts.metadata_provider_state
+  delete manifest.counts.catalog_asset_files
   manifest.files[0] = { path: 'maindulu.sqlite', size: original.length, checksum: createHash('sha256').update(original).digest('hex') }
   await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
   assert.deepEqual(await verifyDataBackup(c.config, source), manifest)
@@ -356,7 +360,7 @@ test('restoring catalog metadata keeps save IDs and cover references; explicit m
   const restored = join(c.root, 'restored')
   await restoreDataBackup(c.config, source, restored)
   c.db = await openDatabase(restored)
-  c.storage = await createCatalogStorage({ ...c.config, dataDir: restored })
+  c.storage = await createCatalogStorage({ ...c.config, dataDir: restored }, c.db)
   c.repo = createCatalogRepository(c.db, c.storage)
   assert.deepEqual(c.repo.get('games', game.id), game)
   assert.deepEqual(c.repo.get('bios', bios.id), bios)
@@ -406,7 +410,7 @@ test('format 2 requires its explicit scope, refuses injected asset files and val
 test('concurrent repairs of one missing active asset publish exactly once and cannot overwrite a healthy or unsafe file', async t => {
   const c = await setup(t)
   const row = await c.publish()
-  const path = join(c.config.dataDir, 'games', row.storage_key)
+  const path = await c.storage.pathFor('games', row.storage_key)
   await unlink(path)
   const args = { title: 'Ignored', consoleId: 'nes', fileName: 'fixture.zip' }
   const stage = () => c.storage.stage('games', Readable.from([Buffer.from('test bytes')]))
@@ -416,15 +420,15 @@ test('concurrent repairs of one missing active asset publish exactly once and ca
   const other = await openDatabase(c.config.dataDir)
   let results
   try {
-    const storage = await createCatalogStorage(c.config), repo = createCatalogRepository(other, storage)
+    const storage = await createCatalogStorage(c.config, other), repo = createCatalogRepository(other, storage)
     const stages = await Promise.all([stage(), storage.stage('games', Readable.from([Buffer.from('test bytes')]))])
     results = await Promise.allSettled([c.repo.publish('games', c.actor, args, stages[0], { restoreId: row.id }), repo.publish('games', c.actor, args, stages[1], { restoreId: row.id })])
   } finally { other.close() }
   assert.equal(results.filter(r => r.status === 'fulfilled').length, 1)
-  assert.equal(results.find(r => r.status === 'rejected').reason.code, 'CATALOG_DUPLICATE')
+  assert.ok(['CATALOG_DUPLICATE', 'CATALOG_FILENAME_CONFLICT'].includes(results.find(r => r.status === 'rejected').reason.code))
   const repaired = c.repo.get('games', row.id)
   assert.notEqual(repaired.storage_key, row.storage_key)
-  await link(join(c.config.dataDir, 'games', repaired.storage_key), join(c.root, 'hardlink'))
+  await link(await c.storage.pathFor('games', repaired.storage_key), join(c.root, 'hardlink'))
   await assert.rejects(c.repo.publish('games', c.actor, args, await stage(), { restoreId: row.id }), /tidak aman/)
   assert.equal(c.repo.get('games', row.id).storage_key, repaired.storage_key)
 })

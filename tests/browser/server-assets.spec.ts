@@ -33,7 +33,7 @@ test.beforeAll(async ({}, info) => {
   const db = app.getDecorator<DatabaseSync>('database')
   actor = randomUUID()
   db.prepare('INSERT INTO users (id, username, password_hash, recovery_code_hash, created_at, role) VALUES (?, ?, ?, ?, ?, ?)').run(actor, 'm2_admin', 'test-only', 'test-only', Date.now(), 'admin')
-  const storage = await createCatalogStorage(app.getDecorator('appConfig'))
+  const storage = await createCatalogStorage(app.getDecorator('appConfig'), app.database)
   repo = createCatalogRepository(db, storage)
   game = catalogDto('games', await repo.publish('games', actor, { title: 'M2 synthetic ROM', consoleId: 'nes', fileName: 'test game.nes' }, await storage.stage('games', Readable.from([rom]))))
   bios = catalogDto('bios', await repo.publish('bios', actor, { name: 'M2 synthetic BIOS', consoleId: 'nes', fileName: 'firmware.bin' }, await storage.stage('bios', Readable.from([firmware]))))

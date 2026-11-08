@@ -44,11 +44,15 @@ test.beforeAll(async ({}, info) => {
   app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data') } })
   const db = app.getDecorator<DatabaseSync>('database'), actor = randomUUID()
   db.prepare('INSERT INTO users (id, username, password_hash, recovery_code_hash, created_at, role) VALUES (?, ?, ?, ?, ?, ?)').run(actor, 'm3_admin', 'test-only', 'test-only', Date.now(), 'admin')
-  const storage = await createCatalogStorage(app.getDecorator('appConfig'))
+  const storage = await createCatalogStorage(app.getDecorator('appConfig'), app.database)
   const repo = createCatalogRepository(db, storage)
   game = catalogDto('games', await repo.publish('games', actor, { title: 'M3 Battery', consoleId: 'nes', fileName: 'battery test.nes' }, await storage.stage('games', Readable.from([rom]))))
   const changed = Buffer.from(rom); changed[1000] ^= 1 // Unused PRG padding: same size/name, different bytes.
-  other = catalogDto('games', await repo.publish('games', actor, { title: 'M3 Other', consoleId: 'nes', fileName: 'battery test.nes' }, await storage.stage('games', Readable.from([changed]))))
+  // Historical UUID assets may share an original basename. Keep this legacy
+  // fixture to prove old cache identities still cannot alias after the change;
+  // NEW platform-folder uploads intentionally reject such a name collision.
+  const legacyRepo = createCatalogRepository(db, { ...storage, promote: (value: Parameters<typeof storage.promote>[0]) => storage.promote(value) })
+  other = catalogDto('games', await legacyRepo.publish('games', actor, { title: 'M3 Other', consoleId: 'nes', fileName: 'battery test.nes' }, await storage.stage('games', Readable.from([changed]))))
   bios = catalogDto('bios', await repo.publish('bios', actor, { name: 'M3 Firmware', consoleId: 'nes', fileName: 'firmware-test.bin' }, await storage.stage('bios', Readable.from([firmware]))))
   app.server.prependListener('request', (request, response) => {
     if (![game.url, other.url, bios.url].includes(request.url!)) return
