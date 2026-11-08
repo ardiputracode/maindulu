@@ -14,8 +14,9 @@ export class CatalogClientError extends Error {
   status: number
   code: string
   existingId?: string
-  constructor(message: string, status = 0, code = '', existingId?: string) {
-    super(message); this.status = status; this.code = code; this.existingId = existingId
+  fileMissing: boolean
+  constructor(message: string, status = 0, code = '', existingId?: string, fileMissing = false) {
+    super(message); this.status = status; this.code = code; this.existingId = existingId; this.fileMissing = fileMissing
   }
 }
 
@@ -38,7 +39,7 @@ export function catalogResponseError(value: unknown, status: number): CatalogCli
   const data = record(value) ? value : {}
   const fallback = status === 401 ? 'Sesi berakhir. Masuk kembali untuk mengelola koleksi.' : status === 403 ? 'Akses admin atau pemeriksaan keamanan ditolak. Periksa kembali sesi akun.' :
     status === 413 ? 'Ukuran upload melebihi batas server.' : status === 429 ? 'Upload server sedang sibuk. Tunggu sebentar lalu coba lagi.' : status === 507 ? 'Storage server penuh. Upload tidak diterbitkan.' : 'Permintaan katalog gagal. Coba lagi.'
-  return new CatalogClientError(typeof data.error === 'string' ? data.error : fallback, status, typeof data.code === 'string' ? data.code : '', typeof data.existingId === 'string' && uuid.test(data.existingId) ? data.existingId : undefined)
+  return new CatalogClientError(typeof data.error === 'string' ? data.error : fallback, status, typeof data.code === 'string' ? data.code : '', typeof data.existingId === 'string' && uuid.test(data.existingId) ? data.existingId : undefined, data.fileMissing === true)
 }
 
 export async function adminRequest(path: string, init: RequestInit = {}): Promise<unknown> {

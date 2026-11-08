@@ -221,7 +221,7 @@ for (const action of ['detail', 'scan']) test(`M6 legacy catalog ${action} initi
   c.db.exec('DELETE FROM metadata_jobs; DELETE FROM game_metadata_field_sources; DELETE FROM game_metadata;')
   const revision = c.db.prepare('SELECT revision FROM catalog_revision').get().revision
   if (action === 'scan') {
-    const queued = enqueueMetadata(c.db, config, c.game)
+    const queued = enqueueMetadata(c.db, config, c.game, { replaceLocked: false })
     assert.equal(queued.status, 'queued')
     await c.worker.processOne()
   }

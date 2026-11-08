@@ -469,8 +469,10 @@ test('metadata-only backup restores accounts/saves but no ROM/BIOS; admin explic
       await dialog.getByLabel('Console', { exact: true }).selectOption('nes')
       await dialog.getByLabel(kind === 'games' ? 'Berkas ROM' : 'Berkas BIOS / arsip', { exact: true }).setInputFiles({ name: kind === 'games' ? 'renamed.nes' : 'renamed.bin', mimeType: 'application/octet-stream', buffer: data })
       await dialog.getByRole('button', { name: `Upload ${label}`, exact: true }).click()
-      await expect(dialog).toContainText(item.id)
-      await dialog.getByRole('button', { name: 'Pulihkan ID lama', exact: true }).click()
+      await expect(dialog).toContainText(`Berkas ${label} tidak ditemukan.`)
+      await expect(dialog).not.toContainText(item.id)
+      await expect(dialog.getByRole('checkbox', { name: kind === 'games' ? 'Pulihkan game dan gunakan save lama' : 'Pulihkan BIOS', exact: true })).toBeChecked()
+      await dialog.getByRole('button', { name: `Pulihkan ${label}`, exact: true }).click()
       await expect(dialog).toHaveCount(0)
       const fresh = (await (await other.request.get(`/api/${kind}/${item.id}`)).json()).item
       expect(fresh.id).toBe(item.id); expect(fresh.url).toBe(item.url); expect(fresh.sha256).toBe(item.sha256)

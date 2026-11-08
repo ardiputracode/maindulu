@@ -18,7 +18,7 @@ const candidate = { id: '123', systemId: '3', notGame: false,
   metadata: { title: 'Provider title', description: 'Provider description', genre: 'Action',
     media: [{ type: 'box-2D', region: 'us' }] } }
 
-async function fixture(t) {
+async function fixture(t, { scanMetadata = true } = {}) {
   let app
   const root = await backendFixture(t, { beforeCleanup: () => app?.close() })
   app = await createApp({ root, env: {} }) // No provider requests when disabled.
@@ -31,13 +31,13 @@ async function fixture(t) {
     cookie: `maindulu_session=${token}`, 'x-csrf-token': csrfToken(token) }
   const stage = await storage.stage('games', (async function* () { yield rom })())
   const game = await app.catalog.repository.publish('games', actor, { title: 'Admin title', description: '', license: 'Admin rights',
-    consoleId: 'nes', fileName: 'fixture.nes' }, stage)
+    consoleId: 'nes', fileName: 'fixture.nes' }, stage, { scanMetadata })
   const job = db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ?').get(game.id)
   return { app, db, storage, game, job, actor, headers }
 }
 
 test('M4 applies only eligible text on correct tables and preserves ID, ROM, license and manual title', async t => {
-  const { db, storage, game, job } = await fixture(t)
+  const { db, storage, game, job } = await fixture(t, { scanMetadata: false })
   db.prepare(`UPDATE metadata_jobs SET status = 'running', lease_token = ?, lease_expires_at = ? WHERE id = ?`)
     .run('lease', Date.now() + 60000, job.id)
   const claimed = { ...job, lease_token: 'lease', storage_key: game.storage_key }
@@ -154,7 +154,7 @@ test('M4 cover transport pins checked DNS and refuses private destinations and r
 })
 
 test('M4 admin review endpoints require session/CSRF; stale revision and unverified old candidates cannot apply', async t => {
-  const { app, db, game, headers } = await fixture(t)
+  const { app, db, game, headers } = await fixture(t, { scanMetadata: false })
   const path = `/api/admin/games/${game.id}/metadata`
   assert.equal((await app.inject(path)).statusCode, 401)
   const view = await app.inject({ url: path, headers })

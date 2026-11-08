@@ -179,3 +179,7 @@
 .metadata-field { border: 1px solid var(--border, #d4ddd4); border-radius: 10px; padding: 1rem; min-width: 0; }
 .metadata-field p { overflow-wrap: anywhere; white-space: pre-wrap; }
 .metadata-badge { position: absolute; bottom: .5rem; left: .5rem; background: #183e30; color: white; border-radius: 6px; padding: .3rem .5rem; font-size: .75rem; }
+.metadata-toast { max-width: min(620px, calc(100vw - 30px)); white-space: normal; }
+.metadata-toast > svg { flex-shrink: 0; }
+.metadata-toast > span { overflow-wrap: anywhere; }
+.metadata-toast .icon-button { flex-shrink: 0; }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowRight, ArrowUpRight, Check, ChevronRight, CircleHelp, Clock3, Gamepad2, HardDrive, Heart, House, Keyboard, Leaf, LibraryBig, Menu, Monitor, Settings2, ShieldCheck, Sparkles, Upload, Volume2, X } from 'lucide-react'
+import { AlertCircle, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleHelp, Clock3, Gamepad2, HardDrive, Heart, House, Keyboard, Leaf, LibraryBig, Menu, Monitor, Settings2, ShieldCheck, Sparkles, Upload, Volume2, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import ConsoleArt from './components/ConsoleArt'
 import GameCard from './components/GameCard'
@@ -21,6 +21,7 @@ import Library from './components/Library'
 import AssetCacheSettings from './components/AssetCacheSettings'
 import { readManifestGames } from './lib/catalog'
 import { refreshSavedMetadata, useLiveCatalog } from './lib/useLiveCatalog'
+import { useMetadataTasks } from './lib/useMetadataTasks'
 
 const navigation: { path: string; title: string; icon: LucideIcon }[] = [
   { path: '/', title: 'Beranda', icon: House },
@@ -56,6 +57,7 @@ export default function App() {
   const [favorites, setFavorites, favoritesBlocked] = useStored(STORAGE_KEYS.favorites, readGames)
   const [history, setHistory, historyBlocked] = useStored(STORAGE_KEYS.history, readGames)
   const metadataEnabled = backend.state.status === 'online' && backend.state.health.capabilities.metadata === true && backend.state.health.capabilities.gameCatalog === true
+  const metadataTasks = useMetadataTasks(account.state.status === 'authenticated' && account.state.user?.role === 'admin' ? account.state.user.id : null, metadataEnabled)
   const liveCatalog = useLiveCatalog(metadataEnabled, fresh => {
     setFavorites(previous => refreshSavedMetadata(previous, fresh))
     setHistory(previous => refreshSavedMetadata(previous, fresh))
@@ -179,7 +181,7 @@ export default function App() {
             {history.length > 0 && <section className="section"><div className="section-heading"><div><span className="eyebrow">MASIH ADA WAKTU?</span><h2>Terakhir kamu mainkan.</h2></div><Link className="text-link" to="/riwayat">Semua riwayat<ArrowRight size={16} /></Link></div>{cards(history.slice(0, 3), true)}</section>}
             <div className="slow-banner"><span className="slow-icon"><Leaf size={28} strokeWidth={1.2} /></span><div><strong>Nggak harus tamat hari ini.</strong><p>Yang penting, sempat senang sebentar.</p></div><Link to="/cara-bermain" className="text-link">Baru pertama main?<ArrowRight size={16} /></Link></div>
           </>} />
-          <Route path="/admin/*" element={<AdminCatalog backend={backend.state} account={account} consoles={consoles} onLogin={() => setAccountOpen(true)} onRetry={backend.retry} />} />
+          <Route path="/admin/*" element={<AdminCatalog backend={backend.state} account={account} consoles={consoles} onLogin={() => setAccountOpen(true)} onRetry={backend.retry} metadataTasks={metadataTasks} />} />
           <Route path="/console" element={<Explore consoles={consoles} onOpen={open} />} />
           <Route path="/library" element={<Library builtin={games} consoles={consoles} backend={backend.state} onBackendRetry={backend.retry} renderCards={cards} live={metadataEnabled ? liveCatalog : undefined} />} />
           <Route path="/riwayat" element={<><PageHeading eyebrow="KENANGAN YANG BARU DIBUKA" title="Terakhir dimainkan." description="Bukan daftar pekerjaan. Ini daftar kesenanganmu." /><div className="list-toolbar"><span><Clock3 size={16} />{history.length} permainan {!settings.history && '· pencatatan dijeda'}</span>{history.length > 0 && <button className="text-link muted" onClick={() => { if (window.confirm('Hapus semua riwayat bermain? Favorit dan save game tidak akan dihapus.')) { setHistory([]); setToast('Riwayat bermain sudah dibersihkan.') } }}>Bersihkan riwayat</button>}</div>{history.length ? <>{cards(history, true)}<p className="page-footnote">Riwayat bukan save state. Game lokal akan meminta file ROM yang sama saat dibuka kembali.</p></> : <EmptyState icon={Clock3} title="Belum ada jejak jempol." text={settings.history ? 'Mulai satu permainan. Kenangan yang baru dibuka akan muncul di sini.' : 'Pencatatan riwayat sedang dimatikan. Kamu tetap bisa bermain tanpa meninggalkan daftar.'} action="Cari permainan" onClick={() => navigate('/console')} />}</>} />
@@ -196,7 +198,7 @@ export default function App() {
     </div>
     {selection && <SetupDialog selection={selection} consoles={consoles} builtinGames={games} biosList={biosList} backend={backend.state} onBackendRetry={backend.retry} onClose={() => setSelection(null)} onLaunch={launch} />}
     {accountOpen && accountsEnabled && <AccountDialog account={account} onClose={() => setAccountOpen(false)} />}
-    {toast && <div className="toast" role="status"><Check size={17} />{toast}</div>}
+    {metadataTasks.notification ? <div className="toast metadata-toast" role="status" aria-live="polite">{metadataTasks.notification.tone === 'success' ? <Check size={17} /> : <AlertCircle size={17} />}<span>{metadataTasks.notification.text}</span><button type="button" className="icon-button" aria-label="Tutup notifikasi metadata" onClick={metadataTasks.dismiss}><X size={17} /></button></div> : toast && <div className="toast" role="status"><Check size={17} />{toast}</div>}
   </div>
 }
 

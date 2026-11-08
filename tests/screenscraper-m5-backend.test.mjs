@@ -24,9 +24,9 @@ async function adminFixture(t, metadataDependencies, enabled = false) {
   return { app, db, actor, headers }
 }
 
-async function publish(c, title = '', bytes = Buffer.from('abc'), fileName = 'temporary_title.nes') {
+async function publish(c, title = '', bytes = Buffer.from('abc'), fileName = 'temporary_title.nes', options = {}) {
   const stage = await c.app.catalog.storage.stage('games', (async function* () { yield bytes })())
-  return c.app.catalog.repository.publish('games', c.actor, { title, description: '', license: 'rights', consoleId: 'nes', fileName }, stage)
+  return c.app.catalog.repository.publish('games', c.actor, { title, description: '', license: 'rights', consoleId: 'nes', fileName }, stage, options)
 }
 function candidate(id = '123', title = 'Provider title') {
   const hash = alg => createHash(alg).update('abc').digest('hex')
@@ -58,7 +58,7 @@ test('M5 backend scan requires ready ScreenScraper configuration', async t => {
   assert.equal(response.json().code, 'METADATA_DISABLED')
 })
 
-test('M5 fallback title is unlocked; explicit titles and empty manual description are locked', async t => {
+test('upload titles are provisional with auto-scan; opt-out and subsequent manual edits remain locked', async t => {
   const c = await adminFixture(t)
   const game = await publish(c)
   assert.equal(game.title, 'temporary title')
@@ -68,6 +68,32 @@ test('M5 fallback title is unlocked; explicit titles and empty manual descriptio
   assert.equal(c.db.prepare("SELECT locked FROM game_metadata_field_sources WHERE game_id = ? AND field = 'description'").get(game.id).locked, 1)
   assert.equal((await c.app.inject({ method: 'PATCH', url: `/api/admin/games/${game.id}`, headers: c.headers, payload: { title: 'Old tab', expectedRevision: 1 } })).statusCode, 409)
   assert.equal(c.db.prepare("SELECT locked FROM game_metadata_field_sources WHERE game_id = ? AND field = 'title'").get(game.id).locked, 0)
+  const titled = await publish(c, 'Upload title', Buffer.from('titled'), 'titled.nes')
+  assert.equal(c.db.prepare("SELECT locked FROM game_metadata_field_sources WHERE game_id = ? AND field = 'title'").get(titled.id).locked, 0)
+  const edited = await c.app.inject({ method: 'PATCH', url: `/api/admin/games/${titled.id}`, headers: c.headers, payload: { title: 'Admin choice', expectedRevision: 1 } })
+  assert.equal(edited.statusCode, 200, edited.body)
+  assert.equal(c.db.prepare("SELECT locked FROM game_metadata_field_sources WHERE game_id = ? AND field = 'title'").get(titled.id).locked, 1)
+  const optedOut = await publish(c, 'No scan', Buffer.from('opt-out'), 'opt-out.nes', { scanMetadata: false })
+  assert.equal(c.db.prepare("SELECT locked FROM game_metadata_field_sources WHERE game_id = ? AND field = 'title'").get(optedOut.id).locked, 1)
+  assert.equal(c.db.prepare('SELECT status FROM metadata_jobs WHERE game_id = ?').get(optedOut.id).status, 'disabled')
+})
+
+test('verified upload scan replaces provisional title and fills metadata/cover without manual apply', async t => {
+  const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: '#00cc00' } }).png().toBuffer()
+  const result = candidate()
+  Object.assign(result.metadata, { releaseDate: '1988-02-02', developer: 'Konami', publisher: 'Konami', players: '1-2', regionLanguage: 'us/en' })
+  const c = await adminFixture(t, { clientFactory: () => ({ searchByHash: async () => ({ method: 'hash', systemId: '3', candidates: [result] }) }), downloadCover: async () => ({ bytes: png, type: 'image/png' }) }, true)
+  const game = await publish(c, 'Temporary upload title')
+  assert.equal(await c.app.catalog.worker.processOne(), true)
+  const after = c.app.catalog.repository.get('games', game.id)
+  assert.equal(after.title, 'Provider title')
+  assert.equal(after.description, 'Synopsis')
+  for (const field of ['id', 'sha256', 'size', 'storage_key', 'console_id', 'license']) assert.equal(after[field], game[field])
+  assert.ok(after.cover_storage_key)
+  const meta = c.db.prepare('SELECT * FROM game_metadata WHERE game_id = ?').get(game.id)
+  for (const [key, value] of Object.entries({ release_date: '1988-02-02', genre: 'Action', developer: 'Konami', publisher: 'Konami', players: '1-2', region_language: 'us/en', match_method: 'hash' })) assert.equal(meta[key], value)
+  assert.equal(c.db.prepare('SELECT status FROM metadata_jobs WHERE game_id = ?').get(game.id).status, 'succeeded')
+  assert.deepEqual({ ...c.db.prepare("SELECT source, locked FROM game_metadata_field_sources WHERE game_id = ? AND field = 'title'").get(game.id) }, { source: 'screenscraper', locked: 0 })
 })
 
 test('M5 name search is queued, idempotent, shared across workers; manual candidate fields including cover apply with CAS', async t => {
@@ -96,6 +122,58 @@ test('M5 name search is queued, idempotent, shared across workers; manual candid
   assert.equal(c.db.prepare("SELECT locked FROM game_metadata_field_sources WHERE game_id = ? AND field = 'title'").get(game.id).locked, 1)
   assert.equal(c.db.prepare('SELECT match_method FROM game_metadata WHERE game_id = ?').get(game.id).match_method, 'manual')
   assert.equal((await post(c, game.id, 'apply', { generation: detail.generation, expectedRevision: 1, candidateId: '123', fields: ['title'] })).statusCode, 429)
+})
+
+test('explicit rescan replaces locked metadata and cover by default without manual apply; empty suggestions retain data', async t => {
+  const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: '#00cc00' } }).png().toBuffer()
+  const result = candidate()
+  result.metadata.releaseDate = '1988-02-02'
+  const c = await adminFixture(t, { clientFactory: () => ({ searchByHash: async () => ({ method: 'hash', systemId: '3', candidates: [result] }) }), downloadCover: async () => ({ bytes: png, type: 'image/png' }) }, true)
+  const game = await publish(c, 'Locked title', Buffer.from('abc'), 'locked.nes', { scanMetadata: false })
+  const cover = { stage: await c.app.catalog.storage.stage('covers', [png]), type: 'image/png' }
+  await c.app.catalog.repository.update('games', c.actor, game.id, { description: 'Manual description' }, { cover })
+  const oldCover = c.app.catalog.repository.get('games', game.id).cover_storage_key
+  c.db.prepare("UPDATE game_metadata SET developer = 'Keep developer' WHERE game_id = ?").run(game.id)
+  const queued = await post(c, game.id, 'scan')
+  assert.equal(queued.statusCode, 200, queued.body)
+  assert.equal(await c.app.catalog.worker.processOne(), true)
+  const after = c.app.catalog.repository.get('games', game.id)
+  assert.equal(after.title, 'Provider title')
+  assert.equal(after.description, 'Synopsis')
+  assert.ok(after.cover_storage_key && after.cover_storage_key !== oldCover)
+  for (const field of ['id', 'sha256', 'size', 'storage_key', 'license']) assert.equal(after[field], game[field])
+  const meta = c.db.prepare('SELECT * FROM game_metadata WHERE game_id = ?').get(game.id)
+  assert.equal(meta.release_date, '1988-02-02')
+  assert.equal(meta.developer, 'Keep developer')
+  for (const field of ['title', 'description', 'cover']) assert.deepEqual({ ...c.db.prepare('SELECT source, locked FROM game_metadata_field_sources WHERE game_id = ? AND field = ?').get(game.id, field) }, { source: 'screenscraper', locked: 0 })
+  assert.equal(c.db.prepare('SELECT status FROM metadata_jobs WHERE game_id = ? ORDER BY generation DESC LIMIT 1').get(game.id).status, 'succeeded')
+})
+
+test('rescan can preserve locked fields, validates the option, and never overwrites edits made while queued or running', async t => {
+  for (const timing of ['preserve', 'queued', 'running']) await t.test(timing, async t => {
+    let entered, release
+    const started = new Promise(resolve => { entered = resolve })
+    const hold = new Promise(resolve => { release = resolve })
+    const result = candidate()
+    delete result.metadata.media
+    const c = await adminFixture(t, { clientFactory: () => ({ searchByHash: async () => { entered(); if (timing === 'running') await hold; return { method: 'hash', systemId: '3', candidates: [result] } } }) }, true)
+    const game = await publish(c, 'Locked title', Buffer.from('abc'), 'locked.nes', { scanMetadata: false })
+    assert.equal((await post(c, game.id, 'scan', { replaceLocked: 'true' })).statusCode, 400)
+    assert.equal((await post(c, game.id, 'scan', timing === 'preserve' ? { replaceLocked: false } : {})).statusCode, 200)
+    if (timing === 'queued') await c.app.catalog.repository.update('games', c.actor, game.id, { title: 'New edit' })
+    const work = c.app.catalog.worker.processOne()
+    if (timing === 'running') {
+      await started
+      await c.app.catalog.repository.update('games', c.actor, game.id, { title: 'New edit' })
+      release()
+    }
+    await work
+    const after = c.app.catalog.repository.get('games', game.id)
+    assert.equal(after.title, timing === 'preserve' ? 'Locked title' : 'New edit')
+    assert.equal(after.description, timing === 'preserve' ? 'Synopsis' : '')
+    assert.equal(c.db.prepare('SELECT status FROM metadata_jobs WHERE game_id = ? ORDER BY generation DESC LIMIT 1').get(game.id).status, timing === 'preserve' ? 'succeeded' : 'needs_review')
+    assert.equal(c.db.prepare("SELECT locked FROM game_metadata_field_sources WHERE game_id = ? AND field = 'title'").get(game.id).locked, 1)
+  })
 })
 
 test('M5 global quota cooldown cannot be bypassed by search, retries or a second worker', async t => {

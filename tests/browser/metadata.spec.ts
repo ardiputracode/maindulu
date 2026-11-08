@@ -10,8 +10,9 @@ import { setAccountRoleByAdmin } from '../../server/auth/mutations.mjs'
 import { startPlayer } from './helpers/player'
 import { ScreenScraperError } from '../../server/metadata/screenscraper.mjs'
 import { metadataZip } from '../helpers/metadata-zip.mjs'
+import { screenScraperLimits } from '../../server/metadata/screenscraper-policy.mjs'
 
-type Site = { app: Awaited<ReturnType<typeof createApp>>; address: string; headers: Record<string, string>; release: () => void; restart: () => Promise<void>; mode: 'verified' | 'review' | 'failure'; calls: number; coverFails: boolean; providerTitle?: string }
+type Site = { app: Awaited<ReturnType<typeof createApp>>; address: string; headers: Record<string, string>; release: () => void; restart: () => Promise<void>; mode: 'verified' | 'review' | 'failure' | 'error'; calls: number; coverFails: boolean; providerTitle?: string }
 const test = base.extend<{ site: Site }>({
   site: async ({ context }, use, info) => {
     test.skip(info.project.name !== 'node-backend', 'Metadata memerlukan backend nyata; provider tetap tiruan.')
@@ -30,6 +31,7 @@ const test = base.extend<{ site: Site }>({
         site.calls++
         await Promise.race([gate, new Promise<void>((_, reject) => input.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }))])
         if (site.mode === 'failure') throw new ScreenScraperError('not_found')
+        if (site.mode === 'error') throw new Error('Synthetic provider failure')
         return { method: 'hash', systemId: '3', candidates: site.mode === 'review' ? [makeCandidate('123', 'Kandidat pertama', input), makeCandidate('124', 'Kandidat kedua', input)] : [makeCandidate('123', 'Judul otomatis', input)] }
       }, searchByName: async () => { site.calls++; return { method: 'name', systemId: '3', candidates: [makeCandidate('123', 'Kandidat pertama'), makeCandidate('124', 'Kandidat kedua')] } } }),
       downloadCover: async () => { if (site.coverFails) throw new Error('Synthetic cover failure'); return { bytes: png, type: 'image/png' } },
@@ -54,11 +56,14 @@ const test = base.extend<{ site: Site }>({
   },
 })
 
-async function upload(page: Page, site: Site, archived = false) {
+async function upload(page: Page, site: Site, archived = false, title = '', scan = true) {
   await page.goto(site.address + '/admin/games')
   await page.getByRole('button', { name: 'Upload game', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByLabel('Scan metadata otomatis')).toBeEnabled()
+  await expect(dialog.getByLabel('Scan metadata otomatis')).toBeChecked()
+  if (!scan) await dialog.getByLabel('Scan metadata otomatis').uncheck()
+  if (title) await dialog.getByLabel('Judul game', { exact: true }).fill(title)
   await dialog.getByLabel('Console', { exact: true }).selectOption('nes')
   const data = await readFile('public/games/jalan-pulang.nes')
   await dialog.getByLabel('Berkas ROM', { exact: true }).setInputFiles({ name: archived ? 'sementara.zip' : 'sementara.nes', mimeType: 'application/octet-stream', buffer: archived ? metadataZip([{ name: 'demo.nes', data, method: 8 }]) : data })
@@ -104,6 +109,21 @@ for (const archived of [false, true]) test(`${archived ? 'M7 ZIP' : 'M5 raw'} up
   expect(downloads).toBe(1) // A new title/cover does not invalidate the committed ROM cache.
 })
 
+test('upload with a supplied title automatically applies verified metadata and cover without opening review', async ({ page, site }) => {
+  const game = await upload(page, site, false, 'Judul upload sementara')
+  await expect(page.getByRole('article', { name: 'Judul upload sementara', exact: true })).toBeVisible()
+  await expect.poll(() => site.calls).toBe(1)
+  site.release()
+  await expect(page.getByRole('article', { name: 'Judul otomatis', exact: true })).toBeVisible({ timeout: 15000 })
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const latest = (await (await page.request.get(site.address + '/api/games/' + game.id)).json()).item
+  expect(latest.title).toBe('Judul otomatis')
+  expect(latest.description).toBe('Sinopsis fixture')
+  expect(latest.cover).toBeTruthy()
+  expect(latest.id).toBe(game.id)
+  expect(latest.sha256).toBe(game.sha256)
+})
+
 test('M5 candidate selection, preview, explicit field apply and unlock work on mobile with focus restoration', async ({ page, site }) => {
   site.mode = 'review'
   await page.setViewportSize({ width: 390, height: 844 })
@@ -131,6 +151,36 @@ test('M5 candidate selection, preview, explicit field apply and unlock work on m
   await page.screenshot({ path: test.info().outputPath('metadata-mobile.png'), fullPage: true })
 })
 
+test('rescan applies verified suggestions including locked title by default, with an option to preserve locks', async ({ page, site }) => {
+  const game = await upload(page, site)
+  site.release()
+  const metadataUrl = site.address + `/api/admin/games/${game.id}/metadata`
+  await expect.poll(async () => (await (await page.request.get(metadataUrl)).json()).status).toBe('succeeded')
+  for (const preserve of [false, true]) {
+    await page.getByRole('article', { name: 'Judul otomatis', exact: true }).getByRole('button', { name: 'Edit metadata' }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByLabel('Judul game', { exact: true }).fill('Judul terkunci')
+    await dialog.getByRole('button', { name: 'Simpan metadata' }).click()
+    await expect(dialog).toHaveCount(0)
+    site.app.database.prepare('UPDATE metadata_provider_state SET next_at = 0 WHERE id = 1').run()
+    await page.getByRole('article', { name: 'Judul terkunci', exact: true }).getByRole('button', { name: 'Review / scan metadata' }).click()
+    const replace = dialog.getByRole('checkbox', { name: 'Ganti juga metadata yang terkunci saat scan ulang', exact: true })
+    await expect(replace).toBeChecked()
+    if (preserve) await replace.uncheck()
+    const before = (await (await page.request.get(metadataUrl)).json()).generation
+    await dialog.getByRole('button', { name: 'Scan ulang', exact: true }).click()
+    await expect.poll(async () => {
+      const detail = (await (await page.request.get(metadataUrl)).json())
+      return detail.generation > before && detail.status === 'succeeded'
+    }).toBe(true)
+    const detail = (await (await page.request.get(metadataUrl)).json())
+    expect(detail.preview.fields.title.current).toBe(preserve ? 'Judul terkunci' : 'Judul otomatis')
+    expect(detail.preview.fields.title.locked).toBe(preserve)
+    await dialog.getByRole('button', { name: 'Tutup', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+  }
+})
+
 test('M5 edit during lookup wins; unchanged form fields are not overwritten or locked', async ({ page, site }) => {
   const game = await upload(page, site)
   await expect.poll(() => site.calls).toBe(1)
@@ -149,6 +199,89 @@ test('M5 edit during lookup wins; unchanged form fields are not overwritten or l
   await dialog.getByRole('button', { name: 'Simpan metadata' }).click()
   const after = (await (await page.request.get(site.address + `/api/admin/games/${game.id}/metadata`)).json())
   expect(after.preview.fields.description.locked).toBe(false)
+})
+
+for (const mode of ['verified', 'review', 'failure'] as const) test(`rescan survives closing review and SPA navigation, notifying ${mode} once`, async ({ page, site }) => {
+  site.mode = mode
+  const game = await upload(page, site, false, 'Contra', false)
+  await page.getByRole('article', { name: 'Contra', exact: true }).getByRole('button', { name: 'Review / scan metadata' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: 'Scan ulang', exact: true }).click()
+  await expect.poll(() => site.calls).toBe(1)
+  await expect(dialog).toContainText('Scan tetap berjalan di latar belakang')
+  await dialog.getByRole('button', { name: 'Tutup', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await page.getByRole('link', { name: 'Library game', exact: true }).click()
+  site.release()
+  const toast = page.locator('.metadata-toast')
+  await expect(toast).toContainText(mode === 'verified' ? 'Metadata Contra berhasil diperbarui.' : mode === 'review' ? 'Hasil scan Contra perlu ditinjau.' : 'Metadata Contra tidak ditemukan.', { timeout: 15000 })
+  const detail = (await (await page.request.get(site.address + `/api/admin/games/${game.id}/metadata`)).json())
+  expect(detail.status).toBe(mode === 'verified' ? 'succeeded' : mode === 'review' ? 'needs_review' : 'not_found')
+  await toast.getByRole('button', { name: 'Tutup notifikasi metadata' }).click()
+  await expect(toast).toHaveCount(0)
+  // Reopen and refetch the same generation: no duplicate completion toast.
+  await page.getByRole('link', { name: 'Admin', exact: true }).click()
+  await page.getByRole('link', { name: 'Manage Game', exact: true }).click()
+  await page.getByRole('article', { name: mode === 'verified' ? 'Judul otomatis' : 'Contra', exact: true }).getByRole('button', { name: 'Review / scan metadata' }).click()
+  await expect(dialog).toContainText(mode === 'verified' ? 'Metadata selesai' : mode === 'review' ? 'Perlu ditinjau' : 'Tidak ditemukan')
+  await expect.poll(() => site.calls).toBe(1)
+  await expect(toast).toHaveCount(0)
+})
+
+test('closing review before the scan response arrives does not cancel task submission', async ({ page, site }) => {
+  await upload(page, site, false, 'Contra', false)
+  let releaseRequest = () => {}, requestStarted = () => {}
+  const held = new Promise<void>(resolve => { releaseRequest = resolve })
+  const started = new Promise<void>(resolve => { requestStarted = resolve })
+  await page.route('**/metadata/scan', async route => { requestStarted(); await held; await route.continue() })
+  try {
+    await page.getByRole('article', { name: 'Contra', exact: true }).getByRole('button', { name: 'Review / scan metadata' }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'Scan ulang', exact: true }).click()
+    await started
+    await dialog.getByRole('button', { name: 'Tutup', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await page.getByRole('link', { name: 'Library game', exact: true }).click()
+    releaseRequest()
+    await expect.poll(() => site.calls).toBe(1)
+    site.release()
+    await expect(page.locator('.metadata-toast')).toContainText('Metadata Contra berhasil diperbarui.', { timeout: 15000 })
+  } finally { releaseRequest() }
+})
+
+test('logout stops private metadata tracking without cancelling the server scan', async ({ page, site }) => {
+  const game = await upload(page, site, false, 'Contra', false)
+  await page.getByRole('article', { name: 'Contra', exact: true }).getByRole('button', { name: 'Review / scan metadata' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: 'Scan ulang', exact: true }).click()
+  await expect.poll(() => site.calls).toBe(1)
+  await dialog.getByRole('button', { name: 'Tutup', exact: true }).click()
+  await page.getByRole('button', { name: /^Akun / }).click()
+  await dialog.getByRole('button', { name: 'Keluar akun', exact: true }).click()
+  await expect(page.locator('.topbar').getByRole('button', { name: 'Masuk ke akun', exact: true })).toBeVisible()
+  site.release()
+  await expect.poll(() => site.app.database.prepare('SELECT status FROM metadata_jobs WHERE game_id = ? ORDER BY generation DESC LIMIT 1').get(game.id)?.status).toBe('succeeded')
+  await expect(page.locator('.metadata-toast')).toHaveCount(0)
+})
+
+test('exhausted rescan retries notify failure after review is closed', async ({ page, site }) => {
+  site.mode = 'error'
+  await site.app.catalog.worker.stop()
+  const game = await upload(page, site, false, 'Contra', false)
+  await page.getByRole('article', { name: 'Contra', exact: true }).getByRole('button', { name: 'Review / scan metadata' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: 'Scan ulang', exact: true }).click()
+  await expect(dialog).toContainText('Tugas dijadwalkan.')
+  site.app.database.prepare("UPDATE metadata_jobs SET attempts = ? WHERE game_id = ? AND status = 'queued'").run(screenScraperLimits.maxAttempts - 1, game.id)
+  const work = site.app.catalog.worker.processOne()
+  try {
+    await expect.poll(() => site.calls).toBe(1)
+    await dialog.getByRole('button', { name: 'Tutup', exact: true }).click()
+    await page.getByRole('link', { name: 'Library game', exact: true }).click()
+    site.release()
+    await work
+    await expect(page.locator('.metadata-toast')).toContainText('Scan Contra gagal. Buka Review metadata untuk mencoba lagi.', { timeout: 15000 })
+  } finally { site.release(); await work }
 })
 
 test('M5 older backend without metadata capability never probes metadata endpoints', async ({ page, site }) => {

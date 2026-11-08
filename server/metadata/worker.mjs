@@ -178,7 +178,9 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
       // lookup or cover download must win at the final transaction.
       const request = JSON.parse(job.request_json ?? '{}')
       const manual = job.request_method === 'apply'
-      const expectedRevision = manual ? request.expectedRevision : db.prepare('SELECT metadata_revision FROM game_metadata WHERE game_id = ?').get(game.id)?.metadata_revision
+      const replaceLocked = job.request_method === 'hash' && request.replaceLocked === true
+      const expectedRevision = manual || job.request_method === 'hash' && Number.isSafeInteger(request.expectedRevision)
+        ? request.expectedRevision : db.prepare('SELECT metadata_revision FROM game_metadata WHERE game_id = ?').get(game.id)?.metadata_revision
       checkCurrent(job, controller.signal)
       let hashes = {}, result, lookupName = game.original_name, identification
       async function identify() {
@@ -262,7 +264,7 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
       let stage, promoted, reservation, warning = null
       try {
         const region = selectScreenScraperCover(candidate)
-        if (region && (manual ? request.fields.includes('cover') : !metadataPreview(db, game.id, candidate)?.fields.cover.locked)) {
+        if (region && (manual ? request.fields.includes('cover') : replaceLocked || !metadataPreview(db, game.id, candidate)?.fields.cover.locked)) {
           setPhase(job, 'cover')
           try {
             if (!maintenance) throw new CoverError('COVER_CAPACITY')
@@ -298,7 +300,7 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
         setPhase(job, 'apply')
         checkCurrent(job, controller.signal)
         const applied = applyVerifiedMetadata(db, storage, { job, candidate, expectedRevision, cover: promoted,
-          manual, selectedFields: manual ? request.fields : null })
+          manual, replaceLocked, selectedFields: manual ? request.fields : null })
         if (applied) {
           finishJob(job, { status: 'succeeded', phase: 'apply', error_code: warning, candidate_json: payload, candidate_at: nowMs() })
         } else {

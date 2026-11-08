@@ -38,7 +38,7 @@ export function registerCatalog(app, config, security, storage, metadataDependen
     if (error.code === 'FST_ERR_HANDLER_TIMEOUT') return reply.code(503).send({ error: 'Waktu pemrosesan upload berakhir. Ulangi upload.', code: 'UPLOAD_TIMEOUT' })
     if (error instanceof CatalogError) {
       const status = ({ INVALID_CATALOG: 400, ADMIN_REQUIRED: 403, CATALOG_NOT_FOUND: 404, CATALOG_DUPLICATE: 409, CATALOG_RESTORE_REQUIRED: 409 })[error.code] ?? 500
-      return reply.code(status).send({ error: error.message, code: error.code, ...(error.id ? { existingId: error.id } : {}) })
+      return reply.code(status).send({ error: error.message, code: error.code, ...(error.id ? { existingId: error.id } : {}), ...(typeof error.fileMissing === 'boolean' ? { fileMissing: error.fileMissing } : {}) })
     }
     if (error.code === 'ENOSPC' || error.code === 'EDQUOT' || error.code?.startsWith('SQLITE_FULL') || error.errcode === 13) {
       return reply.code(507).send({ error: 'Storage penuh. Upload tidak diterbitkan.', code: 'STORAGE_FULL' })
@@ -300,7 +300,7 @@ export function registerCatalog(app, config, security, storage, metadataDependen
       if (!validId(request.params.id)) throw notFound()
       const game = repository.get('games', request.params.id)
       if (!game) throw notFound()
-      return enqueueMetadata(db, config, game, {}, () => security.requireAdmin(request))
+      return enqueueMetadata(db, config, game, { replaceLocked: request.body?.replaceLocked }, () => security.requireAdmin(request))
     })
     api.post('/api/admin/games/:id/metadata/search', { onRequest: async request => { security.protectAdmin(request) } }, async request => {
       if (!validId(request.params.id)) throw notFound()

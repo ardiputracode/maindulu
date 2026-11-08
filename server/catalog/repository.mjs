@@ -59,8 +59,10 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
     return db.prepare(`SELECT * FROM ${kind} WHERE id = ? ${includeDeleted ? '' : 'AND deleted_at IS NULL'}`).get(id) ?? null
   }
   function duplicate(row, missing = false) {
-    return new CatalogError(row.deleted_at === null && !missing ? 'CATALOG_DUPLICATE' : 'CATALOG_RESTORE_REQUIRED',
+    const error = new CatalogError(row.deleted_at === null && !missing ? 'CATALOG_DUPLICATE' : 'CATALOG_RESTORE_REQUIRED',
       missing ? 'Metadata sudah ada, tetapi berkas hilang. Konfirmasi pemulihan ID lama dengan berkas yang sama.' : row.deleted_at === null ? 'Berkas sudah ada pada console ini.' : 'Berkas pernah dihapus; pemulihan ID lama harus dipilih secara eksplisit.', row.id)
+    if (error.code === 'CATALOG_RESTORE_REQUIRED') error.fileMissing = missing
+    return error
   }
   async function promote(kind, stage, options) {
     if (!storage.ownsStage(stage, kind)) throw invalid()
@@ -133,7 +135,9 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
           const nowMeta = Date.now()
           db.prepare(`INSERT OR IGNORE INTO game_metadata (game_id, metadata_revision, created_at, updated_at) VALUES (?, 1, ?, ?)`).run(id, nowMeta, nowMeta)
           if (!previous) {
-            if (titleWasProvided) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'manual', 1, ?)`).run(id, nowMeta)
+            // An upload title is provisional when automatic metadata is enabled.
+            // Later explicit edits still lock the field against provider changes.
+            if (titleWasProvided) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'manual', ?, ?)`).run(id, scanMetadata ? 0 : 1, nowMeta)
             else db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'filename', 0, ?)`).run(id, nowMeta)
             if (v.description) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'description', 'manual', 1, ?)`).run(id, nowMeta)
             else db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'description', 'filename', 0, ?)`).run(id, nowMeta)

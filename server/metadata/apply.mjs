@@ -35,7 +35,7 @@ export function metadataPreview(db, gameId, candidate) {
 
 // All checks and writes are in one short SQLite transaction. A stale lease,
 // generation, asset, revision or override cannot publish metadata or a cover.
-export function applyVerifiedMetadata(db, storage, { job, candidate, expectedRevision, cover = null, selectedFields = null, manual = false, authorize = () => {} }) {
+export function applyVerifiedMetadata(db, storage, { job, candidate, expectedRevision, cover = null, selectedFields = null, manual = false, replaceLocked = false, authorize = () => {} }) {
   if (selectedFields !== null && (!Array.isArray(selectedFields) || !selectedFields.length || selectedFields.some(f => f !== 'cover' && !Object.hasOwn(textFields, f)))) throw new Error('Field metadata tidak valid.')
   if (cover && (!storage.ownsFile(cover.file, 'covers') || !['image/png', 'image/jpeg', 'image/webp'].includes(cover.type))) throw new Error('Cover tidak aman.')
   return transaction(db, () => {
@@ -55,12 +55,12 @@ export function applyVerifiedMetadata(db, storage, { job, candidate, expectedRev
     const now = Date.now()
     for (const [field, [table, column]] of Object.entries(textFields)) {
       const item = preview.fields[field]
-      if (!item.proposed || (!manual && item.locked) || (selectedFields && !selectedFields.includes(field))) continue
+      if (!item.proposed || (!manual && !replaceLocked && item.locked) || (selectedFields && !selectedFields.includes(field))) continue
       db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${table === 'games' ? 'id' : 'game_id'} = ?`).run(item.proposed, job.game_id)
       db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, ?, ?, ?, ?)`).run(job.game_id, sourceField(field), manual ? 'manual' : 'screenscraper', manual ? 1 : 0, now)
       changes.push(field)
     }
-    if (cover && (manual || !preview.fields.cover.locked) && (!selectedFields || selectedFields.includes('cover'))) {
+    if (cover && (manual || replaceLocked || !preview.fields.cover.locked) && (!selectedFields || selectedFields.includes('cover'))) {
       if (game.cover_storage_key) enqueueCleanup(db, 'covers', game.cover_storage_key)
       db.prepare('UPDATE games SET cover_storage_key = ?, cover_type = ?, cover_size = ?, cover_sha256 = ? WHERE id = ?')
         .run(cover.file.key, cover.type, cover.file.size, cover.file.sha256, job.game_id)

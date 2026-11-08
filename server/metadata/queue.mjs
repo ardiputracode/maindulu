@@ -44,11 +44,12 @@ export function metadataDetail(db, game) {
       preview: metadataPreview(db, game.id, c) })) }
 }
 
-export function enqueueMetadata(db, config, game, { method = 'hash', query, candidateId, generation, expectedRevision, fields } = {}, authorize = () => {}) {
+export function enqueueMetadata(db, config, game, { method = 'hash', query, candidateId, generation, expectedRevision, fields, replaceLocked = true } = {}, authorize = () => {}) {
   return transaction(db, () => {
     authorize()
     const ready = getScreenScraperConfigStatus(config.screenscraper)
     if (!ready.ready) throw new CatalogHttpError(409, 'METADATA_DISABLED', ready.enabled ? 'Konfigurasi ScreenScraper belum lengkap.' : 'Fitur metadata ScreenScraper nonaktif.')
+    if (typeof replaceLocked !== 'boolean') throw invalidCatalog('Pilihan penerapan scan tidak valid.')
     ensureLegacyMetadata(db, game)
     const latest = db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ? ORDER BY generation DESC LIMIT 1').get(game.id)
     const now = Date.now()
@@ -57,6 +58,11 @@ export function enqueueMetadata(db, config, game, { method = 'hash', query, cand
     if (gate.next_at > now || (latest && (latest.status === 'failed' || latest.status === 'not_found' && method === 'hash') && latest.next_at > now)) throw new CatalogHttpError(429, 'METADATA_COOLDOWN', 'Scan dibatasi sementara. Tunggu jadwal percobaan berikutnya.')
     if (db.prepare("SELECT COUNT(*) AS n FROM metadata_jobs WHERE status IN ('queued', 'running', 'retry_wait')").get().n >= screenScraperLimits.maxQueuedJobs) throw new CatalogHttpError(429, 'METADATA_QUEUE_FULL', 'Antrean metadata penuh. Coba lagi nanti.')
     let request = null, payload = null
+    if (method === 'hash') {
+      // Explicit rescans may replace existing overrides, but never edits made
+      // after the administrator queued this scan (even before a worker starts).
+      request = { replaceLocked, expectedRevision: db.prepare('SELECT metadata_revision FROM game_metadata WHERE game_id = ?').get(game.id).metadata_revision }
+    }
     if (method === 'name') {
       if (typeof query !== 'string' || !query.trim() || query.length > 200 || /[\x00-\x1f\x7f]/.test(query)) throw invalidCatalog('Isi nama pencarian, maksimum 200 karakter tanpa karakter kontrol.')
       if (!resolveScreenScraperSystem(game.console_id, game.original_name).systemId && !isIdentifiableZip(game.console_id, game.original_name)) throw invalidCatalog('Sistem berkas ini belum dapat dipastikan; pencarian nama belum didukung.')
