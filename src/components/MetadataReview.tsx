@@ -49,7 +49,7 @@ export default function MetadataReview({ id, title, userId, ready, onClose, onDe
       {data ? <><p role="status"><strong>{metadataLabels[data.status]}</strong></p>
         {data.reason && <p className="field-hint">{data.reason.startsWith('COVER_') ? 'Metadata teks selesai, tetapi cover belum tersedia. Cover sebelumnya dipertahankan.' : 'Hasil belum lengkap atau memerlukan tindakan admin.'} <code>{data.reason}</code></p>}
         {data.nextAt && <p>Percobaan berikutnya: {new Date(data.nextAt).toLocaleString('id-ID')}</p>}
-        <p>Arsip dan disc belum didukung untuk pencocokan hash otomatis. Pencarian nama memerlukan konfirmasi; console dan identitas save tidak diubah.</p>
+        <p>ZIP satu ROM raw mendukung pencocokan hash anggota (stored/deflate, maksimum 64 MiB dan rasio 100:1). ZIP multi-berkas, 7z/RAR dan disc PS1 tetap review manual. Pencarian nama memerlukan konfirmasi; console dan identitas save tidak diubah.</p>
         {globalCooldown && <p>Layanan dibatasi sampai {new Date(data.cooldownUntil!).toLocaleString('id-ID')}.</p>}
         <button type="button" className="button secondary small" disabled={busy || !ready || active || cooldown || globalCooldown} onClick={() => void act('scan')}>{data.status === 'failed' || data.status === 'paused' ? 'Coba scan lagi' : 'Scan ulang'}</button>
         <label htmlFor="metadata-search">Nama pencarian manual</label><input id="metadata-search" type="search" maxLength={200} value={query} onChange={e => setQuery(e.target.value)} />

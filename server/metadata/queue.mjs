@@ -4,6 +4,7 @@ import { CatalogHttpError, invalidCatalog } from '../catalog/errors.mjs'
 import { getScreenScraperConfigStatus, resolveScreenScraperSystem } from './screenscraper.mjs'
 import { screenScraperLimits } from './screenscraper-policy.mjs'
 import { metadataPreview } from './apply.mjs'
+import { candidateTarget, isIdentifiableZip } from './identification.mjs'
 
 // Schema-9 catalogs predate metadata rows. Initialize only on explicit admin
 // inspection/scan, preserving historical values as manual, never enqueue here.
@@ -24,7 +25,7 @@ export function storedCandidates(job, game) {
   if (!job || job.asset_fingerprint !== `${game.sha256}:${game.size}` || !job.candidate_at || Date.now() - job.candidate_at > screenScraperLimits.reviewRetentionMs) return []
   try {
     const payload = JSON.parse(job.candidate_json)
-    const target = resolveScreenScraperSystem(game.console_id, game.original_name)
+    const target = candidateTarget(game.console_id, game.original_name, payload.identification)
     return Array.isArray(payload.candidates) ? payload.candidates.slice(0, screenScraperLimits.maxCandidates)
       .filter(c => c && /^[1-9][0-9]{0,19}$/.test(c.id) && c.systemId === target.systemId && c.notGame === false && c.metadata) : []
   } catch { return [] }
@@ -58,7 +59,7 @@ export function enqueueMetadata(db, config, game, { method = 'hash', query, cand
     let request = null, payload = null
     if (method === 'name') {
       if (typeof query !== 'string' || !query.trim() || query.length > 200 || /[\x00-\x1f\x7f]/.test(query)) throw invalidCatalog('Isi nama pencarian, maksimum 200 karakter tanpa karakter kontrol.')
-      if (!resolveScreenScraperSystem(game.console_id, game.original_name).systemId) throw invalidCatalog('Sistem berkas ini belum dapat dipastikan; pencarian nama belum didukung.')
+      if (!resolveScreenScraperSystem(game.console_id, game.original_name).systemId && !isIdentifiableZip(game.console_id, game.original_name)) throw invalidCatalog('Sistem berkas ini belum dapat dipastikan; pencarian nama belum didukung.')
       request = { query: query.trim() }
     }
     if (method === 'apply') {
@@ -68,7 +69,9 @@ export function enqueueMetadata(db, config, game, { method = 'hash', query, cand
       const allowed = ['title', 'description', 'releaseDate', 'genre', 'developer', 'publisher', 'players', 'regionLanguage', 'cover']
       if (!Array.isArray(fields) || !fields.length || fields.length > 9 || new Set(fields).size !== fields.length || fields.some(f => !allowed.includes(f))) throw invalidCatalog('Pilih field metadata yang valid.')
       request = { candidateId, expectedRevision, fields }
-      payload = JSON.stringify({ candidates: [candidate], method: 'manual', systemId: candidate.systemId })
+      const previous = JSON.parse(latest.candidate_json)
+      payload = JSON.stringify({ candidates: [candidate], method: 'manual', systemId: candidate.systemId,
+        identification: previous.identification, fingerprint: previous.fingerprint })
     }
     const nextGeneration = (latest?.generation ?? 0) + 1
     // An explicit admin retry can resume an authentication pause, never a cooldown.

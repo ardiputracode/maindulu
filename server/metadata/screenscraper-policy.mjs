@@ -40,7 +40,9 @@ export const screenScraperLimits = Object.freeze({
 })
 
 // Extension eligibility is not proof of a valid ROM or of provider coverage.
-// Do not strip headers, unzip, swap bytes or hash a disc track in this MVP.
+// Never pass a container to this raw evidence gate. M7's bounded ZIP identifier
+// supplies the member basename and fingerprint separately; no header stripping,
+// byte swapping or disc-track assumptions are allowed here.
 const formats = Object.freeze({
   nes: Object.freeze({ raw: ['nes'], review: ['fds', 'unf', 'unif'] }),
   snes: Object.freeze({ raw: ['sfc'], review: ['smc', 'fig', 'swc'] }),

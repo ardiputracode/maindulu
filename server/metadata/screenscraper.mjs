@@ -106,6 +106,12 @@ const MESSAGES = Object.freeze({
   unsupported_format: 'Format ROM belum didukung untuk lookup hash.',
   invalid_target: 'Target sistem/format ROM tidak valid.',
   invalid_fingerprint: 'Fingerprint ROM tidak valid.',
+  archive_invalid: 'ZIP rusak atau tidak konsisten; gunakan pencarian nama dan review manual.',
+  archive_limits: 'ZIP melewati batas aman identifikasi; gunakan pencarian nama dan review manual.',
+  archive_ambiguous: 'ZIP berisi beberapa berkas atau nama ambigu; scan otomatis tidak diterapkan.',
+  archive_unsupported: 'Isi atau metode ZIP belum didukung; gunakan review manual.',
+  asset_mismatch: 'Fingerprint aset berubah atau tidak sesuai; scan dihentikan.',
+  identification_timeout: 'Identifikasi ZIP melewati batas waktu; scan dihentikan.',
   provider_error: 'ScreenScraper mengembalikan kegagalan HTTP.',
   quota_unknown: 'Kuota ScreenScraper belum dapat diverifikasi. Scan dijeda.',
 })

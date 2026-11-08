@@ -9,6 +9,7 @@ import { createApp } from '../../server/app.mjs'
 import { setAccountRoleByAdmin } from '../../server/auth/mutations.mjs'
 import { startPlayer } from './helpers/player'
 import { ScreenScraperError } from '../../server/metadata/screenscraper.mjs'
+import { metadataZip } from '../helpers/metadata-zip.mjs'
 
 type Site = { app: Awaited<ReturnType<typeof createApp>>; address: string; headers: Record<string, string>; release: () => void; restart: () => Promise<void>; mode: 'verified' | 'review' | 'failure'; calls: number; coverFails: boolean; providerTitle?: string }
 const test = base.extend<{ site: Site }>({
@@ -53,21 +54,22 @@ const test = base.extend<{ site: Site }>({
   },
 })
 
-async function upload(page: Page, site: Site) {
+async function upload(page: Page, site: Site, archived = false) {
   await page.goto(site.address + '/admin/games')
   await page.getByRole('button', { name: 'Upload game', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByLabel('Scan metadata otomatis')).toBeEnabled()
   await dialog.getByLabel('Console', { exact: true }).selectOption('nes')
-  await dialog.getByLabel('Berkas ROM', { exact: true }).setInputFiles({ name: 'sementara.nes', mimeType: 'application/octet-stream', buffer: await readFile('public/games/jalan-pulang.nes') })
+  const data = await readFile('public/games/jalan-pulang.nes')
+  await dialog.getByLabel('Berkas ROM', { exact: true }).setInputFiles({ name: archived ? 'sementara.zip' : 'sementara.nes', mimeType: 'application/octet-stream', buffer: archived ? metadataZip([{ name: 'demo.nes', data, method: 8 }]) : data })
   await dialog.getByRole('button', { name: 'Upload game', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.getByRole('status').filter({ hasText: 'sudah bisa dimainkan' })).toBeVisible()
   return (await (await page.request.get(site.address + '/api/games')).json()).items[0]
 }
 
-test('M5 upload stays playable while provider is held; another tab refreshes title/cover/favorites without reload or changing the active session', async ({ page, context, site }) => {
-  const game = await upload(page, site)
+for (const archived of [false, true]) test(`${archived ? 'M7 ZIP' : 'M5 raw'} upload stays playable while provider is held; another tab refreshes title/cover/favorites without reload or changing the active session`, async ({ page, context, site }) => {
+  const game = await upload(page, site, archived)
   let downloads = 0
   context.on('request', request => { if (request.method() === 'GET' && request.url() === site.address + game.url) downloads++ })
   await expect.poll(() => site.calls).toBe(1)

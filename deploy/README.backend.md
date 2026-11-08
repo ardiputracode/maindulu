@@ -102,6 +102,8 @@ Periksa `GET /api/admin/metadata/status` memakai sesi admin, lalu coba satu uplo
 
 Runbook lengkap (kuota, retry, shutdown/lease, backup/restore, rollback skema 13, batas format, privasi/atribusi) dan bukti penutupan: [M6 ScreenScraper](../doc/milestone-6-screenscraper-operasi.md). Verifikasi Docker/HTTPS nyata tidak diasumsikan dari tes Node/konfigurasi.
 
+M7 menambah identifikasi ZIP32 satu ROM raw (stored/deflate) melalui worker thread Node.js 24+, **yauzl 3.4.0 terpin**, dan zlib bawaan; tanpa `7z`/`unrar`, executable atau temporary extraction. Jalankan `npm ci`/rebuild image agar dependency dan file worker ikut terpasang; `COPY server ./server` dan dependency produksi yang ada sudah mencakupnya. Batas scan ZIP: arsip 128 MiB, output 64 MiB, rasio 100:1, 64 entri, deadline 30 detik. Upload tetap 768 MiB dan byte aset/save tidak diubah. 7z/RAR/PS1 tetap review; nama/ukuran/hash **anggota ZIP** dapat dibagikan ke provider. Tidak ada env tuning tambahan atau aktivasi otomatis pada secret operator. [Policy resource, error dan batas verifikasi M7](../doc/milestone-7-screenscraper-identifikasi.md).
+
 ### Cache perangkat ROM/BIOS (IndexedDB)
 
 Fitur ini berjalan **di frontend/profil browser**, bukan cache pada server. Tidak perlu Redis, volume cache Docker, atau `.env` baru untuk pemakaian normal. **Default aktif** untuk database/profil baru (M6 rollout); database lama mempertahankan preferensinya, termasuk yang nonaktif. Pengguna dapat mengaktifkan/menonaktifkan melalui **Pengaturan → Cache ROM/BIOS perangkat**. Hanya upload backend dengan descriptor lengkap yang eligible; file lokal/demo/engine tidak ikut disimpan.

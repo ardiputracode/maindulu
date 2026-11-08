@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { transaction } from '../auth/mutations.mjs'
-import { createScreenScraperClient, computeRomHashes, resolveScreenScraperSystem, ScreenScraperError } from './screenscraper.mjs'
+import { createScreenScraperClient, resolveScreenScraperSystem, ScreenScraperError } from './screenscraper.mjs'
+import { identifyCatalogRom, isIdentifiableZip } from './identification.mjs'
 import { metadataCacheKey, readMetadataCache, writeMetadataCache, pruneMetadata } from './cache.mjs'
 import { assessScreenScraperEvidence } from './screenscraper-policy.mjs'
 import { downloadScreenScraperCover, selectScreenScraperCover, CoverError } from './cover.mjs'
@@ -27,7 +28,8 @@ async function abortable(promise, signal) {
 
 function classifyError(code) {
   if (code === 'not_found') return { status: 'not_found', retryable: false }
-  if (code === 'unsupported_format' || code === 'invalid_target' || code === 'invalid_fingerprint') return { status: 'unsupported', retryable: false }
+  if (['unsupported_format', 'invalid_target', 'invalid_fingerprint', 'archive_invalid', 'archive_limits', 'archive_ambiguous', 'archive_unsupported', 'identification_timeout'].includes(code)) return { status: 'unsupported', retryable: false }
+  if (code === 'asset_mismatch') return { status: 'failed', retryable: false }
   if (['auth_rejected', 'forbidden', 'not_configured', 'disabled', 'quota_unknown', 'client_rejected'].includes(code)) return { status: 'paused', retryable: false }
   if (code === 'rate_limited' || code === 'quota_exhausted' || code === 'search_quota_exhausted' || code === 'provider_closed') return { status: 'retry_wait', retryable: true }
   if (code === 'timeout' || code === 'transport' || code === 'invalid_json' || code === 'invalid_envelope' || code === 'response_too_large' || code === 'provider_error' || code === 'bad_request') return { status: 'retry_wait', retryable: true }
@@ -178,7 +180,15 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
       const manual = job.request_method === 'apply'
       const expectedRevision = manual ? request.expectedRevision : db.prepare('SELECT metadata_revision FROM game_metadata WHERE game_id = ?').get(game.id)?.metadata_revision
       checkCurrent(job, controller.signal)
-      let hashes = {}, result
+      let hashes = {}, result, lookupName = game.original_name, identification
+      async function identify() {
+        const file = await storage.open('games', game.storage_key)
+        try {
+          const found = await identifyCatalogRom(file, { consoleId: game.console_id, fileName: game.original_name,
+            size: game.size, sha256: game.sha256, signal: controller.signal })
+          hashes = found.hashes; lookupName = found.fileName; identification = found.identification
+        } finally { await file.close() }
+      }
       const client = clientFactory(config.screenscraper)
       let intervalMs = screenScraperLimits.minRequestIntervalMs
       let quotaChecked = false
@@ -208,43 +218,41 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
       }
       if (manual) {
         result = JSON.parse(job.candidate_json)
+        identification = result.identification
       } else if (job.request_method === 'name') {
+        if (!resolveScreenScraperSystem(game.console_id, lookupName).systemId && isIdentifiableZip(game.console_id, lookupName)) await identify()
         setPhase(job, 'lookup')
-        const target = resolveScreenScraperSystem(game.console_id, game.original_name)
-        result = await lookup(metadataCacheKey(target.systemId, {}, game.original_name, request.query), () => client.searchByName({ consoleId: game.console_id, fileName: game.original_name, query: request.query, signal: controller.signal }))
+        const target = resolveScreenScraperSystem(game.console_id, lookupName)
+        result = await lookup(metadataCacheKey(target.systemId, {}, lookupName, request.query), () => client.searchByName({ consoleId: game.console_id, fileName: lookupName, query: request.query, signal: controller.signal }))
       } else {
-      const target = resolveScreenScraperSystem(game.console_id, game.original_name)
-      if (!target.hashLookup) throw new ScreenScraperError('unsupported_format')
-      setPhase(job, 'identifying')
-      const file = await storage.open('games', game.storage_key)
-      try {
-        hashes = await computeRomHashes(file.createReadStream({ autoClose: false }),
-          { size: game.size, sha256: game.sha256, signal: controller.signal })
-      } finally { await file.close() }
+        setPhase(job, 'identifying')
+        await identify()
+        const target = resolveScreenScraperSystem(game.console_id, lookupName)
 
-      setPhase(job, 'lookup')
-      checkCurrent(job, controller.signal)
-      result = await lookup(metadataCacheKey(target.systemId, hashes, game.original_name), () => client.searchByHash({
-        consoleId: game.console_id,
-        fileName: game.original_name,
-        size: hashes.size,
-        md5: hashes.md5,
-        sha1: hashes.sha1,
-        signal: controller.signal,
-      }))
+        setPhase(job, 'lookup')
+        checkCurrent(job, controller.signal)
+        result = await lookup(metadataCacheKey(target.systemId, hashes, lookupName), () => client.searchByHash({
+          consoleId: game.console_id,
+          fileName: lookupName,
+          size: hashes.size,
+          md5: hashes.md5,
+          sha1: hashes.sha1,
+          signal: controller.signal,
+        }))
       }
       checkCurrent(job, controller.signal)
 
       const candidates = Array.isArray(result.candidates) ? result.candidates : []
       const payload = JSON.stringify({ method: result.method, systemId: result.systemId, candidates,
-        fingerprint: { size: hashes.size, md5: hashes.md5, sha1: hashes.sha1 } })
+        identification,
+        fingerprint: manual ? result.fingerprint : { size: hashes.size, md5: hashes.md5, sha1: hashes.sha1 } })
 
       if (candidates.length === 0) {
         finishJob(job, { status: 'not_found', phase: 'lookup', next_at: nowMs() + screenScraperLimits.negativeCacheTtlMs })
         return
       }
       const evidence = assessScreenScraperEvidence({ method: result.method, consoleId: game.console_id,
-        fileName: game.original_name, size: hashes.size, md5: hashes.md5, sha1: hashes.sha1 }, candidates)
+        fileName: lookupName, size: hashes.size, md5: hashes.md5, sha1: hashes.sha1 }, candidates)
       if (!manual && !evidence.verified) {
         finishJob(job, { status: 'needs_review', phase: 'apply', error_code: evidence.reason,
           candidate_json: payload, candidate_at: nowMs() })
