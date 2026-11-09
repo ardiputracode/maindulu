@@ -159,6 +159,8 @@ docker rmi maindulu-backend
 
 Jangan hapus volume data (`/var/lib/maindulu`) agar akun/save tetap.
 
+Catatan build: jika download `rom-converto` gagal dengan 504 Gateway Time-out, ulangi build (layer sebelumnya di-cache). Periksa koneksi/VPN/proxy; coba lagi nanti. Jangan ubah SHA256 pinning tanpa verifikasi.
+
 Catatan Portainer: jika muncul "The uploaded tar file contained multiple images. The provided tag therefore has been ignored", berarti tar berisi lebih dari satu image/tag. Simpan berdasarkan IMAGE ID tunggal:
 
 ```sh
