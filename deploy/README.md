@@ -8,6 +8,7 @@ Tersedia dua deployment terpisah. Pilih sesuai kebutuhan:
 | Akun, save state/progres server, backup/admin | `deploy/docker-compose.backend.yml` | **[Panduan backend lengkap](README.backend.md)** |
 | Backend + satu folder RomM untuk upload/scan/hapus | Backend + `deploy/docker-compose.shared.yml` | [Folder bersama baca/tulis](../doc/koleksi-folder-bersama.md) |
 | Backend + scan RomM tanpa menulis/menghapus sumber | Backend + `deploy/docker-compose.external.yml` | [Sumber read-only](../doc/koleksi-eksternal-read-only.md) |
+| Stack Portainer satu file, folder bersama, kuota 200 GiB | `deploy/docker-compose.portainer.example.yml` | [Contoh Portainer](../doc/koleksi-folder-bersama.md#portainer-contoh-stack-satu-file-200-gib) |
 
 **Backend 0.3.1 untuk LAN tanpa HTTPS:** salin `deploy/backend.env.example` ke `.env.backend` di akar repo (jangan timpa file yang sudah ada), ganti IP/origin sesuai server, lalu:
 
@@ -54,6 +55,8 @@ Image khusus ini disusun dua tahap (`deploy/Dockerfile`) supaya dependensi build
 | `deploy/docker-compose.shared.yml` | Overlay opt-in folder bersama read-write; Hapus ikut menghapus file sumber RomM. |
 | `deploy/docker-compose.external.yml` | Overlay sumber read-only; upload tetap di penyimpanan internal. |
 | `deploy/backend.env.example` | Contoh opt-in HTTP LAN; salin/edit lalu gunakan `--env-file`. |
+| `deploy/docker-compose.portainer.example.yml` | Stack Portainer standalone, folder bersama read-write, kuota 200 GiB; tanpa kredensial asli. |
+| `deploy/portainer.env.example` | Contoh variabel stack Portainer: origin, folder host, image, volume; secret diisi privat. |
 | `.dockerignore` | Allowlist build kedua image; data privat dan environment tidak ikut ke daemon. |
 
 ## Prasyarat

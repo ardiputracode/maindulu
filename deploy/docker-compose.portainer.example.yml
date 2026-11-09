@@ -1,0 +1,87 @@
+# Stack Portainer STANDALONE, bukan overlay. Image backend terbaru harus sudah
+# dibangun/di-import pada endpoint Docker yang dipilih (tanpa build di stack ini).
+# Isi MAIN_DULU_PUBLIC_ORIGIN, MAIN_DULU_ROM_PATH, MAIN_DULU_BIOS_PATH melalui
+# Environment Portainer. Contoh variabel: deploy/portainer.env.example.
+# HANYA LAN tepercaya: HTTP tidak mengenkripsi password, cookie, atau save.
+# PERHATIAN: Hapus maindulu ikut menghapus file fisik yang dipakai RomM.
+name: maindulu-backend
+
+services:
+  backend:
+    image: "${MAIN_DULU_IMAGE:-maindulu-backend:latest}"
+    init: true
+    user: "1000:1000"
+    ports:
+      - "${MAIN_DULU_BIND_ADDRESS:-0.0.0.0}:${MAIN_DULU_PORT:-7777}:7777"
+    environment:
+      - MAIN_DULU_HOST=0.0.0.0
+      - MAIN_DULU_PORT=7777
+      - MAIN_DULU_DIST_DIR=/app/dist
+      - MAIN_DULU_DATA_DIR=/var/lib/maindulu/data
+      - MAIN_DULU_REGISTRATION_OPEN=${MAIN_DULU_REGISTRATION_OPEN:-true}
+      - MAIN_DULU_PUBLIC_ORIGIN=${MAIN_DULU_PUBLIC_ORIGIN:?Isi origin browser lengkap dengan skema dan port}
+      - MAIN_DULU_ALLOW_INSECURE_HTTP=true
+
+      # Folder yang sama untuk upload, scan, dan hapus. Sumber host harus terpisah.
+      - MAIN_DULU_EXTERNAL_ROM_DIR=/mnt/romm/roms
+      - MAIN_DULU_EXTERNAL_BIOS_DIR=/mnt/romm/bios
+      - MAIN_DULU_EXTERNAL_WRITABLE=true
+
+      - MAIN_DULU_STATE_MAX_BYTES=33554432
+      - MAIN_DULU_GAME_SAVE_MAX_BYTES=8388608
+      - MAIN_DULU_SAVE_QUOTA_BYTES=268435456
+      # 200 GiB, termasuk koleksi bersama dan storage internal/staging.
+      - MAIN_DULU_CATALOG_QUOTA_BYTES=214748364800
+      - MAIN_DULU_CATALOG_MIN_FREE_BYTES=268435456
+      - MAIN_DULU_CATALOG_UPLOAD_LIMIT=2
+      - MAIN_DULU_CATALOG_UPLOAD_TIMEOUT_MS=1800000
+
+      # Tidak ada kredensial asli di YAML. Isi secara privat di Environment
+      # Portainer, baru aktifkan ScreenScraper jika konfigurasi sudah lengkap.
+      - MAIN_DULU_SCREENSCRAPER_ENABLED=${MAIN_DULU_SCREENSCRAPER_ENABLED:-false}
+      - MAIN_DULU_SCREENSCRAPER_DEV_ID=${MAIN_DULU_SCREENSCRAPER_DEV_ID:-}
+      - MAIN_DULU_SCREENSCRAPER_DEV_PASSWORD=${MAIN_DULU_SCREENSCRAPER_DEV_PASSWORD:-}
+      - MAIN_DULU_SCREENSCRAPER_USER=${MAIN_DULU_SCREENSCRAPER_USER:-}
+      - MAIN_DULU_SCREENSCRAPER_PASSWORD=${MAIN_DULU_SCREENSCRAPER_PASSWORD:-}
+      - MAIN_DULU_SCREENSCRAPER_SOFTNAME=maindulu
+      - MAIN_DULU_SCREENSCRAPER_REGION=wor
+      - MAIN_DULU_ROM_CONVERTO_TIMEOUT_MS=30000
+      - MAIN_DULU_CHD_SERIAL_AUTOAPPLY=true
+
+    volumes:
+      - storage:/var/lib/maindulu
+      - type: bind
+        source: "${MAIN_DULU_ROM_PATH:?Isi folder ROM host yang sudah ada}"
+        target: /mnt/romm/roms
+        read_only: false
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${MAIN_DULU_BIOS_PATH:?Isi folder BIOS host yang sudah ada}"
+        target: /mnt/romm/bios
+        read_only: false
+        bind:
+          create_host_path: false
+
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "deploy/healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  storage:
+    # Pakai volume lama yang SUDAH ADA; jangan membuat database baru diam-diam.
+    # Instalasi baru: buat volume ini di Portainer lebih dahulu dan atur izinnya.
+    external: true
+    name: "${MAIN_DULU_STORAGE_VOLUME:-maindulu-backend_storage}"

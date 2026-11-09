@@ -48,6 +48,32 @@ Gunakan dua file dan env-file yang sama pada operasi selanjutnya. Overlay meneta
 
 Serta memasang kedua sumber **read-write** di luar `/var/lib/maindulu`. `create_host_path: false` mencegah salah ketik membuat folder kosong milik root. Root filesystem container tetap read-only; bind mount dan volume data saja writable. Jangan gabungkan `docker-compose.shared.yml` dengan `docker-compose.external.yml`.
 
+## Portainer: contoh stack satu file (200 GiB)
+
+Gunakan **[`deploy/docker-compose.portainer.example.yml`](../deploy/docker-compose.portainer.example.yml)** sebagai isi **Stacks → Add stack → Web editor**, atau pilih file tersebut melalui deployment Git Portainer. Ini stack lengkap (bukan overlay); jangan digabung dengan Compose lain. Kuota katalog ditetapkan **200 GiB = 214748364800 byte**. Default backend/overlay lainnya tetap 20 GiB kecuali dikonfigurasi sendiri.
+
+Isi bagian **Environment variables** stack Portainer menggunakan contoh [`deploy/portainer.env.example`](../deploy/portainer.env.example):
+
+| Variabel | Isi |
+| --- | --- |
+| `MAIN_DULU_PUBLIC_ORIGIN` | URL browser persis, misalnya `http://IP-SERVER:7777` |
+| `MAIN_DULU_ROM_PATH` | Folder ROM di **host**, sudah ada dan writable |
+| `MAIN_DULU_BIOS_PATH` | Folder BIOS host, berbeda/terpisah dari ROM |
+| `MAIN_DULU_STORAGE_VOLUME` | Opsional, default `maindulu-backend_storage`; pastikan volume lama yang benar |
+| `MAIN_DULU_IMAGE` | Opsional, default `maindulu-backend:latest`; image baru sudah di-import/dibangun di endpoint |
+
+Template memakai volume **external yang harus sudah ada** untuk mencegah migrasi tanpa sengaja ke database kosong. Untuk instalasi baru, buat volume privat lebih dahulu dan pastikan UID `1000` bisa menulis data/lock; jangan menghapus atau mengganti volume instalasi lama. Template ini untuk Docker Standalone/Compose, bukan Swarm stack. HTTP tetap hanya untuk LAN tepercaya, bukan internet.
+
+**Aman menyimpan template `.example` ini di Git** karena tidak berisi password/token asli, path UUID disk, atau alamat server operator. Isi kredensial ScreenScraper secara privat di Environment Portainer lalu aktifkan fiturnya. Variabel environment bukan secret vault: admin Docker/Portainer dan output `inspect`/Compose config dapat melihat nilainya. Jangan bagikan output tersebut. File `.env.portainer` di akar repo dan `deploy/docker-compose.portainer.local.yml` diabaikan Git; file yang sudah pernah dilacak tidak otomatis menjadi privat hanya karena `.gitignore`.
+
+Jika ingin menguji lewat Compose CLI dengan file privat dari akar repo:
+
+```sh
+docker compose --env-file .env.portainer -f deploy/docker-compose.portainer.example.yml config --quiet
+```
+
+Variabel env saja tidak membangun image atau memperbarui image lama. Setelah deploy image baru, jalankan **Admin → Scan Koleksi**. **Hapus maindulu akan menghapus file fisik bersama yang dipakai RomM.**
+
 ## Portainer: edit stack yang sudah ada
 
 Pertahankan image baru, environment akun/ScreenScraper milik sendiri, dan **volume data yang sama**. Tambahkan tiga env di atas. Ganti hanya dua mount ROM/BIOS menjadi seperti berikut (path host bisa langsung diisi atau memakai variabel stack):

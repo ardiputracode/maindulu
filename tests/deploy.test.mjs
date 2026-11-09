@@ -47,7 +47,7 @@ test('Docker static deployment remains Nginx-only and its existing ports/healthc
 
 test('external collection overlay pins read-only sources outside private storage and refuses missing host folders', async () => {
   const compose = await text('deploy/docker-compose.backend.yml')
-  for (const name of ['MAIN_DULU_EXTERNAL_ROM_DIR', 'MAIN_DULU_EXTERNAL_BIOS_DIR']) assert.ok(compose.includes('- ' + name + '\n'))
+  for (const name of ['MAIN_DULU_EXTERNAL_ROM_DIR', 'MAIN_DULU_EXTERNAL_BIOS_DIR']) assert.match(compose, new RegExp('^      - ' + name + '\\r?$', 'm'))
   const overlay = await text('deploy/docker-compose.external.yml')
   for (const value of ['MAIN_DULU_EXTERNAL_ROM_DIR=/mnt/romm/roms', 'MAIN_DULU_EXTERNAL_BIOS_DIR=/mnt/romm/bios', 'target: /mnt/romm/roms', 'target: /mnt/romm/bios', '${MAIN_DULU_ROM_PATH:?', '${MAIN_DULU_BIOS_PATH:?']) assert.ok(overlay.includes(value), value)
   assert.equal((overlay.match(/read_only: true/g) ?? []).length, 2)
@@ -64,6 +64,46 @@ test('shared overlay explicitly opts in to write/delete on the same folders with
   assert.doesNotMatch(overlay, /target: \/var\/lib\/maindulu|privileged|chmod|chown/)
   const compose = await text('deploy/docker-compose.backend.yml')
   assert.ok(compose.includes('MAIN_DULU_EXTERNAL_WRITABLE=${MAIN_DULU_EXTERNAL_WRITABLE:-false}'))
+})
+
+test('Portainer standalone example uses 200 GiB, writable sources, existing private volume and no embedded credentials', async () => {
+  const stack = await text('deploy/docker-compose.portainer.example.yml')
+  for (const value of ['name: maindulu-backend', 'image: "${MAIN_DULU_IMAGE:-maindulu-backend:latest}"', 'user: "1000:1000"', 'MAIN_DULU_CATALOG_QUOTA_BYTES=214748364800',
+    'MAIN_DULU_EXTERNAL_WRITABLE=true', 'storage:/var/lib/maindulu', 'external: true', 'name: "${MAIN_DULU_STORAGE_VOLUME:-maindulu-backend_storage}"',
+    '${MAIN_DULU_PUBLIC_ORIGIN:?', '${MAIN_DULU_ROM_PATH:?', '${MAIN_DULU_BIOS_PATH:?', 'MAIN_DULU_SCREENSCRAPER_ENABLED=${MAIN_DULU_SCREENSCRAPER_ENABLED:-false}',
+    'read_only: true', 'no-new-privileges:true', 'cap_drop:', 'stop_grace_period: 30s', '"deploy/healthcheck.mjs"']) assert.ok(stack.includes(value), value)
+  assert.equal((stack.match(/read_only: false/g) ?? []).length, 2)
+  assert.equal((stack.match(/create_host_path: false/g) ?? []).length, 2)
+  assert.doesNotMatch(stack, /^\s+build:|privileged: true|pid: host|target: \/var\/lib\/maindulu|dev-disk-by-uuid|192\.168\.2\.251/m)
+  assert.doesNotMatch(stack, /^\s*- MAIN_DULU_SCREENSCRAPER_(?:DEV_PASSWORD|PASSWORD)=(?!\$\{)\S+/m)
+})
+
+test('Portainer example variables resolve to valid backend settings and private copies are ignored by Git', async () => {
+  const env = Object.fromEntries((await text('deploy/portainer.env.example')).split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith('#')).map(line => {
+    const separator = line.indexOf('=')
+    return [line.slice(0, separator), line.slice(separator + 1)]
+  }))
+  const stack = await text('deploy/docker-compose.portainer.example.yml')
+  const block = stack.split('    environment:')[1].split('    volumes:')[0]
+  const runtime = Object.fromEntries([...block.matchAll(/^      - ([A-Z_]+)=(.*)$/gm)].map(([, key, raw]) => [key, raw.trim().replace(/\$\{([A-Z_]+):([-?])([^}]*)\}/g, (_, name, operator, fallback) => {
+    if (env[name]) return env[name]
+    if (operator === '?') throw new Error('Missing required variable: ' + name)
+    return fallback
+  })]))
+  const config = await readConfig(runtime)
+  assert.equal(config.catalogQuotaBytes, 200 * 1024 ** 3)
+  assert.equal(config.externalWritable, true)
+  assert.equal(config.allowInsecureHttp, true)
+  assert.equal(config.publicOrigin, env.MAIN_DULU_PUBLIC_ORIGIN)
+  assert.equal(config.screenscraper.enabled, false)
+  assert.equal(config.screenscraper.password, '')
+  const ignored = spawnSync('git', ['check-ignore', '--no-index', '.env.portainer', 'deploy/docker-compose.portainer.local.yml'], { encoding: 'utf8' })
+  assert.equal(ignored.status, 0, ignored.stderr)
+  assert.ok(ignored.stdout.includes('.env.portainer'))
+  assert.ok(ignored.stdout.includes('docker-compose.portainer.local.yml'))
+  const examples = spawnSync('git', ['check-ignore', '--no-index', 'deploy/docker-compose.portainer.example.yml', 'deploy/portainer.env.example'], { encoding: 'utf8' })
+  assert.equal(examples.status, 1, examples.stderr)
+  assert.equal(examples.stdout, '')
 })
 
 test('backend LAN environment example is accepted with explicit HTTP opt-in and a matching browser port', async () => {

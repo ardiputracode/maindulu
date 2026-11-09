@@ -18,3 +18,5 @@ public/games/*.chd
 /.env.screenscraper.local
 /.screenscraper-m0.lock.local
 *.tar
+# Salinan stack Portainer privat; template .example.yml tetap dilacak.
+/deploy/docker-compose.portainer.local.yml
