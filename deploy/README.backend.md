@@ -159,6 +159,15 @@ docker rmi maindulu-backend
 
 Jangan hapus volume data (`/var/lib/maindulu`) agar akun/save tetap.
 
+Catatan Portainer: jika muncul "The uploaded tar file contained multiple images. The provided tag therefore has been ignored", berarti tar berisi lebih dari satu image/tag. Simpan berdasarkan IMAGE ID tunggal:
+
+```sh
+docker images maindulu-backend:0.5.0
+docker save -o maindulu-backend-0.5.0.tar <IMAGE_ID>
+```
+
+Atau gunakan tag `latest` dan simpan by ID yang sama. Setelah import, tag manual di Portainer bila perlu.
+
 ## 3. Build, mulai, berhenti, dan log
 
 ```sh
