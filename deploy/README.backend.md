@@ -133,6 +133,32 @@ Build ini mengabaikan penggunaan/pengisian cache walaupun preferensi lama aktif,
 
 HTTPS reverse proxy **dilewati/ditunda atas keputusan pengguna** karena belum diperlukan, bukan dinyatakan lulus. Uji TLS/proxy dan kontrak header/error di atas tetap diperlukan sebelum cakupan HTTPS/deployment publik digunakan. Kebijakan keamanan akun tidak berubah; HTTP hanya untuk LAN tepercaya, bukan internet.
 
+## 3. Build image untuk Portainer (opsional)
+
+Jika ingin upload image ke Portainer sebagai file, build dari **root project** dengan Dockerfile backend:
+
+```sh
+cd "D:\side project\maindulu"
+docker build -f deploy/Dockerfile.backend -t maindulu-backend .
+docker save -o maindulu-backend.tar maindulu-backend
+```
+
+File `maindulu-backend.tar` siap diupload ke Portainer (Images → Import). Pastikan Docker Desktop berjalan sebelum build.
+
+Bersihkan cache/temp setelah berhasil:
+
+```sh
+docker builder prune -f
+```
+
+Opsional, hapus image lokal yang sudah disimpan (karena sudah ada di `.tar`):
+
+```sh
+docker rmi maindulu-backend
+```
+
+Jangan hapus volume data (`/var/lib/maindulu`) agar akun/save tetap.
+
 ## 3. Build, mulai, berhenti, dan log
 
 ```sh
