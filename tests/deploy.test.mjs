@@ -45,6 +45,27 @@ test('Docker static deployment remains Nginx-only and its existing ports/healthc
   assert.match(compose, /"wget", "-q", "--spider", "http:\/\/127\.0\.0\.1\/"/)
 })
 
+test('external collection overlay pins read-only sources outside private storage and refuses missing host folders', async () => {
+  const compose = await text('deploy/docker-compose.backend.yml')
+  for (const name of ['MAIN_DULU_EXTERNAL_ROM_DIR', 'MAIN_DULU_EXTERNAL_BIOS_DIR']) assert.ok(compose.includes('- ' + name + '\n'))
+  const overlay = await text('deploy/docker-compose.external.yml')
+  for (const value of ['MAIN_DULU_EXTERNAL_ROM_DIR=/mnt/romm/roms', 'MAIN_DULU_EXTERNAL_BIOS_DIR=/mnt/romm/bios', 'target: /mnt/romm/roms', 'target: /mnt/romm/bios', '${MAIN_DULU_ROM_PATH:?', '${MAIN_DULU_BIOS_PATH:?']) assert.ok(overlay.includes(value), value)
+  assert.equal((overlay.match(/read_only: true/g) ?? []).length, 2)
+  assert.equal((overlay.match(/create_host_path: false/g) ?? []).length, 2)
+  assert.doesNotMatch(overlay, /target: \/var\/lib\/maindulu|chmod|chown|privileged/)
+  assert.ok(compose.includes('storage:/var/lib/maindulu'))
+})
+
+test('shared overlay explicitly opts in to write/delete on the same folders without exposing private data', async () => {
+  const overlay = await text('deploy/docker-compose.shared.yml')
+  for (const value of ['MAIN_DULU_EXTERNAL_ROM_DIR=/mnt/romm/roms', 'MAIN_DULU_EXTERNAL_BIOS_DIR=/mnt/romm/bios', 'MAIN_DULU_EXTERNAL_WRITABLE=true']) assert.ok(overlay.includes(value))
+  assert.equal((overlay.match(/read_only: false/g) ?? []).length, 2)
+  assert.equal((overlay.match(/create_host_path: false/g) ?? []).length, 2)
+  assert.doesNotMatch(overlay, /target: \/var\/lib\/maindulu|privileged|chmod|chown/)
+  const compose = await text('deploy/docker-compose.backend.yml')
+  assert.ok(compose.includes('MAIN_DULU_EXTERNAL_WRITABLE=${MAIN_DULU_EXTERNAL_WRITABLE:-false}'))
+})
+
 test('backend LAN environment example is accepted with explicit HTTP opt-in and a matching browser port', async () => {
   const env = Object.fromEntries((await text('deploy/backend.env.example')).split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith('#')).map(line => {
     const separator = line.indexOf('=')

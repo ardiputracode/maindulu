@@ -202,6 +202,14 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -
 
 ## 4. Konfigurasi
 
+### Koleksi RomM: folder bersama atau sumber read-only
+
+**Jika upload dan scan harus memakai folder yang sama serta Hapus ikut menghapus file RomM**, gunakan mode [folder bersama baca/tulis](../doc/koleksi-folder-bersama.md) dengan overlay `deploy/docker-compose.shared.yml` dan `MAIN_DULU_EXTERNAL_WRITABLE=true`. Jangan gabungkan dengan overlay read-only. Default tanpa opt-in tetap read-only untuk melindungi instalasi yang sudah ada.
+
+Gunakan `MAIN_DULU_EXTERNAL_ROM_DIR` dan `MAIN_DULU_EXTERNAL_BIOS_DIR` untuk folder sumber **di luar direktori data**, lalu **Admin → Scan Koleksi**. File tidak disalin/di-upload ulang dan tidak dihapus oleh maindulu; database/save/upload tetap pada volume privat. Compose menyediakan overlay `deploy/docker-compose.external.yml` dengan host path `MAIN_DULU_ROM_PATH` dan `MAIN_DULU_BIOS_PATH`. Mount lama yang menargetkan `data/roms`/`data/bios` harus diganti, bukan ditambahkan bersamaan.
+
+Panduan lengkap env, YAML Portainer, migrasi mount lama, platform/format, backup/restore skema 17, dan batas verifikasi: [koleksi eksternal hanya-baca](../doc/koleksi-eksternal-read-only.md). Semua aset terindeks tetap dapat diunduh tamu; read-only melindungi sumber, bukan membatasi akses unduh.
+
 | Variabel | Default | Fungsi |
 | --- | --- | --- |
 | `MAIN_DULU_BIND_ADDRESS` | `127.0.0.1` | Interface host tempat port Docker dipublish; `0.0.0.0` untuk LAN |
@@ -217,6 +225,10 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -
 | `MAIN_DULU_CATALOG_UPLOAD_LIMIT` | `2` | Reservasi upload bersamaan lintas proses |
 | `MAIN_DULU_CATALOG_UPLOAD_TIMEOUT_MS` | `1800000` | Deadline upload/publikasi katalog 30 menit |
 | `MAIN_DULU_CONTAINER_DATA_DIR` | `/var/lib/maindulu/data` | Folder data **di dalam volume**, dapat diarahkan ke hasil restore |
+| `MAIN_DULU_EXTERNAL_ROM_DIR` | Tidak disetel | Path absolut sumber ROM di dalam container, terpisah dari data/public/build |
+| `MAIN_DULU_EXTERNAL_BIOS_DIR` | Tidak disetel | Path absolut sumber BIOS di dalam container; independen dari sumber ROM |
+| `MAIN_DULU_EXTERNAL_WRITABLE` | `false` | `true` menyatukan upload/scan/hapus pada sumber yang dikonfigurasi; penghapusan juga berdampak ke file RomM |
+| `MAIN_DULU_ROM_PATH` / `MAIN_DULU_BIOS_PATH` | Tidak disetel | Folder host untuk interpolasi overlay Compose; bukan path runtime Node |
 | `MAIN_DULU_ROM_CONVERTO_PATH` | *(kosong)* | Path absolut ke binary `rom-converto` (override vendor/PATH) |
 | `MAIN_DULU_ROM_CONVERTO_TIMEOUT_MS` | `30000` | Timeout panggil `rom-converto info --json` (5000–120000) |
 | `MAIN_DULU_CHD_SERIAL_AUTOAPPLY` | `true` | `false` menonaktifkan auto-apply CHD serial (tetap lookup + review) |
@@ -294,7 +306,7 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml logs
 
 4. Periksa versi **0.5.0** di Pengaturan, login, save/progres dan pemulihannya. Rilis 0.3.1 tidak mengubah skema SQLite (**6**), engine (**4.2.3**), atau format save. Jangan paksa downgrade database aktif; rollback memakai backup ke folder baru.
 
-**Pengembangan terkini:** skema **14** menyimpan ROM/BIOS dengan nama asli pada folder platform (`roms/<platform>/`, `bios/<platform>/`) dan menolak benturan nama tanpa menimpa; skema 13 mencakup metadata ScreenScraper/provenance/override/gate worker. Format save/engine tidak berubah. CLI membuat backup **format 2** akun/save/metadata, tanpa berkas ROM/BIOS/cover dan tanpa syarat katalog kosong. Tugas/cache/lease/cooldown provider dinormalisasi pada snapshot saja; restore tidak menjalankan scan otomatis. Verify/restore format 2 skema 9-14 dan format 1 skema 7/8/9 dengan katalog kosong tetap didukung. Sumber diverifikasi sebelum migrasi hasil restore; aplikasi lama tidak boleh dipakai pada database skema baru. Untuk skema 6 gunakan aplikasi lama terlebih dahulu. Jangan paksa downgrade atau ubah nomor skema/manifest manual.
+**Pengembangan terkini:** skema **18** menambah lifecycle folder bersama; skema 17 menyediakan indeks sumber read-only dan 16 scan folder. Nama asli/platform dan penolakan overwrite dari skema 14 tetap dipertahankan. Format save/engine tidak berubah. CLI membuat backup **format 2** akun/save/metadata, tanpa berkas ROM/BIOS/cover dan tanpa syarat katalog kosong. Tugas/cache/lease/cooldown provider, hasil scan, pemetaan sumber, dan izin cleanup dinormalisasi pada snapshot saja; restore tidak menjalankan scan otomatis. Verify/restore format 2 skema 9-17 dan format 1 skema 7/8/9 dengan katalog kosong tetap didukung. Pasang kembali sumber dan scan untuk menyambungkan byte identik ke ID aktif lama, atau pulihkan aset lewat upload admin. Sumber diverifikasi sebelum migrasi hasil restore; aplikasi lama tidak boleh dipakai pada database skema baru. Untuk skema 6 gunakan aplikasi lama terlebih dahulu. Jangan paksa downgrade atau ubah nomor skema/manifest manual.
 
 ## 7. Reset akun admin
 

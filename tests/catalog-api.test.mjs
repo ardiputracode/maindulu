@@ -328,7 +328,9 @@ test('BIOS accepts exactly 32 MiB with an independent checksum and concurrent du
   const head = await c.app.inject({ method: 'HEAD', url: bios.url })
   assert.equal(head.statusCode, 200)
   assert.equal(Number(head.headers['content-length']), bytes.length)
-  const results = await Promise.all([c.upload('bios'), c.upload('bios')])
+  // Different names isolate content deduplication from the independent filename
+  // reservation race (covered by catalog-platform-storage.test.mjs).
+  const results = await Promise.all(['duplicate-a.bin', 'duplicate-b.bin'].map(name => c.upload('bios', {}, [{ field: 'bios', name, bytes: rom }])))
   const created = item(results.find(response => response.statusCode === 201))
   const duplicate = results.find(response => response.statusCode === 409).json()
   assert.equal(duplicate.code, 'CATALOG_DUPLICATE')
@@ -726,7 +728,7 @@ test('schema-9 migration preserves a populated schema-8 catalog, firmware names,
   }
   await c.app.close(); c.app = null
   let db = await openDatabase(join(c.root, 'data'))
-  db.exec('DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  db.exec('DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   db.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DELETE FROM schema_migrations WHERE version >= 9; PRAGMA user_version = 8;')
   db.close()
   c.app = await createApp({ root: c.root, env: c.env })

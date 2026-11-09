@@ -18,6 +18,10 @@ services:
       - MAIN_DULU_PORT=7777
       - MAIN_DULU_DIST_DIR=/app/dist
       - MAIN_DULU_DATA_DIR=${MAIN_DULU_CONTAINER_DATA_DIR:-/var/lib/maindulu/data}
+      # Optional read-only sources; use docker-compose.external.yml for mounts.
+      - MAIN_DULU_EXTERNAL_ROM_DIR
+      - MAIN_DULU_EXTERNAL_BIOS_DIR
+      - MAIN_DULU_EXTERNAL_WRITABLE=${MAIN_DULU_EXTERNAL_WRITABLE:-false}
       - MAIN_DULU_REGISTRATION_OPEN=${MAIN_DULU_REGISTRATION_OPEN:-true}
       # Bare key: jika tidak disetel di host/.env Compose, jangan kirim string kosong.
       - MAIN_DULU_PUBLIC_ORIGIN

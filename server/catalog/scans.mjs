@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { transaction } from '../auth/mutations.mjs'
 import { createCatalogRepository } from './repository.mjs'
 import { safeDirectory } from './storage.mjs'
-import { platformSlugs, platformConsole, storagePlatform, storageNameIdentity, safeStorageName } from './paths.mjs'
+import { platformSlugs, platformConsole, storagePlatform, safeStorageName } from './paths.mjs'
 import { fileName, validId } from './validation.mjs'
 import { CatalogHttpError, invalidCatalog } from './errors.mjs'
 import { getScreenScraperConfigStatus } from '../metadata/screenscraper.mjs'
@@ -74,14 +74,14 @@ export function registerCatalogScans(api, config, security, storage) {
     }, 5000)
     heartbeat.unref()
     let currentPath
-    const repo = createCatalogRepository(db, storage, { check, onPublished: (kind, row) => {
-      record(id, token, currentPath, outcome('added', 'Terdaftar otomatis; berkas tetap di tempatnya.', row.id), kind === 'games' && scope.scanMetadata, true)
+    const repo = createCatalogRepository(db, storage, { check, onPublished: (kind, row, { reattached }) => {
+      record(id, token, currentPath, outcome(reattached ? 'already_registered' : 'added', reattached ? 'Berkas identik disambungkan kembali; ID, metadata, dan save dipertahankan.' : 'Terdaftar otomatis; berkas tetap di tempatnya.', row.id), !reattached && kind === 'games' && scope.scanMetadata, true)
     } })
     let discovered = 0
     async function candidate(kind, platform, name) {
       check()
       const consoleId = platformConsole(platform)
-      const mapped = db.prepare('SELECT * FROM catalog_asset_files WHERE folder = ? AND platform = ? AND name_identity = ?').get(kind, platform, storageNameIdentity(name))
+      const mapped = storage.scanMapping(kind, platform, name)
       if (mapped && (mapped.state !== 'ready' || db.prepare('SELECT 1 FROM catalog_cleanup WHERE folder = ? AND storage_key = ?').get(kind, mapped.storage_key))) return outcome('busy', 'Path sedang dipesan/dibersihkan; ulangi nanti.')
       if (!safeStorageName(name)) return outcome('invalid', 'Basename tidak aman atau terlalu panjang.')
       if (name.startsWith('.') || /\.(filepart|part|tmp)$/i.test(name)) return outcome('not_ready', 'Berkas sementara/tersembunyi; gunakan rename final setelah transfer selesai.')
@@ -94,9 +94,9 @@ export function registerCatalogScans(api, config, security, storage) {
         const row = db.prepare(`SELECT * FROM ${kind} WHERE storage_key = ?`).get(mapped.storage_key)
         if (!row || row.deleted_at !== null) return outcome('restore_required', 'Gunakan pemulihan ID lama melalui upload eksplisit.', row?.id)
         if (mapped.file_name !== name) return outcome('conflict', 'Nama berbenturan menurut identitas case/Unicode.', row.id)
-        return row.sha256 === file.sha256 && row.size === file.size
-          ? outcome('already_registered', 'Sudah terdaftar; hash byte konsisten.', row.id)
-          : outcome('conflict', 'Byte aset terdaftar berubah. Metadata dan ID tidak diubah.', row.id)
+        if (row.sha256 !== file.sha256 || row.size !== file.size) return outcome('conflict', 'Byte aset terdaftar berubah. Metadata dan ID tidak diubah.', row.id)
+        storage.refreshAdoption(file, mapped.storage_key)
+        return outcome('already_registered', 'Sudah terdaftar; hash byte konsisten.', row.id)
       }
       const row = await repo.adopt(kind, job.actor, { consoleId, fileName: name, [kind === 'games' ? 'title' : 'name']: kind === 'games' ? '' : name.slice(0, 200), description: '', [kind === 'games' ? 'license' : 'distributionRights']: '' }, file, { scanMetadata: scope.scanMetadata })
       return outcome('added', 'Terdaftar otomatis; berkas tetap di tempatnya.', row.id)
@@ -115,7 +115,7 @@ export function registerCatalogScans(api, config, security, storage) {
       }
       await safeDirectory(config.dataDir)
       for (const kind of scope.kind === 'both' ? ['games', 'bios'] : [scope.kind]) {
-        const base = join(config.dataDir, kind === 'games' ? 'roms' : 'bios')
+        const base = storage.scanRoot(kind)
         await safeDirectory(base)
         for (const platform of scope.platforms) {
           check()
@@ -154,6 +154,7 @@ export function registerCatalogScans(api, config, security, storage) {
     } finally { clearInterval(heartbeat) }
   }
   const guard = { onRequest: async request => { const session = security.protectAdmin(request); limit(`scan:${session.user_id}`, 240, 60000) } }
+  api.get('/api/admin/catalog-scans/sources', guard, async () => ({ sources: Object.fromEntries(['games', 'bios'].map(kind => [kind, { mode: config.externalCatalog?.[kind] ? config.externalWritable ? 'shared' : 'external' : 'managed' }])) }))
   api.post('/api/admin/catalog-scans', guard, async (request, reply) => {
     const body = request.body
     if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !['kind', 'platforms', 'scanMetadata'].includes(k))

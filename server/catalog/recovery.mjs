@@ -29,6 +29,7 @@ export async function recoverCatalogStorage(config, { remove = false } = {}) {
       references.set(path, row)
     }
     if (remove) db.exec("UPDATE catalog_asset_files SET state = 'ready' WHERE state = 'deleting'") // Exclusive data lock proves no live unlink owns the claim.
+    if (remove) db.exec("UPDATE catalog_external_files SET state = CASE delete_intent WHEN 'upload' THEN 'reserved' ELSE 'ready' END WHERE state = 'deleting'")
     const result = { active: references.size, damaged: [], unknown: [], unsafe: [], candidates: [], removed: [], failed: [] }
     for (const row of references.values()) {
       try { await storage.verify(row.folder, row) }
@@ -43,7 +44,7 @@ export async function recoverCatalogStorage(config, { remove = false } = {}) {
         try {
           let file
           try { file = await openRegular(await storage.pathFor(folder, key)) }
-          catch (error) { if (error.code !== 'ENOENT' || !db.prepare('SELECT 1 FROM catalog_asset_files WHERE folder = ? AND storage_key = ?').get(folder, key)) throw error }
+          catch (error) { if (error.code !== 'ENOENT' || (!db.prepare('SELECT 1 FROM catalog_asset_files WHERE folder = ? AND storage_key = ?').get(folder, key) && !storage.isExternal(folder, key))) throw error }
           finally { await file?.close() }
           result.candidates.push({ folder, key })
         } catch (error) { result.unsafe.push({ folder, key, message: error.message }) }
@@ -63,6 +64,8 @@ export async function recoverCatalogStorage(config, { remove = false } = {}) {
         db.exec('DELETE FROM catalog_uploads; UPDATE catalog_capacity SET generation = generation + 1 WHERE id = 1;')
         for (const folder of ['games', 'bios', 'covers']) {
           for (const job of db.prepare('SELECT storage_key FROM catalog_cleanup WHERE folder = ?').all(folder)) {
+            const external = db.prepare('SELECT state, delete_intent FROM catalog_external_files WHERE folder = ? AND storage_key = ?').get(folder, job.storage_key)
+            if (external && external.state !== 'retired' && external.delete_intent !== 'none' && !references.has(folder + '/' + job.storage_key)) continue
             if (!remaining.get(folder).has(job.storage_key) || references.has(folder + '/' + job.storage_key)) db.prepare('DELETE FROM catalog_cleanup WHERE folder = ? AND storage_key = ?').run(folder, job.storage_key)
           }
         }

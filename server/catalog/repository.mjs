@@ -94,6 +94,11 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
       catch (error) { if (error.code === 'ENOENT') missingKey = observed.storage_key; else throw error }
       finally { await previousFile?.close() }
     }
+    // An external/shared rescan may reattach identical bytes to an ACTIVE missing
+    // publication (rename, remount, metadata-only restore). Never resurrect a
+    // tombstone or replace an existing/changed/unsafe file implicitly.
+    const externalReattach = adoption && storage.externalAdoption(stage) && !!missingKey && observed.size === stage.size
+    if (externalReattach) restoreId = observed.id
     if (observed && (observed.size !== stage.size || ((!missingKey && observed.deleted_at === null) || restoreId !== observed.id))) {
       if (observed.size !== stage.size) throw invalid()
       throw duplicate(observed, !!missingKey)
@@ -121,7 +126,7 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
       if (previous) {
         enqueueCleanup(db, kind, previous.storage_key)
         if (kind === 'games' && previous.cover_storage_key && (!missing || cover !== null)) enqueueCleanup(db, 'covers', previous.cover_storage_key)
-        db.prepare(`UPDATE ${kind} SET storage_key = ?, original_name = ?, updated_at = ?, deleted_at = NULL WHERE id = ?`).run(file.key, missing ? previous.original_name : v.fileName, now, id)
+        db.prepare(`UPDATE ${kind} SET storage_key = ?, original_name = ?, updated_at = ?, deleted_at = NULL WHERE id = ?`).run(file.key, missing && !externalReattach ? previous.original_name : v.fileName, now, id)
       } else {
         const title = kind === 'games' ? 'title' : 'name'
         const rights = kind === 'games' ? 'license' : 'distribution_rights'
@@ -142,14 +147,16 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
           if (coverFile) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', 'manual', 1, ?)`).run(id, nowMeta)
         }
         if (previous && coverFile) db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', 'manual', 1, ?)`).run(id, nowMeta)
-        db.prepare(`UPDATE metadata_jobs SET status = 'cancelled', updated_at = ? WHERE game_id = ? AND status IN ('queued', 'running', 'retry_wait', 'paused')`).run(nowMeta, id)
-        const generation = (db.prepare('SELECT COALESCE(MAX(generation), 0) + 1 AS g FROM metadata_jobs WHERE game_id = ?').get(id)?.g) || 1
-        db.prepare(`INSERT INTO metadata_jobs (id, game_id, asset_fingerprint, generation, phase, status, attempts, next_at, created_at, updated_at)
-          VALUES (?, ?, ?, ?, 'identifying', ?, 0, ?, ?, ?)`)
-          .run(randomUUID(), id, `${file.sha256}:${file.size}`, generation, scanMetadata && !previous ? 'queued' : 'disabled', nowMeta, nowMeta, nowMeta)
+        if (!externalReattach) {
+          db.prepare(`UPDATE metadata_jobs SET status = 'cancelled', updated_at = ? WHERE game_id = ? AND status IN ('queued', 'running', 'retry_wait', 'paused')`).run(nowMeta, id)
+          const generation = (db.prepare('SELECT COALESCE(MAX(generation), 0) + 1 AS g FROM metadata_jobs WHERE game_id = ?').get(id)?.g) || 1
+          db.prepare(`INSERT INTO metadata_jobs (id, game_id, asset_fingerprint, generation, phase, status, attempts, next_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'identifying', ?, 0, ?, ?, ?)`)
+            .run(randomUUID(), id, `${file.sha256}:${file.size}`, generation, scanMetadata && !previous ? 'queued' : 'disabled', nowMeta, nowMeta, nowMeta)
+        }
       }
       db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
-      onPublished(kind, get(kind, id))
+      onPublished(kind, get(kind, id), { reattached: externalReattach })
       return get(kind, id)
     })
   }
@@ -199,6 +206,7 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
         table(kind); authorize(actor)
         const row = get(kind, id, { includeDeleted: true })
         if (!row) throw new CatalogError('CATALOG_NOT_FOUND', 'Entri katalog tidak ditemukan.')
+        storage.requestDelete(kind, row.storage_key)
         if (row.deleted_at === null) db.prepare(`UPDATE ${kind} SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(Date.now(), Date.now(), id)
         enqueueCleanup(db, kind, row.storage_key)
         if (kind === 'games' && row.cover_storage_key) enqueueCleanup(db, 'covers', row.cover_storage_key)

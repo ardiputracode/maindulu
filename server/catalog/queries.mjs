@@ -42,6 +42,7 @@ export async function adminDto(db, storage, kind, row) {
     finally { await file?.close() }
   }
   return { ...catalogDto(kind, row), deletedAt: row.deleted_at,
+    storageMode: storage.storageMode(kind, row.storage_key),
     fileStatus: await state(kind, row.storage_key, row.size),
     ...(kind === 'games' ? { coverStatus: await state('covers', row.cover_storage_key, row.cover_size) } : {}),
     cleanupPending: !!db.prepare('SELECT 1 FROM catalog_cleanup WHERE (folder = ? AND storage_key = ?) OR (folder = ? AND storage_key = ?) LIMIT 1')

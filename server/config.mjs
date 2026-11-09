@@ -57,7 +57,23 @@ export async function readConfig(env = process.env, root = projectRoot) {
   for (const served of [distDir, publicDir]) {
     if (isWithin(dataDir, served) || isWithin(served, dataDir)) throw new Error('Folder data harus terpisah dari folder public dan hasil build, termasuk target symlink.')
   }
+  const externalCatalog = {}
+  const externalWritable = env.MAIN_DULU_EXTERNAL_WRITABLE ?? 'false'
+  if (!['true', 'false'].includes(externalWritable)) throw new Error('MAIN_DULU_EXTERNAL_WRITABLE harus true atau false.')
+  for (const [kind, name] of [['games', 'MAIN_DULU_EXTERNAL_ROM_DIR'], ['bios', 'MAIN_DULU_EXTERNAL_BIOS_DIR']]) {
+    if (env[name] === undefined) continue
+    const value = env[name]
+    if (!value.trim() || !isAbsolute(value) || /[\x00-\x1f]/.test(value)) throw new Error(`${name} harus path absolut yang tidak kosong.`)
+    const path = await canonicalPath(resolve(value))
+    if (path !== resolve(value)) throw new Error(`${name} tidak boleh melalui symlink/junction.`)
+    for (const other of [dataDir, distDir, publicDir, ...Object.values(externalCatalog)]) {
+      if (isWithin(path, other) || isWithin(other, path)) throw new Error(`${name} harus terpisah dari data, public, build, dan sumber eksternal lainnya.`)
+    }
+    externalCatalog[kind] = path
+  }
+  if (externalWritable === 'true' && !Object.keys(externalCatalog).length) throw new Error('Mode folder bersama memerlukan MAIN_DULU_EXTERNAL_ROM_DIR atau MAIN_DULU_EXTERNAL_BIOS_DIR.')
   return { host, port: Number(rawPort), distDir, publicDir, dataDir, registrationOpen: registration === 'true', publicOrigin, allowInsecureHttp,
+    externalCatalog, externalWritable: externalWritable === 'true',
     stateMaxBytes: bytes('MAIN_DULU_STATE_MAX_BYTES', 32 * 1024 * 1024, 64 * 1024 * 1024),
     gameSaveMaxBytes: bytes('MAIN_DULU_GAME_SAVE_MAX_BYTES', 8 * 1024 * 1024, 8 * 1024 * 1024),
     saveQuotaBytes: bytes('MAIN_DULU_SAVE_QUOTA_BYTES', 256 * 1024 * 1024, 16 * 1024 * 1024 * 1024),

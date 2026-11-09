@@ -61,12 +61,13 @@ test('M5 backup normalizes provider gate only in snapshot and still accepts sche
   const path = join(target, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
   assert.deepEqual({ ...legacy.prepare('SELECT * FROM metadata_provider_state').get() }, { id: 1, lease_token: null, lease_expires_at: null, next_at: 0, paused_reason: null })
-  legacy.exec('DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state; ALTER TABLE metadata_jobs DROP COLUMN request_method; ALTER TABLE metadata_jobs DROP COLUMN request_json; DELETE FROM schema_migrations WHERE version > 12; PRAGMA user_version = 12;')
+  legacy.exec('DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state; ALTER TABLE metadata_jobs DROP COLUMN request_method; ALTER TABLE metadata_jobs DROP COLUMN request_json; DELETE FROM schema_migrations WHERE version > 12; PRAGMA user_version = 12;')
   legacy.close()
   const bytes = await readFile(path)
   manifest.schemaVersion = 12
   delete manifest.counts.metadata_provider_state
   delete manifest.counts.catalog_asset_files
+  delete manifest.counts.catalog_external_files
   manifest.files.find(file => file.path === 'maindulu.sqlite').size = bytes.length
   manifest.files.find(file => file.path === 'maindulu.sqlite').checksum = createHash('sha256').update(bytes).digest('hex')
   await writeFile(join(target, 'manifest.json'), JSON.stringify(manifest))
@@ -86,13 +87,13 @@ test('schema-15 backup round-trips serial match provenance without changing cata
   c.close()
   const target = join(c.root, 'serial-backup')
   const manifest = await createDataBackup(c.config, target)
-  assert.equal(manifest.schemaVersion, 16)
+  assert.equal(manifest.schemaVersion, schemaVersion)
   assert.equal(manifest.counts.game_metadata, 1)
   assert.deepEqual(await verifyDataBackup(c.config, target), manifest)
   const restored = join(c.root, 'serial-restored')
   await restoreDataBackup(c.config, target, restored)
   c.db = await openDatabase(restored)
-  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, 16)
+  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
   assert.deepEqual({ ...c.db.prepare('SELECT match_method, provider_game_id FROM game_metadata WHERE game_id = ?').get(game.id) },
     { match_method: 'serial', provider_game_id: '123' })
   assert.equal(c.db.prepare('SELECT title FROM games WHERE id = ?').get(game.id).title, game.title)
@@ -108,7 +109,7 @@ test('schema-14 backups verify before migration, then migrate and accept serial 
   const manifest = await createDataBackup(c.config, target)
   const path = join(target, 'maindulu.sqlite')
   const db = new DatabaseSync(path)
-  db.exec(`DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; CREATE TABLE game_metadata_v14 (
+  db.exec(`DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; CREATE TABLE game_metadata_v14 (
     game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
     release_date TEXT CHECK(release_date IS NULL OR length(release_date) BETWEEN 1 AND 32),
     release_precision TEXT CHECK(release_precision IS NULL OR release_precision IN ('year', 'month', 'day')),
@@ -133,6 +134,7 @@ test('schema-14 backups verify before migration, then migrate and accept serial 
   db.close()
   const bytes = await readFile(path)
   manifest.schemaVersion = 14
+  delete manifest.counts.catalog_external_files
   manifest.files.find(file => file.path === 'maindulu.sqlite').size = bytes.length
   manifest.files.find(file => file.path === 'maindulu.sqlite').checksum = createHash('sha256').update(bytes).digest('hex')
   await writeFile(join(target, 'manifest.json'), JSON.stringify(manifest))
@@ -145,7 +147,7 @@ test('schema-14 backups verify before migration, then migrate and accept serial 
     assert.throws(() => old.prepare("UPDATE game_metadata SET match_method = 'serial' WHERE game_id = ?").run(game.id), /constraint/i)
   } finally { old.close() }
   c.db = await openDatabase(restored)
-  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, 16)
+  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
   assert.equal(c.db.prepare('SELECT match_method FROM game_metadata WHERE game_id = ?').get(game.id).match_method, 'name')
   assert.doesNotThrow(() => c.db.prepare("UPDATE game_metadata SET match_method = 'serial' WHERE game_id = ?").run(game.id))
   assert.equal(c.db.prepare('SELECT match_method FROM game_metadata WHERE game_id = ?').get(game.id).match_method, 'serial')
@@ -157,7 +159,7 @@ async function historicalMetadataBackup(c, version, name) {
   const manifest = await createDataBackup(c.config, target)
   const path = join(target, 'maindulu.sqlite')
   const db = new DatabaseSync(path)
-  db.exec('DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  db.exec('DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   if (version === 9) {
     db.exec('DROP TABLE game_metadata_field_sources; DROP TABLE game_metadata; DROP TABLE metadata_jobs; DROP TABLE provider_cache; DROP TABLE catalog_revision;')
     for (const table of ['game_metadata_field_sources', 'game_metadata', 'metadata_jobs', 'provider_cache']) delete manifest.counts[table]
@@ -170,6 +172,7 @@ async function historicalMetadataBackup(c, version, name) {
   manifest.schemaVersion = version
   delete manifest.counts.metadata_provider_state
   delete manifest.counts.catalog_asset_files
+  delete manifest.counts.catalog_external_files
   const updateManifest = async () => {
     const bytes = await readFile(path)
     const entry = manifest.files.find(file => file.path === 'maindulu.sqlite')
@@ -295,7 +298,7 @@ test('schema-7 backups verify and restore without source migration; application 
   // Reconstruct the real milestone-1 shape: no catalog tables/migration/counts.
   const path = join(source, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
-  legacy.exec('DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  legacy.exec('DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   legacy.close()
   const original = await readFile(path)
@@ -313,6 +316,7 @@ test('schema-7 backups verify and restore without source migration; application 
   delete manifest.counts.metadata_provider_state
   delete manifest.counts.catalog_asset_files
   manifest.files[0] = { path: 'maindulu.sqlite', size: original.length, checksum: createHash('sha256').update(original).digest('hex') }
+  delete manifest.counts.catalog_external_files
   await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
   assert.deepEqual(await verifyDataBackup(c.config, source), manifest)
   const restored = join(c.root, 'legacy-restored')
@@ -328,7 +332,7 @@ test('schema-7 backups verify and restore without source migration; application 
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM games').get().n, 0)
   assert.deepEqual(await readFile(path), original)
   const sourceDb = new DatabaseSync(join(c.config.dataDir, 'maindulu.sqlite'))
-  sourceDb.exec('DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  sourceDb.exec('DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   sourceDb.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   sourceDb.close()
   await assert.rejects(createDataBackup(c.config, join(c.root, 'legacy-source-refused')), /Versi skema backup/)
@@ -366,7 +370,7 @@ test('schema-8 empty backups verify/restore without migration or ignoring new co
   const manifest = await createDataBackup(c.config, source)
   const path = join(source, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
-  legacy.exec('DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  legacy.exec('DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DELETE FROM schema_migrations WHERE version >= 9; PRAGMA user_version = 8;')
   legacy.close()
   const original = await readFile(path)
@@ -382,6 +386,7 @@ test('schema-8 empty backups verify/restore without migration or ignoring new co
   delete manifest.counts.metadata_provider_state
   delete manifest.counts.catalog_asset_files
   manifest.files[0] = { path: 'maindulu.sqlite', size: original.length, checksum: createHash('sha256').update(original).digest('hex') }
+  delete manifest.counts.catalog_external_files
   await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
   assert.deepEqual(await verifyDataBackup(c.config, source), manifest)
   const restored = join(c.root, 'schema8-restored')

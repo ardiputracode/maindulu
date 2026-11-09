@@ -5,7 +5,7 @@ export { readCatalogEntry } from './catalog.ts'
 export type { CatalogEntry, CatalogKind } from './catalog.ts'
 
 export type AdminEntry = CatalogEntry & {
-  deletedAt: number | null; fileStatus: string; coverStatus?: string; cleanupPending: boolean;
+  deletedAt: number | null; fileStatus: string; coverStatus?: string; cleanupPending: boolean; storageMode?: 'external' | 'shared' | 'managed';
 }
 export type AdminPage = { items: AdminEntry[]; page: number; pageSize: number; total: number }
 export type UploadProgress = { phase: 'preparing' | 'sending' | 'processing'; percent?: number }
@@ -30,6 +30,7 @@ export function readAdminPage(value: unknown, kind: CatalogKind): AdminPage | nu
   for (const item of value.items) {
     if (!readCatalogEntry(item, kind) || !record(item) || !(item.deletedAt === null || integer(item.deletedAt)) ||
       !['none', 'available', 'damaged', 'missing', 'unsafe'].includes(String(item.fileStatus)) || typeof item.cleanupPending !== 'boolean' ||
+      (item.storageMode !== undefined && !['external', 'shared', 'managed'].includes(String(item.storageMode))) ||
       (kind === 'games' && !['none', 'available', 'damaged', 'missing', 'unsafe'].includes(String(item.coverStatus)))) return null
   }
   return value as AdminPage

@@ -6,6 +6,8 @@ Tersedia dua deployment terpisah. Pilih sesuai kebutuhan:
 | --- | --- | --- |
 | Tamu saja, save browser | `deploy/docker-compose.yml` | Panduan statis di bawah |
 | Akun, save state/progres server, backup/admin | `deploy/docker-compose.backend.yml` | **[Panduan backend lengkap](README.backend.md)** |
+| Backend + satu folder RomM untuk upload/scan/hapus | Backend + `deploy/docker-compose.shared.yml` | [Folder bersama baca/tulis](../doc/koleksi-folder-bersama.md) |
+| Backend + scan RomM tanpa menulis/menghapus sumber | Backend + `deploy/docker-compose.external.yml` | [Sumber read-only](../doc/koleksi-eksternal-read-only.md) |
 
 **Backend 0.3.1 untuk LAN tanpa HTTPS:** salin `deploy/backend.env.example` ke `.env.backend` di akar repo (jangan timpa file yang sudah ada), ganti IP/origin sesuai server, lalu:
 
@@ -49,6 +51,8 @@ Image khusus ini disusun dua tahap (`deploy/Dockerfile`) supaya dependensi build
 | `deploy/docker-compose.yml` | Service `web` tunggal: build, porta host, `restart: unless-stopped`, healthcheck. |
 | `deploy/Dockerfile.backend` | Runtime Node.js non-root, web + API dan modul format save bersama. |
 | `deploy/docker-compose.backend.yml` | Backend dengan named volume privat, healthcheck API, bind host localhost secara default. |
+| `deploy/docker-compose.shared.yml` | Overlay opt-in folder bersama read-write; Hapus ikut menghapus file sumber RomM. |
+| `deploy/docker-compose.external.yml` | Overlay sumber read-only; upload tetap di penyimpanan internal. |
 | `deploy/backend.env.example` | Contoh opt-in HTTP LAN; salin/edit lalu gunakan `--env-file`. |
 | `.dockerignore` | Allowlist build kedua image; data privat dan environment tidak ikut ke daemon. |
 

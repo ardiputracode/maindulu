@@ -338,6 +338,43 @@ const migrations = [
       PRIMARY KEY(job_id, ordinal)
     ) STRICT;`,
   },
+  {
+    version: 17,
+    name: 'read-only-external-catalog',
+    // Separate ownership domain: external files are never cleanup candidates.
+    sql: `CREATE TABLE catalog_external_files (
+      storage_key TEXT PRIMARY KEY,
+      folder TEXT NOT NULL CHECK(folder IN ('games', 'bios')),
+      source_root TEXT NOT NULL,
+      platform TEXT NOT NULL CHECK(platform IN ('nes', 'snes', 'gb', 'gbc', 'gba', 'genesis', 'psx')),
+      file_name TEXT NOT NULL, name_identity TEXT NOT NULL,
+      size INTEGER NOT NULL CHECK(size > 0), sha256 TEXT NOT NULL,
+      mtime_ms REAL NOT NULL, ctime_ms REAL NOT NULL,
+      UNIQUE(folder, source_root, platform, name_identity)
+    ) STRICT;`,
+  },
+  {
+    version: 18,
+    name: 'shared-writable-catalog',
+    // Retired tokens cannot resolve to a newer file at a reused shared path.
+    // Only explicit user deletion or owned upload compensation permits unlink.
+    sql: `CREATE TABLE catalog_external_files_v18 (
+      storage_key TEXT PRIMARY KEY,
+      folder TEXT NOT NULL CHECK(folder IN ('games', 'bios')),
+      source_root TEXT NOT NULL,
+      platform TEXT NOT NULL CHECK(platform IN ('nes', 'snes', 'gb', 'gbc', 'gba', 'genesis', 'psx')),
+      file_name TEXT NOT NULL, name_identity TEXT NOT NULL,
+      size INTEGER NOT NULL CHECK(size >= 0), sha256 TEXT NOT NULL,
+      mtime_ms REAL NOT NULL, ctime_ms REAL NOT NULL,
+      state TEXT NOT NULL DEFAULT 'ready' CHECK(state IN ('reserved', 'ready', 'deleting', 'retired')),
+      delete_intent TEXT NOT NULL DEFAULT 'none' CHECK(delete_intent IN ('none', 'user', 'upload'))
+    ) STRICT;
+    INSERT INTO catalog_external_files_v18 (storage_key, folder, source_root, platform, file_name, name_identity, size, sha256, mtime_ms, ctime_ms)
+      SELECT storage_key, folder, source_root, platform, file_name, name_identity, size, sha256, mtime_ms, ctime_ms FROM catalog_external_files;
+    DROP TABLE catalog_external_files;
+    ALTER TABLE catalog_external_files_v18 RENAME TO catalog_external_files;
+    CREATE UNIQUE INDEX catalog_external_path ON catalog_external_files(folder, source_root, platform, name_identity) WHERE state != 'retired';`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

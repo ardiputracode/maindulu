@@ -23,7 +23,7 @@ export function createCatalogMaintenance(db, storage, config, log) {
   function check(id) {
     if (!db.prepare('SELECT 1 FROM catalog_uploads WHERE id = ? AND expires_at > ?').get(id, Date.now())) throw new CatalogHttpError(408, 'UPLOAD_EXPIRED', 'Waktu upload berakhir. Ulangi upload.')
   }
-  async function reserve(bytes) {
+  async function reserve(bytes, kind) {
     // Sampling outside SQLite avoids holding a write transaction over disk I/O.
     // A generation change (admission/release in ANY process) invalidates the sample.
     for (let attempt = 0; attempt < 8; attempt++) {
@@ -35,7 +35,7 @@ export function createCatalogMaintenance(db, storage, config, log) {
         if (error.code === 'ENOENT') continue // Promotion/cleanup raced the sample.
         throw new CatalogHttpError(503, 'STORAGE_UNSAFE', 'Storage katalog tidak aman atau tidak dapat dibaca. Jalankan inspeksi recovery offline.')
       }
-      const disk = await statfs(config.dataDir, { bigint: true })
+      const disks = await Promise.all((storage.capacityRoots?.(kind) ?? [config.dataDir]).map(path => statfs(path, { bigint: true })))
       const id = randomUUID()
       const admitted = transaction(db, () => {
         if (db.prepare('SELECT generation FROM catalog_capacity WHERE id = 1').get().generation !== generation) return false
@@ -45,7 +45,7 @@ export function createCatalogMaintenance(db, storage, config, log) {
         // Conservatively count full reservations as well as physical staging;
         // active uploads may temporarily make admission stricter, never looser.
         if (physical + usage.bytes + bytes > config.catalogQuotaBytes) throw new CatalogHttpError(507, 'CATALOG_QUOTA_EXCEEDED', 'Kuota storage katalog tidak cukup. Bersihkan aset yang tidak digunakan.')
-        if (disk.bavail * disk.bsize < BigInt(config.catalogMinFreeBytes + usage.bytes + bytes)) throw new CatalogHttpError(507, 'STORAGE_FULL', 'Ruang disk tidak cukup untuk menerima upload dengan aman.')
+        if (disks.some(disk => disk.bavail * disk.bsize < BigInt(config.catalogMinFreeBytes + usage.bytes + bytes))) throw new CatalogHttpError(507, 'STORAGE_FULL', 'Ruang disk staging atau folder tujuan tidak cukup untuk menerima upload dengan aman.')
         db.prepare('INSERT INTO catalog_uploads VALUES (?, ?, ?)').run(id, bytes, Date.now() + config.catalogUploadTimeoutMs)
         bump()
         return true

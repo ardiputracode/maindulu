@@ -2,6 +2,8 @@
 
 Status: **diimplementasikan pada 2026-11-08**. Dokumen ini menjelaskan perubahan storage setelah Milestone 7 ScreenScraper dan penggantian nama internal `<uuid>.bin`.
 
+Untuk koleksi RomM yang tidak boleh dikelola upload/hapus maindulu, gunakan [sumber eksternal read-only](koleksi-eksternal-read-only.md), bukan bind mount ke folder storage internal di bawah data. Dukungan tersebut memakai migrasi 17 dan scan manual dengan indeks terpisah.
+
 ## Tujuan
 
 1. Berkas ROM/BIOS yang di-upload disimpan dengan **nama dan ekstensi aslinya** agar mudah diperiksa operator di volume.

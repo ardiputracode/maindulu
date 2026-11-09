@@ -191,7 +191,7 @@ export function registerCatalog(app, config, security, storage, metadataDependen
       const length = request.headers['content-length']
       if (length !== undefined && (!/^\d+$/.test(length) || !Number.isSafeInteger(Number(length)) || Number(length) < 1 || Number(length) > max)) throw oversized()
       request.catalogMaxBody = length === undefined ? max : Number(length)
-      const operation = { promise: maintenance.reserve(request.catalogMaxBody), cancel: () => request.raw.destroy() }
+      const operation = { promise: maintenance.reserve(request.catalogMaxBody, patch ? 'covers' : kind), cancel: () => request.raw.destroy() }
       operations.add(operation)
       try { request.catalogLease = await operation.promise } finally { operations.delete(operation) }
       if (reply.sent || request.raw.aborted) { release(request); return }

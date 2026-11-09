@@ -1,0 +1,20 @@
+# Optional overlay. Sources stay OUTSIDE the private data volume.
+# docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml -f deploy/docker-compose.external.yml up -d --build
+services:
+  backend:
+    environment:
+      - MAIN_DULU_EXTERNAL_ROM_DIR=/mnt/romm/roms
+      - MAIN_DULU_EXTERNAL_BIOS_DIR=/mnt/romm/bios
+    volumes:
+      - type: bind
+        source: "${MAIN_DULU_ROM_PATH:?Isi MAIN_DULU_ROM_PATH dengan folder ROM host}"
+        target: /mnt/romm/roms
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${MAIN_DULU_BIOS_PATH:?Isi MAIN_DULU_BIOS_PATH dengan folder BIOS host}"
+        target: /mnt/romm/bios
+        read_only: true
+        bind:
+          create_host_path: false
