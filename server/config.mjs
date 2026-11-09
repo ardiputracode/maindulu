@@ -36,15 +36,20 @@ export async function readConfig(env = process.env, root = projectRoot) {
   if (!['true', 'false'].includes(insecureHttp)) throw new Error('MAIN_DULU_ALLOW_INSECURE_HTTP harus true atau false.')
   const allowInsecureHttp = insecureHttp === 'true'
   // Opt-in never permits deriving a network account origin from an arbitrary Host.
-  if (allowInsecureHttp && env.MAIN_DULU_PUBLIC_ORIGIN === undefined) throw new Error('MAIN_DULU_PUBLIC_ORIGIN wajib diatur saat MAIN_DULU_ALLOW_INSECURE_HTTP=true.')
-  let publicOrigin = null
-  if (env.MAIN_DULU_PUBLIC_ORIGIN !== undefined) {
-    try {
-      const url = new URL(env.MAIN_DULU_PUBLIC_ORIGIN)
-      if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || (url.protocol !== 'https:' && !(url.protocol === 'http:' && (allowInsecureHttp || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))))) throw new Error()
-      publicOrigin = url.origin
-    } catch { throw new Error('MAIN_DULU_PUBLIC_ORIGIN harus origin HTTPS atau HTTP localhost, tanpa path, kredensial, query, atau fragment. HTTP jaringan memerlukan MAIN_DULU_ALLOW_INSECURE_HTTP=true (hanya LAN tepercaya).') }
+  if (allowInsecureHttp && env.MAIN_DULU_PUBLIC_ORIGIN === undefined && env.MAIN_DULU_PUBLIC_ORIGINS === undefined) throw new Error('MAIN_DULU_PUBLIC_ORIGIN atau MAIN_DULU_PUBLIC_ORIGINS wajib diatur saat MAIN_DULU_ALLOW_INSECURE_HTTP=true.')
+  const publicOrigins = []
+  // Plural entries first; retain the singular setting as an additional origin.
+  for (const name of ['MAIN_DULU_PUBLIC_ORIGINS', 'MAIN_DULU_PUBLIC_ORIGIN']) {
+    if (env[name] === undefined) continue
+    for (const entry of name === 'MAIN_DULU_PUBLIC_ORIGINS' ? env[name].split(',') : [env[name]]) {
+      try {
+        const url = new URL(entry.trim())
+        if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || (url.protocol !== 'https:' && !(url.protocol === 'http:' && (allowInsecureHttp || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))))) throw new Error()
+        if (!publicOrigins.includes(url.origin)) publicOrigins.push(url.origin)
+      } catch { throw new Error(`${name} harus origin HTTPS atau HTTP localhost, tanpa path, kredensial, query, atau fragment. HTTP jaringan memerlukan MAIN_DULU_ALLOW_INSECURE_HTTP=true (hanya LAN tepercaya).`) }
+    }
   }
+  const publicOrigin = publicOrigins[0] ?? null
   const rawPort = env.MAIN_DULU_PORT ?? '7777'
   if (!/^\d+$/.test(rawPort) || Number(rawPort) < 1 || Number(rawPort) > 65535) throw new Error('MAIN_DULU_PORT harus berupa angka 1–65535.')
   const host = env.MAIN_DULU_HOST ?? '127.0.0.1'
@@ -72,7 +77,7 @@ export async function readConfig(env = process.env, root = projectRoot) {
     externalCatalog[kind] = path
   }
   if (externalWritable === 'true' && !Object.keys(externalCatalog).length) throw new Error('Mode folder bersama memerlukan MAIN_DULU_EXTERNAL_ROM_DIR atau MAIN_DULU_EXTERNAL_BIOS_DIR.')
-  return { host, port: Number(rawPort), distDir, publicDir, dataDir, registrationOpen: registration === 'true', publicOrigin, allowInsecureHttp,
+  return { host, port: Number(rawPort), distDir, publicDir, dataDir, registrationOpen: registration === 'true', publicOrigin, publicOrigins, allowInsecureHttp,
     externalCatalog, externalWritable: externalWritable === 'true',
     stateMaxBytes: bytes('MAIN_DULU_STATE_MAX_BYTES', 32 * 1024 * 1024, 64 * 1024 * 1024),
     gameSaveMaxBytes: bytes('MAIN_DULU_GAME_SAVE_MAX_BYTES', 8 * 1024 * 1024, 8 * 1024 * 1024),

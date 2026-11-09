@@ -5,7 +5,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { networkInterfaces, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:net'
+import { createServer as createHttpsServer } from 'node:https'
+import { request as httpRequest } from 'node:http'
 import { createApp } from '../../server/app.mjs'
+import { key, cert } from '../helpers/test-tls.mjs'
 
 // Exercise the exact minimum through registration, login and password change.
 const password = 'Uji123'
@@ -143,6 +146,79 @@ test('opt-in HTTP LAN registers and retains a real browser session without a cer
       await expect(page.getByRole('button', { name: `Akun ${name}`, exact: true })).toBeVisible()
     } finally { await context.close() }
   } finally {
+    try { await app?.close() } finally { await rm(folder, { recursive: true, force: true }) }
+  }
+})
+
+test('one backend accepts HTTPS proxy and localhost logins with separate browser cookies', async ({ browser }) => {
+  const parent = process.platform === 'win32' && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Temp/opencode') : tmpdir()
+  const folder = await mkdtemp(join(parent, 'multi-origin-account-'))
+  let app: Awaited<ReturnType<typeof createApp>> | undefined
+  let backendPort = 0
+  // Real TLS termination, like a tunnel: forward the original Host unchanged.
+  // The self-signed fixture is public test material, not a deployed certificate.
+  const proxy = createHttpsServer({ key, cert }, (request, reply) => {
+    const upstream = httpRequest({ hostname: '127.0.0.1', port: backendPort, path: request.url, method: request.method, headers: request.headers }, response => {
+      reply.writeHead(response.statusCode ?? 502, response.headers)
+      response.pipe(reply)
+    })
+    upstream.on('error', () => { reply.writeHead(502); reply.end() })
+    request.pipe(upstream)
+  })
+  try {
+    await new Promise<void>((resolve, reject) => { proxy.once('error', reject); proxy.listen(0, '127.0.0.1', resolve) })
+    const proxyAddress = proxy.address()
+    if (!proxyAddress || typeof proxyAddress === 'string') throw new Error('No HTTPS test port available')
+    const secureOrigin = `https://127.0.0.1:${proxyAddress.port}`
+    const reserve = createServer()
+    try {
+      await new Promise<void>((resolve, reject) => { reserve.once('error', reject); reserve.listen(0, '127.0.0.1', resolve) })
+      const socket = reserve.address()
+      if (!socket || typeof socket === 'string') throw new Error('No backend test port available')
+      backendPort = socket.port
+    } finally { await new Promise<void>(resolve => reserve.close(() => resolve())) }
+    const localOrigin = `http://localhost:${backendPort}`
+    app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data'), MAIN_DULU_PUBLIC_ORIGINS: `${secureOrigin},${localOrigin}` } })
+    await app.listen({ host: '127.0.0.1', port: backendPort })
+    const local = await browser.newContext({ baseURL: localOrigin })
+    const secure = await browser.newContext({ baseURL: secureOrigin, ignoreHTTPSErrors: true })
+    try {
+      const localPage = await local.newPage()
+      const securePage = await secure.newPage()
+      const username = uniqueName()
+      await register(localPage, username)
+      await finishRegistration(localPage)
+      const localSession = await (await local.request.get('/api/auth/session')).json()
+      await login(securePage, username)
+      await expect(securePage.getByRole('dialog')).toHaveCount(0)
+      const secureSession = await (await secure.request.get('/api/auth/session')).json()
+      expect(secureSession.user).toEqual(localSession.user)
+      for (const [context, page, isSecure] of [[local, localPage, false], [secure, securePage, true]] as const) {
+        await page.reload()
+        await expect(page.getByRole('button', { name: `Akun ${username}`, exact: true })).toBeVisible()
+        const cookie = (await context.cookies()).find(value => value.name === 'maindulu_session')
+        expect(cookie).toMatchObject({ httpOnly: true, sameSite: 'Strict', path: '/api', secure: isSecure })
+      }
+      expect((await secure.request.get('/api/auth/session', { headers: { origin: localOrigin } })).status()).toBe(403)
+      expect((await local.request.get('/api/auth/session', { headers: { origin: secureOrigin } })).status()).toBe(403)
+      await securePage.getByRole('button', { name: `Akun ${username}`, exact: true }).click()
+      await securePage.getByRole('button', { name: 'Keluar akun', exact: true }).click()
+      await expect(securePage.getByRole('button', { name: 'Masuk ke akun', exact: true })).toBeVisible()
+      expect((await secure.cookies()).filter(value => value.name === 'maindulu_session')).toHaveLength(0)
+      await localPage.reload()
+      await expect(localPage.getByRole('button', { name: `Akun ${username}`, exact: true })).toBeVisible()
+      await login(securePage, username)
+      await expect(securePage.getByRole('button', { name: `Akun ${username}`, exact: true })).toBeVisible()
+      await localPage.getByRole('button', { name: `Akun ${username}`, exact: true }).click()
+      await localPage.getByRole('button', { name: 'Keluar akun', exact: true }).click()
+      await expect(localPage.getByRole('button', { name: 'Masuk ke akun', exact: true })).toBeVisible()
+      expect((await local.cookies()).filter(value => value.name === 'maindulu_session')).toHaveLength(0)
+      await login(localPage, username)
+      await expect(localPage.getByRole('button', { name: `Akun ${username}`, exact: true })).toBeVisible()
+    } finally { await Promise.all([local.close(), secure.close()]) }
+  } finally {
+    proxy.closeAllConnections()
+    await new Promise<void>(resolve => proxy.close(() => resolve()))
     try { await app?.close() } finally { await rm(folder, { recursive: true, force: true }) }
   }
 })

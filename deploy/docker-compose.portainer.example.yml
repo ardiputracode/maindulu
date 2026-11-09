@@ -20,6 +20,7 @@ services:
       - MAIN_DULU_DATA_DIR=/var/lib/maindulu/data
       - MAIN_DULU_REGISTRATION_OPEN=${MAIN_DULU_REGISTRATION_OPEN:-true}
       - MAIN_DULU_PUBLIC_ORIGIN=${MAIN_DULU_PUBLIC_ORIGIN:?Isi origin browser lengkap dengan skema dan port}
+      - MAIN_DULU_PUBLIC_ORIGINS
       - MAIN_DULU_ALLOW_INSECURE_HTTP=true
 
       # Folder yang sama untuk upload, scan, dan hapus. Sumber host harus terpisah.

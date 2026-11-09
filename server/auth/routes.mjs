@@ -21,7 +21,9 @@ export function registerAuth(app, config) {
     try { return await work() }
     finally { activeWork-- }
   }
-  const cookieOptions = { httpOnly: true, sameSite: 'strict', secure: config.publicOrigin?.startsWith('https:') ?? false, path: '/api' }
+  function cookieOptionsFor(request) {
+    return { httpOnly: true, sameSite: 'strict', secure: request.accountOrigin.protocol === 'https:', path: '/api' }
+  }
   function findSession(request) {
     const token = request.cookies[cookieName]
     if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return null
@@ -34,14 +36,14 @@ export function registerAuth(app, config) {
     if (!session) throw new AuthError(401, 'Sesi berakhir. Silakan masuk lagi.')
     return session
   }
-  function newSession(reply, userId = null, oldHash = null) {
+  function newSession(request, reply, userId = null, oldHash = null) {
     const token = randomToken()
     const age = userId ? sessionAge : anonymousAge
     const now = Date.now()
     db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now)
     if (oldHash) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(oldHash)
     db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(hashToken(token), userId, now, now + age * 1000)
-    reply.setCookie(cookieName, token, { ...cookieOptions, maxAge: age })
+    reply.setCookie(cookieName, token, { ...cookieOptionsFor(request), maxAge: age })
     return csrfToken(token)
   }
   function sessionResult(request) {
@@ -53,13 +55,14 @@ export function registerAuth(app, config) {
   }
   app.register(cookie)
   app.register(async auth => {
+    auth.decorateRequest('accountOrigin', null)
     auth.addHook('onRequest', async request => {
-      protectRequest(request, config, current)
+      request.accountOrigin = protectRequest(request, config, current)
     })
     auth.get('/session', async request => sessionResult(request))
     auth.get('/csrf', async (request, reply) => {
       consume('csrf:' + request.ip, 60, 60000)
-      if (!findSession(request)) return { user: null, csrfToken: newSession(reply), registrationOpen: config.registrationOpen }
+      if (!findSession(request)) return { user: null, csrfToken: newSession(request, reply), registrationOpen: config.registrationOpen }
       return sessionResult(request)
     })
     auth.post('/register', async (request, reply) => {
@@ -79,7 +82,7 @@ export function registerAuth(app, config) {
         current(request)
         if (db.prepare('SELECT id FROM users WHERE username = ?').get(name)) throw new AuthError(409, 'Username sudah digunakan. Pilih username lain.')
         db.prepare('INSERT INTO users (id, username, password_hash, recovery_code_hash, created_at) VALUES (?, ?, ?, ?, ?)').run(user.id, name, passwordHash, hashRecoveryCode(code), Date.now())
-        return newSession(reply, user.id, session.token_hash)
+        return newSession(request, reply, user.id, session.token_hash)
       })
       return reply.code(201).send({ user, csrfToken: csrf, registrationOpen: config.registrationOpen, recoveryCode: code })
     })
@@ -96,13 +99,13 @@ export function registerAuth(app, config) {
         const session = current(request)
         const latest = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id)
         if (latest?.password_hash !== user.password_hash) throw new AuthError(401, 'Username atau password tidak sesuai.')
-        return { user: publicUser(latest), csrfToken: newSession(reply, user.id, session.token_hash) }
+        return { user: publicUser(latest), csrfToken: newSession(request, reply, user.id, session.token_hash) }
       })
       return { ...result, registrationOpen: config.registrationOpen }
     })
     auth.post('/logout', async (request, reply) => {
       db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(current(request).token_hash)
-      reply.clearCookie(cookieName, cookieOptions)
+      reply.clearCookie(cookieName, cookieOptionsFor(request))
       return { ok: true }
     })
     auth.post('/password', async (request, reply) => {
@@ -123,7 +126,7 @@ export function registerAuth(app, config) {
         if (changed.changes !== 1) throw new AuthError(401, 'Sesi berakhir. Silakan masuk lagi.')
         db.prepare('DELETE FROM sessions WHERE user_id = ?').run(session.user_id)
       })
-      reply.clearCookie(cookieName, cookieOptions)
+      reply.clearCookie(cookieName, cookieOptionsFor(request))
       return { ok: true }
     })
     auth.post('/recover', async (request, reply) => {
@@ -143,7 +146,7 @@ export function registerAuth(app, config) {
         const session = current(request)
         if (session.user_id && session.user_id !== user.id) throw new AuthError(409, 'Keluar dari akun saat ini sebelum memulihkan akun lain.')
       })
-      reply.clearCookie(cookieName, cookieOptions)
+      reply.clearCookie(cookieName, cookieOptionsFor(request))
       return { ok: true, username: user.username, recoveryCode: nextCode }
     })
     auth.post('/recovery-code', async request => {

@@ -24,13 +24,13 @@ async function authenticate(app, username = 'backup_owner', action = 'register')
   assert.equal(r.statusCode, action === 'register' ? 201 : 200, r.body)
   return { ...origin, cookie: cookie(r), 'x-csrf-token': r.json().csrfToken, 'x-save-user': r.json().user.id }
 }
-async function setup(t) {
+async function setup(t, env = {}) {
   const c = { app: null }
   c.root = await backendFixture(t, { beforeCleanup: () => c.app?.close() })
-  c.config = await readConfig({}, c.root)
+  c.config = await readConfig(env, c.root)
   c.backup = join(c.root, 'backup')
   c.restored = join(c.root, 'restored')
-  c.app = await createApp({ root: c.root, env: {} })
+  c.app = await createApp({ root: c.root, env })
   c.headers = await authenticate(c.app)
   c.put = async (kind, n, rev = 0, operation, slot = 1, headers = c.headers) => {
     const native = new Uint8Array(700).fill(n)
@@ -46,7 +46,7 @@ async function setup(t) {
 }
 
 test('M8 restores accounts, all save types, tombstones, archives, receipts and quotas without reviving sessions', async t => {
-  const c = await setup(t)
+  const c = await setup(t, { MAIN_DULU_PUBLIC_ORIGINS: 'https://backup.example,http://localhost:7777' })
   const state = await c.put('state', 1)
   const operation = { id: randomUUID(), action: 'replace', reason: 'import' }
   const replaced = await c.put('state', 2, 1, operation)
@@ -68,6 +68,8 @@ test('M8 restores accounts, all save types, tombstones, archives, receipts and q
   assert.equal(manifest.files.length, 7) // database, 4 states (incl. archive), 2 progress blobs
   assert.equal(manifest.configuration.saveQuotaBytes, 256 * 1024 * 1024)
   assert.equal(manifest.configuration.allowInsecureHttp, false)
+  assert.deepEqual(manifest.configuration.publicOrigins, ['https://backup.example', 'http://localhost:7777'])
+  assert.equal(manifest.configuration.publicOrigin, 'https://backup.example')
   assert.ok(!JSON.stringify(manifest).includes(c.root))
   const backupDatabase = await readFile(join(c.backup, 'maindulu.sqlite'))
   assert.deepEqual(await verifyDataBackup(c.config, c.backup), manifest)
@@ -75,6 +77,8 @@ test('M8 restores accounts, all save types, tombstones, archives, receipts and q
   assert.deepEqual(await readFile(join(c.backup, 'maindulu.sqlite')), backupDatabase)
   assert.deepEqual((await readdir(c.restored)).sort(), ['game-saves', 'maindulu.sqlite', 'saves'])
   c.app = await createApp({ root: c.root, env: { MAIN_DULU_DATA_DIR: c.restored } })
+  // Backup records settings for operators; restore must not silently enable them.
+  assert.deepEqual(c.app.appConfig.publicOrigins, [])
   for (const table of tables) assert.deepEqual(c.app.database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(), before[table], table)
   assert.equal(c.app.database.prepare('SELECT COUNT(*) AS n FROM sessions').get().n, 0)
   assert.equal((await c.app.inject({ url: '/api/saves/', headers: c.headers })).statusCode, 401)

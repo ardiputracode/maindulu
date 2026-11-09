@@ -95,6 +95,7 @@ MAIN_DULU_ALLOW_INSECURE_HTTP=false
 | `MAIN_DULU_BIND_ADDRESS` | `127.0.0.1` | Interface yang dibuka; `0.0.0.0` untuk LAN |
 | `MAIN_DULU_PORT` | `7777` | Port host yang dibuka di browser |
 | `MAIN_DULU_PUBLIC_ORIGIN` | (kosong) | Origin akun yang diizinkan, harus sama persis dengan URL browser |
+| `MAIN_DULU_PUBLIC_ORIGINS` | (kosong) | Beberapa origin dipisah koma; digabung dengan singular, misalnya HTTPS + HTTP localhost ([panduan](https-cloudflare-tunnel.md)) |
 | `MAIN_DULU_ALLOW_INSECURE_HTTP` | `false` | `true` = izinkan HTTP LAN (hanya jaringan tepercaya) |
 | `MAIN_DULU_REGISTRATION_OPEN` | `true` | `false` = tutup pendaftaran akun baru |
 | `MAIN_DULU_CONTAINER_DATA_DIR` | `/var/lib/maindulu/data` | Folder data di dalam container/volume |

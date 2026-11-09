@@ -31,6 +31,7 @@ test('Docker backend has production dependencies, non-root runtime and a volume 
   const compose = await text('deploy/docker-compose.backend.yml')
   for (const value of ['storage:/var/lib/maindulu', 'init: true', 'read_only: true', 'no-new-privileges:true', 'stop_grace_period: 30s', 'MAIN_DULU_HOST=0.0.0.0', 'MAIN_DULU_PORT=7777', '${MAIN_DULU_BIND_ADDRESS:-127.0.0.1}:${MAIN_DULU_PORT:-7777}:7777']) assert.ok(compose.includes(value), value)
   assert.match(compose, /^      - MAIN_DULU_PUBLIC_ORIGIN$/m)
+  assert.match(compose, /^      - MAIN_DULU_PUBLIC_ORIGINS$/m)
   assert.ok(compose.includes('MAIN_DULU_ALLOW_INSECURE_HTTP=${MAIN_DULU_ALLOW_INSECURE_HTTP:-false}'))
   assert.doesNotMatch(compose, /MAIN_DULU_PUBLIC_ORIGIN=|pid: host|privileged: true|container_name:/)
 })
@@ -68,6 +69,7 @@ test('shared overlay explicitly opts in to write/delete on the same folders with
 
 test('Portainer standalone example uses 200 GiB, writable sources, existing private volume and no embedded credentials', async () => {
   const stack = await text('deploy/docker-compose.portainer.example.yml')
+  assert.match(stack, /^      - MAIN_DULU_PUBLIC_ORIGINS$/m)
   for (const value of ['name: maindulu-backend', 'image: "${MAIN_DULU_IMAGE:-maindulu-backend:latest}"', 'user: "1000:1000"', 'MAIN_DULU_CATALOG_QUOTA_BYTES=214748364800',
     'MAIN_DULU_EXTERNAL_WRITABLE=true', 'storage:/var/lib/maindulu', 'external: true', 'name: "${MAIN_DULU_STORAGE_VOLUME:-maindulu-backend_storage}"',
     '${MAIN_DULU_PUBLIC_ORIGIN:?', '${MAIN_DULU_ROM_PATH:?', '${MAIN_DULU_BIOS_PATH:?', 'MAIN_DULU_SCREENSCRAPER_ENABLED=${MAIN_DULU_SCREENSCRAPER_ENABLED:-false}',

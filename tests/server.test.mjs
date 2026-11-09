@@ -34,6 +34,34 @@ test('private directory checks follow existing symlink or junction ancestors', a
   await assert.rejects(readConfig({ MAIN_DULU_DATA_DIR: 'public-alias/new-data' }, root), /Folder data/)
 })
 
+test('account origins merge, normalize and deduplicate plural and legacy settings', async t => {
+  const root = await backendFixture(t)
+  const defaults = await readConfig({}, root)
+  assert.deepEqual(defaults.publicOrigins, [])
+  assert.equal(defaults.publicOrigin, null)
+  const legacy = await readConfig({ MAIN_DULU_PUBLIC_ORIGIN: 'https://legacy.example/' }, root)
+  assert.deepEqual(legacy.publicOrigins, ['https://legacy.example'])
+  assert.equal(legacy.publicOrigin, legacy.publicOrigins[0])
+  const merged = await readConfig({ MAIN_DULU_PUBLIC_ORIGINS: ' https://A.example:443/ , http://localhost:7777,https://a.example ', MAIN_DULU_PUBLIC_ORIGIN: 'https://legacy.example' }, root)
+  assert.deepEqual(merged.publicOrigins, ['https://a.example', 'http://localhost:7777', 'https://legacy.example'])
+  assert.equal(merged.publicOrigin, 'https://a.example')
+  const dedup = await readConfig({ MAIN_DULU_PUBLIC_ORIGINS: 'https://a.example', MAIN_DULU_PUBLIC_ORIGIN: 'https://a.example/' }, root)
+  assert.deepEqual(dedup.publicOrigins, ['https://a.example'])
+  const local = await readConfig({ MAIN_DULU_PUBLIC_ORIGINS: 'http://localhost:7777,http://127.0.0.1:7777,http://[::1]:7777' }, root)
+  assert.equal(local.publicOrigins.length, 3)
+  const lan = await readConfig({ MAIN_DULU_PUBLIC_ORIGINS: 'https://a.example,http://192.168.1.5:7777', MAIN_DULU_ALLOW_INSECURE_HTTP: 'true' }, root)
+  assert.deepEqual(lan.publicOrigins, ['https://a.example', 'http://192.168.1.5:7777'])
+})
+
+test('every configured origin must be valid; empty entries and implicit network HTTP fail closed', async t => {
+  const root = await backendFixture(t)
+  for (const entry of ['', ' ', ',https://a.example', 'https://a.example,', 'https://a.example,,http://localhost', 'garbage', 'https://a.example/path', 'https://user:secret@a.example', 'https://a.example?x=1', 'https://a.example#x', 'ftp://a.example', 'http://192.168.1.5:7777']) {
+    await assert.rejects(readConfig({ MAIN_DULU_PUBLIC_ORIGINS: entry }, root), /MAIN_DULU_PUBLIC_ORIGINS/)
+  }
+  await assert.rejects(readConfig({ MAIN_DULU_PUBLIC_ORIGINS: 'https://a.example', MAIN_DULU_PUBLIC_ORIGIN: 'invalid' }, root), /MAIN_DULU_PUBLIC_ORIGIN/)
+  await assert.rejects(readConfig({ MAIN_DULU_PUBLIC_ORIGINS: '', MAIN_DULU_ALLOW_INSECURE_HTTP: 'true' }, root), /MAIN_DULU_PUBLIC_ORIGINS/)
+})
+
 test('SQLite migrations are atomic, idempotent and preserve metadata across reopen', async t => {
   const root = await backendFixture(t)
   const dataDir = join(root, 'data')

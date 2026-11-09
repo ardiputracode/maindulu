@@ -1,10 +1,12 @@
 # Rencana: Dukungan Multi-Origin Akun (Online + Lokal)
 
+> Implementasi tersedia. Bagian masalah/desain di bawah mencatat kondisi awal dan rencana; hasil serta batas verifikasi ada pada bagian Status. Panduan penggunaan: [HTTPS Cloudflare Tunnel + multi-origin](https-cloudflare-tunnel.md).
+
 ## Tujuan
 
 Mengizinkan satu instance backend maindulu menerima login akun dari **beberapa origin sekaligus** — misalnya `https://maindulu.putraserver.biz.id` (via Cloudflare Tunnel) **dan** `http://localhost:7777` (lokal) — tanpa harus memilih salah satu atau menjalankan dua instance.
 
-## Masalah Saat Ini
+## Masalah Sebelum Implementasi
 
 `MAIN_DULU_PUBLIC_ORIGIN` hanya menampung **satu origin**. `protectRequest()` di `server/auth/security.mjs` membandingkan `Host` request dengan origin tunggal itu, sehingga origin lain ditolak (`403 Akses akun memerlukan HTTPS` / `Alamat akun tidak sesuai konfigurasi server`).
 
@@ -154,4 +156,22 @@ E2E backend (`tests/browser/account.spec.ts`):
 
 ## Status
 
-Rencana — belum diimplementasikan. Implementasi menunggu persetujuan dan switch ke agent Build.
+Implementasi selesai pada 2026-11-09, tanpa perubahan frontend atau migrasi database:
+
+- [x] Parsing, validasi setiap entri, normalisasi/dedup dan penggabungan singular/plural. Plural didahulukan; `config.publicOrigin` tetap entri pertama.
+- [x] Pencocokan Host multi-origin, fallback localhost pada port request, penolakan Host invalid dan Origin silang; header forwarded tidak dipercaya. Konfigurasi singular tetap didukung oleh helper keamanan.
+- [x] Hook menyimpan `request.accountOrigin`; bootstrap/register/login serta clear-cookie logout/password/recover memakai flag Secure per request. SameSite/HttpOnly/path dan CSRF tidak berubah.
+- [x] Env plural diteruskan oleh Compose/Portainer; peringatan startup memeriksa seluruh daftar, dan informasi backup mencatat daftar tanpa mengaktifkannya otomatis saat restore.
+- [x] Tes konfigurasi/keamanan dan siklus akun pada dua origin; tes browser dengan proxy TLS lokal nyata ke backend yang sama.
+- [x] README, contoh env, panduan deployment, dan panduan Cloudflare Tunnel diperbarui.
+
+Keputusan tambahan: bila dua skema memakai Host+port yang sama, Origin yang cocok menentukan pilihan; tanpa Origin, HTTPS didahulukan agar urutan env tidak menurunkan keamanan cookie. Untuk konfigurasi online + lokal, gunakan hostname berbeda seperti contoh.
+
+Verifikasi:
+
+- `npm test`: **603 lulus**, tanpa gagal/skip.
+- `npm run build`: **lulus**; peringatan ukuran chunk Vite >500 kB masih ada, tidak terkait perubahan backend.
+- Skenario browser baru HTTPS proxy + localhost: **lulus**, termasuk login akun sama, cookie Secure/non-Secure, refresh, logout/login ulang dan penolakan Origin silang.
+- `npm run test:e2e:backend`: **183 lulus** (15,6 menit), tanpa gagal/skip.
+
+Batas: HTTPS diuji lewat proxy TLS loopback dengan sertifikat self-signed khusus tes. Tidak ada tunnel Cloudflare/domain/sertifikat publik atau container produksi yang diubah atau diklaim telah diuji. Aktivasi deployment memerlukan konfigurasi env dan restart/recreate oleh operator.

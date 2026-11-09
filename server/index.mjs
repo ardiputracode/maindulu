@@ -8,7 +8,7 @@ if (Number(process.versions.node.split('.')[0]) < 24) {
     const { createApp } = await import('./app.mjs')
     app = await createApp()
     const { host, port } = app.appConfig
-    if (app.appConfig.allowInsecureHttp && app.appConfig.publicOrigin?.startsWith('http:')) {
+    if (app.appConfig.allowInsecureHttp && app.appConfig.publicOrigins.some(origin => origin.startsWith('http:'))) {
       console.warn('PERINGATAN: HTTP akun tanpa enkripsi diaktifkan. Password, cookie sesi, dan save dapat disadap. Gunakan hanya di LAN tepercaya; jangan buka ke internet.')
     }
     const address = await app.listen({ host, port })

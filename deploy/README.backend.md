@@ -64,7 +64,7 @@ Buka **http://192.168.2.251:7777** dari PC/HP lain. Tidak perlu Nginx, sertifika
 
 - Gunakan `--env-file .env.backend` pada **semua** perintah contoh berikut jika memilih mode ini. Contoh operasi di bawah memakai opsi tersebut; pengguna localhost dapat menghilangkannya.
 - `.env.backend` bukan otomatis dibaca Node maupun Compose tanpa opsi itu. Shell environment yang sudah diekspor mengalahkan nilai env-file. Gunakan `config --quiet` untuk validasi; `config` tanpa opsi, `inspect`, dan dump environment dapat menampilkan secret ScreenScraper. Jangan bagikan hasilnya.
-- `MAIN_DULU_PUBLIC_ORIGIN` harus sama dengan URL browser: skema, hostname/IP, dan port. Tanpa path/query/kredensial. Dengan origin LAN, API akun lewat `localhost` yang berbeda akan ditolak; healthcheck `/api/health` tetap bekerja.
+- `MAIN_DULU_PUBLIC_ORIGIN` harus sama dengan URL browser: skema, hostname/IP, dan port. Tanpa path/query/kredensial. Untuk beberapa alamat sekaligus gunakan `MAIN_DULU_PUBLIC_ORIGINS` dipisah koma, misalnya `https://main.example.com,http://localhost:7777`. Keduanya digabung/dedup (plural lebih dahulu); setiap alamat yang dipakai harus dicantumkan. Dengan hanya origin LAN, API akun lewat `localhost` yang berbeda tetap ditolak; healthcheck `/api/health` tetap bekerja.
 - Mengganti IP/port berarti memperbarui origin dan URL browser sekaligus. Data akun/save server tetap pada volume, tetapi storage tamu terpisah per origin.
 - Mengaktifkan flag HTTP **tanpa origin eksplisit** membuat startup gagal. Flag default tetap `false`; HTTPS tetap memakai cookie `Secure` walaupun flag keliru dibiarkan `true`.
 - Setelah mengubah env runtime backend, gunakan `up -d --force-recreate`, bukan hanya `restart`. Tidak perlu build ulang untuk perubahan runtime ini; opsi frontend **build-time** pada bagian cache di bawah berbeda dan memerlukan rebuild.
@@ -91,6 +91,8 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -
 ```
 
 Variabel `https://...` saja **tidak** mengaktifkan TLS pada server Node. Compose ini tidak memasang proxy/sertifikat. HTTP LAN bukan pengganti HTTPS untuk deployment publik.
+
+Untuk mempertahankan akun lokal bersamaan dengan HTTPS, ganti origin tunggal dengan `MAIN_DULU_PUBLIC_ORIGINS=https://main.example.com,http://localhost:7777`. Gunakan `MAIN_DULU_ALLOW_INSECURE_HTTP=false` jika tidak ada HTTP jaringan. Cookie `Secure` ditentukan per request; satu database/port/proses tetap dipakai. Panduan [Cloudflare Tunnel + multi-origin](../doc/https-cloudflare-tunnel.md) mencakup konfigurasi dan pemeriksaan. Template Portainer tetap mewajibkan origin tunggal utama; daftar plural opsional menambah origin lainnya.
 
 ### Metadata ScreenScraper (M6, opt-in pribadi/LAN)
 
@@ -215,6 +217,7 @@ Panduan lengkap env, YAML Portainer, migrasi mount lama, platform/format, backup
 | `MAIN_DULU_BIND_ADDRESS` | `127.0.0.1` | Interface host tempat port Docker dipublish; `0.0.0.0` untuk LAN |
 | `MAIN_DULU_PORT` | `7777` | Port **host**; server di dalam container tetap 7777 |
 | `MAIN_DULU_PUBLIC_ORIGIN` | Tidak disetel | Satu origin akun yang diizinkan; harus cocok dengan browser |
+| `MAIN_DULU_PUBLIC_ORIGINS` | Tidak disetel | Daftar origin akun dipisah koma; digabung/dedup dengan singular, plural lebih dahulu |
 | `MAIN_DULU_ALLOW_INSECURE_HTTP` | `false` | `true` untuk mengizinkan origin HTTP jaringan secara eksplisit; hanya LAN tepercaya |
 | `MAIN_DULU_REGISTRATION_OPEN` | `true` | `false` menutup pendaftaran, bukan login akun lama |
 | `MAIN_DULU_STATE_MAX_BYTES` | `33554432` | Batas state 32 MiB; konfigurasi maksimum 64 MiB |

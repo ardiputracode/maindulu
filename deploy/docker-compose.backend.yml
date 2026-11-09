@@ -25,6 +25,7 @@ services:
       - MAIN_DULU_REGISTRATION_OPEN=${MAIN_DULU_REGISTRATION_OPEN:-true}
       # Bare key: jika tidak disetel di host/.env Compose, jangan kirim string kosong.
       - MAIN_DULU_PUBLIC_ORIGIN
+      - MAIN_DULU_PUBLIC_ORIGINS
       # Opt-in HTTP akun hanya untuk LAN tepercaya; origin eksplisit tetap wajib.
       - MAIN_DULU_ALLOW_INSECURE_HTTP=${MAIN_DULU_ALLOW_INSECURE_HTTP:-false}
       - MAIN_DULU_STATE_MAX_BYTES=${MAIN_DULU_STATE_MAX_BYTES:-33554432}

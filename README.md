@@ -59,6 +59,15 @@ Overlay tersusun vertikal dan responsif; tutup dengan tombol **×** atau **Escap
 
 `npm run dev`, `npm run preview`, dan deployment statis tetap berfungsi tanpa backend atau request API. Mode backend aktif otomatis hanya saat halaman dilayani server Node.js (atau melalui opt-in frontend yang dikonfigurasi khusus). Akun dapat dipakai lewat HTTP localhost; default akses jaringan memerlukan origin HTTPS. Untuk **LAN tepercaya saja**, `MAIN_DULU_ALLOW_INSECURE_HTTP=true` bersama `MAIN_DULU_PUBLIC_ORIGIN=http://IP-SERVER:7777` mengizinkan akun HTTP. Origin harus sama dengan URL browser; flag tanpa origin ditolak. **Password, cookie sesi dan save dapat disadap; jangan buka mode HTTP ini ke internet atau gunakan password layanan lain.** Lihat [panduan deploy backend](deploy/README.backend.md).
 
+**Online + lokal pada satu backend:** isi daftar origin dipisah koma (tanpa path), lalu restart backend:
+
+```dotenv
+MAIN_DULU_PUBLIC_ORIGINS=https://maindulu.putraserver.biz.id,http://localhost:7777
+MAIN_DULU_ALLOW_INSECURE_HTTP=false
+```
+
+`MAIN_DULU_PUBLIC_ORIGIN` tunggal tetap didukung dan digabung dengan daftar plural; duplikat dinormalisasi/dihapus. Daftar plural didahulukan. Tanpa keduanya, hanya HTTP localhost/127.0.0.1/[::1] yang diizinkan. Jika daftar eksplisit dipakai, setiap alamat lokal yang dibutuhkan juga harus dicantumkan. Cookie `Secure` mengikuti origin request: aktif untuk HTTPS, nonaktif untuk HTTP localhost. Akun/save server tetap sama, tetapi cookie login terikat hostname dan storage browser terpisah per origin; ini bukan login lintas situs atau CORS. HTTP jaringan tetap memerlukan opt-in LAN tepercaya. Variabel ini tidak memasang TLS; lihat [panduan Cloudflare Tunnel + multi-origin](doc/https-cloudflare-tunnel.md).
+
 Untuk mencoba dari HP di Wi-Fi yang sama, buka `http://IP-KOMPUTER:5173`. Server dev/preview mendengarkan pada semua interface. Membuka ROM lokal juga bekerja lewat HTTP jaringan: SHA-256 memiliki fallback JavaScript yang dibundel lokal, dan ID sesi memakai `crypto.getRandomValues` bila `randomUUID` tidak tersedia. Tidak perlu mematikan pengamanan browser. Gunakan HTTP hanya di jaringan tepercaya; HTTPS tetap disarankan untuk deployment publik.
 
 ### Metadata otomatis ScreenScraper (belum dirilis)

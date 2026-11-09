@@ -9,6 +9,7 @@ import { openDatabase, schemaVersion } from '../server/database.mjs'
 import { readConfig } from '../server/config.mjs'
 import { hashPassword, verifyPassword, normalizeUsername, normalizeRecoveryCode, validPassword, hashRecoveryCode, hashToken, randomToken } from '../server/auth/crypto.mjs'
 import { createLimiter } from '../server/auth/limits.mjs'
+import { protectRequest } from '../server/auth/security.mjs'
 import { replaceCredentials, resetAccountByAdmin } from '../server/auth/mutations.mjs'
 import { backendFixture } from './helpers/backend-fixture.mjs'
 import { encodeGameSave } from '../src/lib/game-save-format.ts'
@@ -29,14 +30,14 @@ function cookieFrom(response) {
   return (Array.isArray(header) ? header[0] : header)?.split(';')[0] ?? ''
 }
 
-async function bootstrap(app, remoteAddress = '127.0.0.1') {
-  const response = await app.inject({ url: '/api/auth/csrf', headers, remoteAddress })
+async function bootstrap(app, remoteAddress = '127.0.0.1', originHeaders = headers) {
+  const response = await app.inject({ url: '/api/auth/csrf', headers: originHeaders, remoteAddress })
   assert.equal(response.statusCode, 200)
-  return { cookie: cookieFrom(response), csrf: response.json().csrfToken, remoteAddress }
+  return { cookie: cookieFrom(response), csrf: response.json().csrfToken, remoteAddress, headers: originHeaders }
 }
 
 function post(app, action, client, payload, extra = {}) {
-  const requestHeaders = Object.fromEntries(Object.entries({ ...headers, cookie: client.cookie, 'x-csrf-token': client.csrf, ...extra.headers }).filter(([, value]) => value !== undefined))
+  const requestHeaders = Object.fromEntries(Object.entries({ ...headers, ...client.headers, cookie: client.cookie, 'x-csrf-token': client.csrf, ...extra.headers }).filter(([, value]) => value !== undefined))
   return app.inject({ method: 'POST', url: '/api/auth/' + action, payload, remoteAddress: client.remoteAddress, ...extra, headers: requestHeaders })
 }
 
@@ -44,11 +45,11 @@ async function register(app, username = 'player_one', client) {
   client ??= await bootstrap(app)
   const response = await post(app, 'register', client, { username, password, passwordConfirmation: password })
   assert.equal(response.statusCode, 201, response.body)
-  return { response, cookie: cookieFrom(response), csrf: response.json().csrfToken, remoteAddress: client.remoteAddress }
+  return { response, cookie: cookieFrom(response), csrf: response.json().csrfToken, remoteAddress: client.remoteAddress, headers: client.headers }
 }
 
 function session(app, client) {
-  return app.inject({ url: '/api/auth/session', headers: { ...headers, cookie: client.cookie } })
+  return app.inject({ url: '/api/auth/session', headers: { ...headers, ...client.headers, cookie: client.cookie } })
 }
 
 test('username and password policy is bounded and does not normalize password contents', async () => {
@@ -188,6 +189,87 @@ test('network accounts default to HTTPS and use Secure cookies behind HTTPS', as
   assert.equal(response.statusCode, 200)
   assert.match(String(response.headers['set-cookie']), /; Secure/)
   assert.equal((await secure.app.inject({ url: '/api/auth/session', headers: { host: 'games.example.com', origin: 'https://evil.example' } })).statusCode, 403)
+  assert.equal((await secure.app.inject({ url: '/api/auth/session', headers })).statusCode, 403)
+})
+
+test('origin protection matches only configured hosts and keeps same-origin and fetch-site checks', () => {
+  const config = { publicOrigins: ['https://a.example', 'http://localhost:7777'] }
+  const check = (requestHeaders, settings = config) => protectRequest({ method: 'GET', headers: requestHeaders }, settings, () => assert.fail('GET must not require a session'))
+  assert.equal(check({ host: 'a.example' }).origin, 'https://a.example')
+  assert.equal(check(headers).origin, headers.origin)
+  assert.equal(check({ host: 'a.example' }, { publicOrigin: 'https://a.example' }).origin, 'https://a.example')
+  for (const host of ['localhost:8888', 'evil.example', 'a.example.evil', 'user@a.example', 'a.example/path', 'a.example?x', 'a.example#x', 'a.example\\evil', '', undefined, '[broken']) {
+    assert.throws(() => check({ host, 'x-forwarded-host': 'a.example', 'x-forwarded-proto': 'https' }), error => error.statusCode === 403)
+  }
+  for (const overrides of [{ origin: headers.origin }, { origin: 'http://a.example' }, { origin: 'null' }, { 'sec-fetch-site': 'same-site' }, { 'sec-fetch-site': 'cross-site' }]) {
+    assert.throws(() => check({ host: 'a.example', ...overrides }), error => error.statusCode === 403)
+  }
+  for (const host of ['localhost:1234', '127.0.0.1:7777', '[::1]:8888']) assert.equal(check({ host }, {}).origin, `http://${host}`)
+  assert.throws(() => check({ host: '192.168.1.5:7777' }, {}), error => error.statusCode === 403)
+  // Host alone cannot distinguish schemes on the same authority. Prefer HTTPS
+  // without Origin, and only accept HTTP when that origin is explicitly listed.
+  const both = { publicOrigins: ['http://localhost:7777', 'https://localhost:7777'] }
+  assert.equal(check({ host: headers.host }, both).protocol, 'https:')
+  assert.equal(check(headers, both).protocol, 'http:')
+  assert.equal(check({ ...headers, origin: 'https://localhost:7777' }, both).protocol, 'https:')
+})
+
+test('one backend shares accounts across HTTPS and localhost with request-specific cookies for every session mutation', async t => {
+  const secureHeaders = { host: 'a.example', origin: 'https://a.example', 'sec-fetch-site': 'same-origin' }
+  const { app } = await setup(t, { MAIN_DULU_PUBLIC_ORIGINS: 'https://a.example,http://localhost:7777' })
+  function assertCookie(response, secure, clearing = false) {
+    const value = String(response.headers['set-cookie'])
+    assert.match(value, /HttpOnly/)
+    assert.match(value, /SameSite=Strict/)
+    assert.match(value, /Path=\/api/)
+    assert.equal(/; Secure(?:;|$)/.test(value), secure, value)
+    assert.doesNotMatch(value, /Domain=/)
+    if (clearing) assert.match(value, /Max-Age=0|Expires=Thu, 01 Jan 1970/)
+  }
+  for (const [index, originHeaders] of [secureHeaders, headers].entries()) {
+    const secure = index === 0
+    const bootstrapResponse = await app.inject({ url: '/api/auth/csrf', headers: originHeaders })
+    assert.equal(bootstrapResponse.statusCode, 200)
+    assertCookie(bootstrapResponse, secure)
+    const guest = { cookie: cookieFrom(bootstrapResponse), csrf: bootstrapResponse.json().csrfToken, headers: originHeaders }
+    const created = await register(app, 'multi_' + index, guest)
+    assertCookie(created.response, secure)
+    const user = created.response.json().user
+    const otherHeaders = secure ? headers : secureHeaders
+    const otherGuest = await bootstrap(app, '127.0.0.1', otherHeaders)
+    const otherLogin = await post(app, 'login', otherGuest, { username: user.username, password })
+    assert.equal(otherLogin.statusCode, 200, otherLogin.body)
+    assert.deepEqual(otherLogin.json().user, user)
+    assertCookie(otherLogin, !secure)
+    for (const url of ['/api/auth/session', '/api/saves/', '/api/game-saves/', '/api/save-backups/']) {
+      const ownerHeaders = { ...originHeaders, cookie: created.cookie, 'x-save-user': user.id }
+      assert.equal((await app.inject({ url, headers: ownerHeaders })).statusCode, 200, url)
+      assert.equal((await app.inject({ url, headers: { ...ownerHeaders, origin: otherHeaders.origin } })).statusCode, 403, url)
+    }
+    for (const overrides of [{ origin: otherHeaders.origin }, { origin: undefined }, { 'sec-fetch-site': 'cross-site' }, { 'x-csrf-token': undefined }]) {
+      assert.equal((await post(app, 'logout', created, {}, { headers: overrides })).statusCode, 403)
+    }
+    const logout = await post(app, 'logout', created, {})
+    assert.equal(logout.statusCode, 200)
+    assertCookie(logout, secure, true)
+    const fresh = await bootstrap(app, '127.0.0.1', originHeaders)
+    const login = await post(app, 'login', fresh, { username: user.username, password })
+    assert.equal(login.statusCode, 200)
+    assertCookie(login, secure)
+    const signedIn = { ...fresh, cookie: cookieFrom(login), csrf: login.json().csrfToken }
+    const changed = await post(app, 'password', signedIn, { currentPassword: password, newPassword: nextPassword, passwordConfirmation: nextPassword })
+    assert.equal(changed.statusCode, 200)
+    assertCookie(changed, secure, true)
+    assert.equal((await session(app, { ...otherGuest, cookie: cookieFrom(otherLogin) })).json().user, null)
+    const recoveryGuest = await bootstrap(app, '127.0.0.1', originHeaders)
+    const recovered = await post(app, 'recover', recoveryGuest, { username: user.username, recoveryCode: created.response.json().recoveryCode, newPassword: password, passwordConfirmation: password })
+    assert.equal(recovered.statusCode, 200, recovered.body)
+    assertCookie(recovered, secure, true)
+  }
+  const denied = await app.inject({ url: '/api/auth/csrf', headers: { host: 'evil.example', 'x-forwarded-host': 'a.example' } })
+  assert.equal(denied.statusCode, 403)
+  assert.equal(denied.headers['set-cookie'], undefined)
+  assert.equal(denied.headers['access-control-allow-origin'], undefined)
 })
 
 test('HTTP network accounts require explicit opt-in AND an exact public origin', async t => {
