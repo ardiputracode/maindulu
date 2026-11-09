@@ -155,9 +155,12 @@ test('M7 bounds a real 64 MiB member and refuses a larger one; no complete outpu
 
 test('M7 7z/RAR/PS1 and header transformations remain unsupported without even reading disc bytes', async () => {
   const file = { createReadStream() { assert.fail('Must not read unsupported formats, including a large disc') } }
-  for (const [consoleId, fileName] of [['gba', 'a.7z'], ['gba', 'a.rar'], ['psx', 'a.chd'], ['psx', 'a.pbp'], ['psx', 'a.cue'], ['psx', 'a.bin'], ['psx', 'a.iso'], ['psx', 'a.zip'], ['snes', 'a.smc']]) {
+  for (const [consoleId, fileName] of [['gba', 'a.7z'], ['gba', 'a.rar'], ['psx', 'a.pbp'], ['psx', 'a.cue'], ['psx', 'a.bin'], ['psx', 'a.iso'], ['psx', 'a.zip'], ['snes', 'a.smc']]) {
     await assert.rejects(identifyCatalogRom(file, { consoleId, fileName, size: 768 * 1024 * 1024 }), { code: 'unsupported_format' })
   }
+  // A plain PS1 CHD is now identifiable only through a validated asset path and
+  // the serial probe; this legacy test still guarantees no disc bytes are read.
+  await assert.rejects(identifyCatalogRom(file, { consoleId: 'psx', fileName: 'a.chd', size: 768 * 1024 * 1024 }), { code: 'invalid_target' })
   assert.equal(candidateTarget('gb', 'a.zip', { kind: 'zip-member', version: 1, fileName: '../a.gb' }).systemId, null)
   assert.equal(candidateTarget('gb', 'a.zip', { kind: 'zip-member', version: 2, fileName: 'a.gb' }).systemId, null)
 })

@@ -264,6 +264,68 @@ test('logout stops private metadata tracking without cancelling the server scan'
   await expect(page.locator('.metadata-toast')).toHaveCount(0)
 })
 
+test('CHD PS1 serial auto-apply shows serial badge, survives reload and caches the provider', async ({ page, site }) => {
+  // Stop the fixture's worker to avoid conflict on shared database
+  await site.app.catalog.worker.stop()
+
+  const chdEnv = { ...site.app.appConfig.env ?? {}, MAIN_DULU_DATA_DIR: site.app.appConfig.dataDir, MAIN_DULU_SCREENSCRAPER_ENABLED: 'true', MAIN_DULU_SCREENSCRAPER_DEV_ID: 'dummy', MAIN_DULU_SCREENSCRAPER_DEV_PASSWORD: 'dummy', MAIN_DULU_SCREENSCRAPER_USER: 'dummy', MAIN_DULU_SCREENSCRAPER_PASSWORD: 'dummy' }
+  const chdDependencies = {
+    clientFactory: () => ({ searchBySerial: async (input: { consoleId: string; fileName: string; serial: string; signal: AbortSignal }) => {
+      site.calls++
+      await Promise.race([site.release, new Promise<void>((_, reject) => input.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }))])
+      return { method: 'serial', systemId: '57', candidates: [{ id: '123', systemId: '57', notGame: false, rom: null, metadata: { title: 'CHD Serial Title', description: 'Serial description', media: [] } }] }
+    }, searchByHash: async () => { site.calls++; return { method: 'hash', systemId: '57', candidates: [] } } }),
+    downloadCover: async () => { if (site.coverFails) throw new Error('Synthetic cover failure'); return { bytes: png, type: 'image/png' } },
+    readSerial: async () => ({ serial: 'SLUS-12345' }),
+  }
+  const newApp = await createApp({ env: chdEnv, metadataDependencies: chdDependencies })
+  await newApp.catalog.worker.start()
+  const address = await newApp.listen({ host: '127.0.0.1', port: 0 })
+  const newSite = { ...site, app: newApp, address, calls: 0 }
+  try {
+    await page.goto(address + '/admin/games')
+    await page.getByRole('button', { name: 'Upload game', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByLabel('Scan metadata otomatis')).toBeChecked()
+    await dialog.getByLabel('Judul game', { exact: true }).fill('')
+    await dialog.getByLabel('Console', { exact: true }).selectOption('psx')
+    const data = Buffer.from('Synthetic CHD fixture bytes; not a commercial disc image.')
+    await dialog.getByLabel('Berkas ROM', { exact: true }).setInputFiles({ name: 'Game.chd', mimeType: 'application/octet-stream', buffer: data })
+    await dialog.getByRole('button', { name: 'Upload game', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page.getByRole('status').filter({ hasText: 'sudah bisa dimainkan' })).toBeVisible()
+    const gamesResp = await page.request.get(address + '/api/games')
+    const games = (await gamesResp.json()).items
+    const game = games.find(g => g.fileName === 'Game.chd')
+    expect(game).toBeTruthy()
+
+    const gate = new Promise<void>(resolve => { site.release = resolve })
+    await expect.poll(() => site.calls).toBe(1)
+    site.release()
+    await expect.poll(async () => (await (await page.request.get(address + `/api/admin/games/${game.id}/metadata`)).json()).status).toBe('succeeded', { timeout: 15000 })
+
+    const detail = (await (await page.request.get(address + `/api/admin/games/${game.id}/metadata`)).json())
+    expect(detail.matchMethod).toBe('serial')
+    expect(detail.preview.fields.title.current).toBe('CHD Serial Title')
+
+    const article = page.getByRole('article', { name: 'CHD Serial Title', exact: true })
+    await expect(article).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole('article', { name: 'CHD Serial Title', exact: true })).toBeVisible()
+
+    site.calls = 0
+    newSite.app.database.prepare('UPDATE metadata_provider_state SET next_at = 0 WHERE id = 1').run()
+    await page.getByRole('article', { name: 'CHD Serial Title', exact: true }).getByRole('button', { name: 'Review / scan metadata' }).click()
+    const dialog2 = page.getByRole('dialog')
+    await expect(dialog2).toContainText('Kecocokan serial')
+    await dialog2.getByRole('button', { name: 'Scan ulang', exact: true }).click()
+    await expect.poll(() => site.calls).toBe(0)
+    await dialog2.getByRole('button', { name: 'Tutup', exact: true }).click()
+  } finally {
+    await newApp.close()
+  }
+})
+
 test('exhausted rescan retries notify failure after review is closed', async ({ page, site }) => {
   site.mode = 'error'
   await site.app.catalog.worker.stop()

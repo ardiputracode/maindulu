@@ -102,6 +102,10 @@ Periksa `GET /api/admin/metadata/status` memakai sesi admin, lalu coba satu uplo
 
 Runbook lengkap (kuota, retry, shutdown/lease, backup/restore, rollback skema 13, batas format, privasi/atribusi) dan bukti penutupan: [M6 ScreenScraper](../doc/milestone-6-screenscraper-operasi.md). Verifikasi Docker/HTTPS nyata tidak diasumsikan dari tes Node/konfigurasi.
 
+### CHD PS1 Serial Auto-apply (M7 lanjutan, opt-in)
+
+Dengan ScreenScraper aktif, upload CHD `.chd` polos pada console `psx` membaca **serial disc** lewat `rom-converto v0.24.0` (pinned, SHA-256 terverifikasi) dan mengirimnya ke ScreenScraper sebagai `serialnum` + `systemeid=57` tanpa hash/ukuran ROM. Auto-apply hanya jika provider mengembalikan **tepat satu kandidat** yang terkonfirmasi game PS1 (`notGame=false`, system match, multi-support `totalSupports=1` bila ada). Jika tidak, hasil `needs_review` tanpa mengubah metadata. Kill switch `MAIN_DULU_CHD_SERIAL_AUTOAPPLY=false` menonaktifkan auto-apply sambil mempertahankan lookup. Field yang dikunci admin selalu dihormati; provenance `match_method = 'serial'` dicatat di `game_metadata`. Binary vendor Alpine musl otomatis dipasang saat build image; operator dapat override dengan `MAIN_DULU_ROM_CONVERTO_PATH`. Dokumentasi privasi: **serial disc dikirim ke ScreenScraper, bukan byte ROM**. [Rancangan lengkap](../doc/rencana-chd-serial-screenscraper.md).
+
 M7 menambah identifikasi ZIP32 satu ROM raw (stored/deflate) melalui worker thread Node.js 24+, **yauzl 3.4.0 terpin**, dan zlib bawaan; tanpa `7z`/`unrar`, executable atau temporary extraction. Jalankan `npm ci`/rebuild image agar dependency dan file worker ikut terpasang; `COPY server ./server` dan dependency produksi yang ada sudah mencakupnya. Batas scan ZIP: arsip 128 MiB, output 64 MiB, rasio 100:1, 64 entri, deadline 30 detik. Upload tetap 768 MiB dan byte aset/save tidak diubah. 7z/RAR/PS1 tetap review; nama/ukuran/hash **anggota ZIP** dapat dibagikan ke provider. Tidak ada env tuning tambahan atau aktivasi otomatis pada secret operator. [Policy resource, error dan batas verifikasi M7](../doc/milestone-7-screenscraper-identifikasi.md).
 
 ### Cache perangkat ROM/BIOS (IndexedDB)
@@ -176,6 +180,9 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -
 | `MAIN_DULU_CATALOG_UPLOAD_LIMIT` | `2` | Reservasi upload bersamaan lintas proses |
 | `MAIN_DULU_CATALOG_UPLOAD_TIMEOUT_MS` | `1800000` | Deadline upload/publikasi katalog 30 menit |
 | `MAIN_DULU_CONTAINER_DATA_DIR` | `/var/lib/maindulu/data` | Folder data **di dalam volume**, dapat diarahkan ke hasil restore |
+| `MAIN_DULU_ROM_CONVERTO_PATH` | *(kosong)* | Path absolut ke binary `rom-converto` (override vendor/PATH) |
+| `MAIN_DULU_ROM_CONVERTO_TIMEOUT_MS` | `30000` | Timeout panggil `rom-converto info --json` (5000–120000) |
+| `MAIN_DULU_CHD_SERIAL_AUTOAPPLY` | `true` | `false` menonaktifkan auto-apply CHD serial (tetap lookup + review) |
 
 Nilai boolean hanya `true`/`false`. `MAIN_DULU_HOST=0.0.0.0`, port internal 7777, dan dist `/app/dist` sudah ditetapkan Compose; bukan alamat yang perlu diketik di browser. Data dir harus tetap di bawah `/var/lib/maindulu` agar persisten, bukan di `public/`, `dist/`, atau filesystem image read-only.
 

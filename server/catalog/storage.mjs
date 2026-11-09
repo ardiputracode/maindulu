@@ -239,6 +239,15 @@ export async function createCatalogStorage(config, db) {
       if (row && row.state !== 'ready') throw Object.assign(new Error('Aset belum tersedia.'), { code: 'ENOENT' })
       return openRegular(await pathFor(kind, key))
     },
+    // Server-only convenience for a child process that must open the file by
+    // path. Validation still goes through pathFor + openRegular. Never expose
+    // this absolute path through an API or browser payload.
+    async assetPath(kind, key) {
+      const path = await pathFor(kind, key)
+      const file = await openRegular(path)
+      await file.close()
+      return path
+    },
     // Online callers must prove that the immutable key is unreferenced. This
     // primitive intentionally cannot delete arbitrary staging from other uploads.
     async removeUnreferenced(kind, key) {

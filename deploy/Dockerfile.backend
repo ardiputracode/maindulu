@@ -17,6 +17,18 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 FROM node:24-alpine AS runtime
 WORKDIR /app
+ARG ROM_CONVERTO_VERSION=0.24.0
+ARG ROM_CONVERTO_SHA256=67964054931f7e74848bfe7b54ff1f0cacdc25596c29e3a79876f76e0f2407a8
+# Alpine uses musl; the glibc asset is not compatible. Verify the pinned asset
+# during the build and keep the binary outside the operator data volume.
+RUN apk add --no-cache ca-certificates \
+ && wget -q -O /tmp/rom-converto "https://github.com/DevYukine/rom-converto/releases/download/v${ROM_CONVERTO_VERSION}/rom-converto-cli-linux-x64-musl" \
+ && echo "${ROM_CONVERTO_SHA256}  /tmp/rom-converto" | sha256sum -c - \
+ && mkdir -p /app/vendor/rom-converto/linux-x64-musl \
+ && mv /tmp/rom-converto /app/vendor/rom-converto/linux-x64-musl/rom-converto \
+ && chmod 0755 /app/vendor/rom-converto/linux-x64-musl/rom-converto \
+ && chown node:node /app/vendor/rom-converto/linux-x64-musl/rom-converto \
+ && /app/vendor/rom-converto/linux-x64-musl/rom-converto --version
 ENV NODE_ENV=production \
     MAIN_DULU_HOST=0.0.0.0 \
     MAIN_DULU_PORT=7777 \

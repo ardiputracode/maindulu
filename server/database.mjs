@@ -287,6 +287,36 @@ const migrations = [
       UNIQUE(folder, platform, name_identity)
     ) STRICT;`,
   },
+  {
+    version: 15,
+    name: 'chd-serial-match-provenance',
+    // SQLite cannot alter a CHECK constraint; rebuild the small metadata table.
+    // No indexes reference game_metadata, so only columns and rows are copied.
+    sql: `CREATE TABLE game_metadata_v15 (
+      game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      release_date TEXT CHECK(release_date IS NULL OR length(release_date) BETWEEN 1 AND 32),
+      release_precision TEXT CHECK(release_precision IS NULL OR release_precision IN ('year', 'month', 'day')),
+      genre TEXT NOT NULL DEFAULT '' CHECK(length(genre) <= 200),
+      developer TEXT NOT NULL DEFAULT '' CHECK(length(developer) <= 200),
+      publisher TEXT NOT NULL DEFAULT '' CHECK(length(publisher) <= 200),
+      players TEXT NOT NULL DEFAULT '' CHECK(length(players) <= 32),
+      region_language TEXT NOT NULL DEFAULT '' CHECK(length(region_language) <= 64),
+      provider_game_id TEXT CHECK(provider_game_id IS NULL OR length(provider_game_id) BETWEEN 1 AND 64),
+      match_method TEXT CHECK(match_method IS NULL OR match_method IN ('hash', 'name', 'game_id', 'manual', 'serial')),
+      fetched_at INTEGER,
+      applied_at INTEGER,
+      metadata_revision INTEGER NOT NULL DEFAULT 1 CHECK(metadata_revision > 0),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    INSERT INTO game_metadata_v15 (game_id, release_date, release_precision, genre, developer, publisher, players,
+      region_language, provider_game_id, match_method, fetched_at, applied_at, metadata_revision, created_at, updated_at)
+      SELECT game_id, release_date, release_precision, genre, developer, publisher, players,
+        region_language, provider_game_id, match_method, fetched_at, applied_at, metadata_revision, created_at, updated_at
+      FROM game_metadata;
+    DROP TABLE game_metadata;
+    ALTER TABLE game_metadata_v15 RENAME TO game_metadata;`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

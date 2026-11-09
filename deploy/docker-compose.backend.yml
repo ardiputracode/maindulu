@@ -37,6 +37,10 @@ services:
       - MAIN_DULU_SCREENSCRAPER_USER
       - MAIN_DULU_SCREENSCRAPER_PASSWORD
       - MAIN_DULU_SCREENSCRAPER_SOFTNAME
+      # CHD serial probe: vendor binary by default, optional operator override.
+      - MAIN_DULU_ROM_CONVERTO_PATH
+      - MAIN_DULU_ROM_CONVERTO_TIMEOUT_MS=${MAIN_DULU_ROM_CONVERTO_TIMEOUT_MS:-30000}
+      - MAIN_DULU_CHD_SERIAL_AUTOAPPLY=${MAIN_DULU_CHD_SERIAL_AUTOAPPLY:-true}
     volumes:
       - storage:/var/lib/maindulu
     read_only: true

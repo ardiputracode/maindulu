@@ -82,7 +82,7 @@ async function copy(source, target) {
 function inspectDatabase(db, { legacy = false, catalogMetadata = false, allowOperational = false } = {}) {
   db.exec('PRAGMA trusted_schema = OFF; PRAGMA query_only = ON;')
   const version = db.prepare('PRAGMA user_version').get().user_version
-  if (version !== schemaVersion && !(legacy && [7, 8, 9, 10, 11, 12, 13].includes(version))) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
+  if (version !== schemaVersion && !(legacy && [7, 8, 9, 10, 11, 12, 13, 14].includes(version))) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
   if (db.prepare('PRAGMA integrity_check').all().some(row => row.integrity_check !== 'ok') || db.prepare('PRAGMA foreign_key_check').all().length) fail('Integritas SQLite backup gagal.')
   if (version === 7) {
     if (db.prepare("SELECT name FROM sqlite_master WHERE name IN ('games', 'bios', 'catalog_cleanup', 'catalog_uploads', 'catalog_capacity')").all().length) fail('Katalog backup skema 7 tidak cocok; tabel katalog tidak boleh ada pada skema ini.')
@@ -159,7 +159,7 @@ async function verify(folder) {
   const actual = await tree(folder)
   if ((await safeEntry(join(folder, 'manifest.json'))).size > 64 * 1024 * 1024) fail('Manifest backup terlalu besar.')
   const manifest = JSON.parse(await readFile(join(folder, 'manifest.json'), 'utf8'))
-  if (manifest?.format !== 'maindulu-data-backup' || ![1, 2].includes(manifest.formatVersion) || ![7, 8, 9, 10, 11, 12, 13, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
+  if (manifest?.format !== 'maindulu-data-backup' || ![1, 2].includes(manifest.formatVersion) || ![7, 8, 9, 10, 11, 12, 13, 14, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
   const catalogMetadata = manifest.formatVersion === 2
   if (catalogMetadata && (manifest.schemaVersion < 9 || manifest.catalogAssets !== 'excluded')) fail('Format/versi manifest backup metadata harus menyatakan bahwa ROM/BIOS/cover tidak disertakan.')
   const files = new Map()

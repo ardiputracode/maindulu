@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, readdir, rename, symlink, writeFile, unlink, link } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createApp } from '../server/app.mjs'
-import { openDatabase } from '../server/database.mjs'
+import { openDatabase, schemaVersion } from '../server/database.mjs'
 import { createCatalogStorage } from '../server/catalog/storage.mjs'
 import { createCatalogRepository } from '../server/catalog/repository.mjs'
 import { storagePlatform, safeStorageName } from '../server/catalog/paths.mjs'
@@ -159,7 +159,7 @@ test('backup normalizes path ownership only in snapshot; restore repairs origina
   await c.close()
   const backup = join(c.root, 'backup'), restored = join(c.root, 'restored')
   const manifest = await createDataBackup(config, backup)
-  assert.equal(manifest.schemaVersion, 14); assert.equal(manifest.counts.catalog_asset_files, 0)
+  assert.equal(manifest.schemaVersion, schemaVersion); assert.equal(manifest.counts.catalog_asset_files, 0)
   await verifyDataBackup(config, backup); await restoreDataBackup(config, backup, restored)
   const original = await openDatabase(config.dataDir)
   try { assert.deepEqual(original.prepare('SELECT * FROM catalog_asset_files').all(), before) } finally { original.close() }

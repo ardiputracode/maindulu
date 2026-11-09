@@ -51,6 +51,54 @@ test('M2 hash search normalizes response and redacts errors', async () => {
   assert.equal(result.candidates[0].metadata.title, 'T')
 })
 
+test('M2 CHD serial search sends only system, serial, romtype and sanitized basename', async () => {
+  const urls = []
+  const config = readScreenScraperConfig({ MAIN_DULU_SCREENSCRAPER_ENABLED: 'true', MAIN_DULU_SCREENSCRAPER_DEV_ID: 'd', MAIN_DULU_SCREENSCRAPER_DEV_PASSWORD: 'dp', MAIN_DULU_SCREENSCRAPER_USER: 'u', MAIN_DULU_SCREENSCRAPER_PASSWORD: 'p' })
+  const client = createScreenScraperClient(config, { fetch: async (url, options) => {
+    urls.push(url)
+    assert.equal(options.method, 'GET')
+    assert.equal(options.redirect, 'error')
+    assert.equal(options.credentials, 'omit')
+    return new Response(JSON.stringify({ response: { jeu: { id: '1', systeme: { id: '57' }, notgame: 'false',
+      rom: { id: '2', romtotalsupport: '1' }, noms: [{ region: 'wor', text: 'Disc title' }] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
+  } })
+  const result = await client.searchBySerial({ consoleId: 'psx', fileName: 'Game.chd', serial: 'slus-12345' })
+  assert.equal(urls.length, 1)
+  const url = urls[0]
+  assert.equal(url.searchParams.get('systemeid'), '57')
+  assert.equal(url.searchParams.get('serialnum'), 'SLUS-12345')
+  assert.equal(url.searchParams.get('romtype'), 'iso')
+  assert.equal(url.searchParams.get('romnom'), 'Game.chd')
+  assert.equal(url.searchParams.get('output'), 'json')
+  for (const absent of ['md5', 'sha1', 'crc', 'romtaille']) assert.equal(url.searchParams.get(absent), null, absent)
+  assert.equal(result.method, 'serial')
+  assert.equal(result.systemId, '57')
+  assert.equal(result.serial, 'SLUS-12345')
+  assert.equal(result.candidates[0].metadata.title, 'Disc title')
+})
+
+test('M2 CHD serial search rejects invalid serials before any request and normalizes 404', async () => {
+  let calls = 0
+  const config = readScreenScraperConfig({ MAIN_DULU_SCREENSCRAPER_ENABLED: 'true', MAIN_DULU_SCREENSCRAPER_DEV_ID: 'd', MAIN_DULU_SCREENSCRAPER_DEV_PASSWORD: 'dp', MAIN_DULU_SCREENSCRAPER_USER: 'u', MAIN_DULU_SCREENSCRAPER_PASSWORD: 'p' })
+  for (const serial of ['', 'ABC', 'SLUS_12345', ' SLUS-12345', 'SLUS-12345\n', undefined]) {
+    const client = createScreenScraperClient(config, { fetch: async () => { calls++; return new Response('{}') } })
+    await assert.rejects(() => client.searchBySerial({ consoleId: 'psx', fileName: 'Game.chd', serial }), { code: 'invalid_fingerprint' })
+  }
+  for (const input of [{ consoleId: 'nes', fileName: 'Game.chd', serial: 'SLUS-12345' },
+    { consoleId: 'psx', fileName: 'Game.iso', serial: 'SLUS-12345' },
+    { consoleId: 'psx', fileName: 'Game.chd.zip', serial: 'SLUS-12345' }]) {
+    const client = createScreenScraperClient(config, { fetch: async () => { calls++; return new Response('{}') } })
+    await assert.rejects(() => client.searchBySerial(input), { code: 'invalid_target' })
+  }
+  assert.equal(calls, 0)
+  const notFound = createScreenScraperClient(config, { fetch: async () => new Response('', { status: 404 }) })
+  await assert.rejects(() => notFound.searchBySerial({ consoleId: 'psx', fileName: 'Game.chd', serial: 'SLUS-12345' }), { code: 'not_found' })
+  const rejected = createScreenScraperClient(config, { fetch: async () => new Response('', { status: 401 }) })
+  const error = await rejected.searchBySerial({ consoleId: 'psx', fileName: 'Game.chd', serial: 'SLUS-12345' }).catch(failure => failure)
+  assert.equal(error.code, 'auth_rejected')
+  assert.doesNotMatch(`${error.message} ${JSON.stringify(error.details)}`, /dp|devpassword|sspassword/i)
+})
+
 test('M2 classifies HTTP statuses including 430', () => {
   assert.equal(classifyHttpStatus(430), 'quota_exhausted')
   assert.equal(classifyHttpStatus(404), 'not_found')

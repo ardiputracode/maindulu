@@ -4,7 +4,7 @@ export const metadataLabels: Record<string, string> = { disabled: 'Scan nonaktif
 export const fieldLabels: Record<string, string> = { title: 'Judul', description: 'Deskripsi', releaseDate: 'Tanggal rilis', genre: 'Genre', developer: 'Developer', publisher: 'Publisher', players: 'Jumlah pemain', regionLanguage: 'Region / bahasa', cover: 'Cover' }
 export type MetadataField = { current: string | boolean | null; proposed: string | boolean | null; locked: boolean; source: string }
 export type MetadataPreview = { revision: number; fields: Record<string, MetadataField> }
-export type MetadataDetail = { gameId: string; generation: number | null; status: string; phase: string | null; reason: string | null; nextAt: number | null; cooldownUntil?: number; preview: MetadataPreview; candidates: { id: string; title: string; systemId: string; preview: MetadataPreview }[] }
+export type MetadataDetail = { gameId: string; generation: number | null; status: string; phase: string | null; reason: string | null; nextAt: number | null; cooldownUntil?: number; matchMethod?: 'hash' | 'serial' | 'manual'; preview: MetadataPreview; candidates: { id: string; title: string; systemId: string; preview: MetadataPreview }[] }
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 function preview(v: unknown): v is MetadataPreview {
   return object(v) && Number.isSafeInteger(v.revision) && Number(v.revision) > 0 && object(v.fields) &&
@@ -12,6 +12,7 @@ function preview(v: unknown): v is MetadataPreview {
 }
 export function readMetadata(v: unknown): MetadataDetail | null {
   if (!object(v) || typeof v.gameId !== 'string' || !(v.generation === null || Number.isSafeInteger(v.generation)) || !Object.hasOwn(metadataLabels, String(v.status)) || !preview(v.preview) || !Array.isArray(v.candidates) || v.candidates.length > 30) return null
+  if (v.matchMethod !== undefined && v.matchMethod !== null && !['hash', 'serial', 'manual'].includes(String(v.matchMethod))) return null
   if (v.candidates.some(c => !object(c) || typeof c.id !== 'string' || !/^[1-9][0-9]{0,19}$/.test(c.id) || typeof c.title !== 'string' || c.title.length > 200 || !preview(c.preview))) return null
   return v as MetadataDetail
 }

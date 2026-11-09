@@ -35,7 +35,7 @@ export function metadataPreview(db, gameId, candidate) {
 
 // All checks and writes are in one short SQLite transaction. A stale lease,
 // generation, asset, revision or override cannot publish metadata or a cover.
-export function applyVerifiedMetadata(db, storage, { job, candidate, expectedRevision, cover = null, selectedFields = null, manual = false, replaceLocked = false, authorize = () => {} }) {
+export function applyVerifiedMetadata(db, storage, { job, candidate, expectedRevision, cover = null, selectedFields = null, manual = false, replaceLocked = false, matchMethod = 'hash', authorize = () => {} }) {
   if (selectedFields !== null && (!Array.isArray(selectedFields) || !selectedFields.length || selectedFields.some(f => f !== 'cover' && !Object.hasOwn(textFields, f)))) throw new Error('Field metadata tidak valid.')
   if (cover && (!storage.ownsFile(cover.file, 'covers') || !['image/png', 'image/jpeg', 'image/webp'].includes(cover.type))) throw new Error('Cover tidak aman.')
   return transaction(db, () => {
@@ -68,9 +68,10 @@ export function applyVerifiedMetadata(db, storage, { job, candidate, expectedRev
       changes.push('cover')
     }
     // Record provenance even if every field was locked/absent.
+    const provenance = manual ? 'manual' : matchMethod === 'serial' ? 'serial' : 'hash'
     db.prepare(`UPDATE game_metadata SET provider_game_id = ?, match_method = ?, fetched_at = ?, applied_at = ?,
       metadata_revision = metadata_revision + 1, updated_at = ? WHERE game_id = ?`)
-      .run(candidate.id, manual ? 'manual' : 'hash', now, now, now, job.game_id)
+      .run(candidate.id, provenance, now, now, now, job.game_id)
     if (changes.length) {
       db.prepare('UPDATE games SET updated_at = ? WHERE id = ?').run(now, job.game_id)
       db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()

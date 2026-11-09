@@ -79,6 +79,78 @@ test('M5 backup normalizes provider gate only in snapshot and still accepts sche
   assert.equal(c.db.prepare('SELECT next_at FROM metadata_provider_state').get().next_at, 0)
 })
 
+test('schema-15 backup round-trips serial match provenance without changing catalog assets', async t => {
+  const c = await setup(t)
+  const game = await c.publish()
+  c.db.prepare("UPDATE game_metadata SET match_method = 'serial', provider_game_id = '123' WHERE game_id = ?").run(game.id)
+  c.close()
+  const target = join(c.root, 'serial-backup')
+  const manifest = await createDataBackup(c.config, target)
+  assert.equal(manifest.schemaVersion, 15)
+  assert.equal(manifest.counts.game_metadata, 1)
+  assert.deepEqual(await verifyDataBackup(c.config, target), manifest)
+  const restored = join(c.root, 'serial-restored')
+  await restoreDataBackup(c.config, target, restored)
+  c.db = await openDatabase(restored)
+  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, 15)
+  assert.deepEqual({ ...c.db.prepare('SELECT match_method, provider_game_id FROM game_metadata WHERE game_id = ?').get(game.id) },
+    { match_method: 'serial', provider_game_id: '123' })
+  assert.equal(c.db.prepare('SELECT title FROM games WHERE id = ?').get(game.id).title, game.title)
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_asset_files').get().n, 0)
+})
+
+test('schema-14 backups verify before migration, then migrate and accept serial provenance', async t => {
+  const c = await setup(t)
+  const game = await c.publish()
+  c.db.prepare("UPDATE game_metadata SET match_method = 'name' WHERE game_id = ?").run(game.id)
+  c.close()
+  const target = join(c.root, 'schema14-serial-backup')
+  const manifest = await createDataBackup(c.config, target)
+  const path = join(target, 'maindulu.sqlite')
+  const db = new DatabaseSync(path)
+  db.exec(`CREATE TABLE game_metadata_v14 (
+    game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    release_date TEXT CHECK(release_date IS NULL OR length(release_date) BETWEEN 1 AND 32),
+    release_precision TEXT CHECK(release_precision IS NULL OR release_precision IN ('year', 'month', 'day')),
+    genre TEXT NOT NULL DEFAULT '' CHECK(length(genre) <= 200),
+    developer TEXT NOT NULL DEFAULT '' CHECK(length(developer) <= 200),
+    publisher TEXT NOT NULL DEFAULT '' CHECK(length(publisher) <= 200),
+    players TEXT NOT NULL DEFAULT '' CHECK(length(players) <= 32),
+    region_language TEXT NOT NULL DEFAULT '' CHECK(length(region_language) <= 64),
+    provider_game_id TEXT CHECK(provider_game_id IS NULL OR length(provider_game_id) BETWEEN 1 AND 64),
+    match_method TEXT CHECK(match_method IS NULL OR match_method IN ('hash', 'name', 'game_id', 'manual')),
+    fetched_at INTEGER,
+    applied_at INTEGER,
+    metadata_revision INTEGER NOT NULL DEFAULT 1 CHECK(metadata_revision > 0),
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  ) STRICT;
+  INSERT INTO game_metadata_v14 SELECT * FROM game_metadata;
+  DROP TABLE game_metadata;
+  ALTER TABLE game_metadata_v14 RENAME TO game_metadata;
+  DELETE FROM schema_migrations WHERE version > 14;
+  PRAGMA user_version = 14;`)
+  db.close()
+  const bytes = await readFile(path)
+  manifest.schemaVersion = 14
+  manifest.files.find(file => file.path === 'maindulu.sqlite').size = bytes.length
+  manifest.files.find(file => file.path === 'maindulu.sqlite').checksum = createHash('sha256').update(bytes).digest('hex')
+  await writeFile(join(target, 'manifest.json'), JSON.stringify(manifest))
+  assert.deepEqual(await verifyDataBackup(c.config, target), manifest)
+  const restored = join(c.root, 'schema14-serial-restored')
+  await restoreDataBackup(c.config, target, restored)
+  const old = new DatabaseSync(join(restored, 'maindulu.sqlite'))
+  try {
+    assert.equal(old.prepare('PRAGMA user_version').get().user_version, 14)
+    assert.throws(() => old.prepare("UPDATE game_metadata SET match_method = 'serial' WHERE game_id = ?").run(game.id), /constraint/i)
+  } finally { old.close() }
+  c.db = await openDatabase(restored)
+  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, 15)
+  assert.equal(c.db.prepare('SELECT match_method FROM game_metadata WHERE game_id = ?').get(game.id).match_method, 'name')
+  assert.doesNotThrow(() => c.db.prepare("UPDATE game_metadata SET match_method = 'serial' WHERE game_id = ?").run(game.id))
+  assert.equal(c.db.prepare('SELECT match_method FROM game_metadata WHERE game_id = ?').get(game.id).match_method, 'serial')
+})
+
 // Reconstruct historical source shape, never migrate a backup just to verify it.
 async function historicalMetadataBackup(c, version, name) {
   const target = join(c.root, name)

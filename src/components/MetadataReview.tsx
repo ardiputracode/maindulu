@@ -54,10 +54,10 @@ export default function MetadataReview({ id, title, userId, ready, tasks, onClos
     <div className="account-form">
       {!ready && <p className="notice">Scan nonaktif atau konfigurasi belum siap. Game tetap dapat dimainkan.</p>}
       {(busy && !unlocking || active) && <p className="notice">Scan tetap berjalan di latar belakang. Kamu boleh menutup dialog atau pindah halaman; hasilnya akan muncul melalui notifikasi.</p>}
-      {data ? <><p role="status"><strong>{metadataLabels[data.status]}</strong></p>
+      {data ? <><p role="status"><strong>{metadataLabels[data.status]}</strong>{data.matchMethod === 'serial' && <span className="badge"> Kecocokan serial</span>}</p>
         {data.reason && <p className="field-hint">{data.reason.startsWith('COVER_') ? 'Metadata teks selesai, tetapi cover belum tersedia. Cover sebelumnya dipertahankan.' : 'Hasil belum lengkap atau memerlukan tindakan admin.'} <code>{data.reason}</code></p>}
         {data.nextAt && <p>Percobaan berikutnya: {new Date(data.nextAt).toLocaleString('id-ID')}</p>}
-        <p>ZIP satu ROM raw mendukung pencocokan hash anggota (stored/deflate, maksimum 64 MiB dan rasio 100:1). ZIP multi-berkas, 7z/RAR dan disc PS1 tetap review manual. Pencarian nama memerlukan konfirmasi; console dan identitas save tidak diubah.</p>
+        <p>ZIP satu ROM raw mendukung pencocokan hash anggota (stored/deflate, maksimum 64 MiB dan rasio 100:1). CHD PS1 polos memakai serial disc; kandidat tunggal dapat diterapkan otomatis, selain itu tetap review manual. ZIP multi-berkas dan 7z/RAR tetap review, begitu pula CHD di dalam arsip. Pencarian nama memerlukan konfirmasi; console dan identitas save tidak diubah.</p>
         {globalCooldown && <p>Layanan dibatasi sampai {new Date(data.cooldownUntil!).toLocaleString('id-ID')}.</p>}
         <label className="account-check"><input type="checkbox" checked={replaceLocked} disabled={busy || active} onChange={e => setReplaceLocked(e.target.checked)} />Ganti juga metadata yang terkunci saat scan ulang</label>
         <p className="field-hint">Hasil kecocokan pasti langsung diterapkan tanpa konfirmasi. Hilangkan centang untuk mempertahankan field terkunci. Usulan kosong tidak menghapus data lama; hasil ambigu tetap perlu review.</p>

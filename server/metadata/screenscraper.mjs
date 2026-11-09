@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
-import { basename } from 'node:path'
-import { screenScraperLimits, screenScraperSystems, screenScraperTarget } from './screenscraper-policy.mjs'
+import { basename, isAbsolute } from 'node:path'
+import { normalizeSerial, screenScraperLimits, screenScraperSystems, screenScraperTarget } from './screenscraper-policy.mjs'
 import { screenScraperQuota } from './quota.mjs'
 
 export const SCREENSCRAPER_BASE_URL = 'https://api.screenscraper.fr/api2'
@@ -45,6 +45,15 @@ function preferredText(items, key, preferences, max) {
 
 export function readScreenScraperConfig(env = process.env) {
   const enabled = env.MAIN_DULU_SCREENSCRAPER_ENABLED === 'true'
+  const romConvertoPath = SAFE_TEXT(env.MAIN_DULU_ROM_CONVERTO_PATH)
+  if (romConvertoPath && !isAbsolute(romConvertoPath)) throw new Error('MAIN_DULU_ROM_CONVERTO_PATH harus path absolut.')
+  const rawConvertoTimeout = env.MAIN_DULU_ROM_CONVERTO_TIMEOUT_MS ?? '30000'
+  if (!/^\d+$/.test(rawConvertoTimeout) || !Number.isSafeInteger(Number(rawConvertoTimeout))
+    || Number(rawConvertoTimeout) < 5000 || Number(rawConvertoTimeout) > 120000) {
+    throw new Error('MAIN_DULU_ROM_CONVERTO_TIMEOUT_MS harus bilangan 5000–120000.')
+  }
+  const rawSerialAutoapply = env.MAIN_DULU_CHD_SERIAL_AUTOAPPLY ?? 'true'
+  if (!['true', 'false'].includes(rawSerialAutoapply)) throw new Error('MAIN_DULU_CHD_SERIAL_AUTOAPPLY harus true atau false.')
   const config = {
     enabled,
     devId: SAFE_TEXT(env.MAIN_DULU_SCREENSCRAPER_DEV_ID),
@@ -56,6 +65,9 @@ export function readScreenScraperConfig(env = process.env) {
     language: SAFE_TEXT(env.MAIN_DULU_SCREENSCRAPER_LANGUAGE) || 'en',
     timeoutMs: DEFAULT_TIMEOUT_MS,
     maxResponseBytes: DEFAULT_MAX_BYTES,
+    romConvertoPath,
+    romConvertoTimeoutMs: Number(rawConvertoTimeout),
+    chdSerialAutoapply: rawSerialAutoapply === 'true',
   }
   const missing = []
   if (enabled) {
@@ -110,8 +122,11 @@ const MESSAGES = Object.freeze({
   archive_limits: 'ZIP melewati batas aman identifikasi; gunakan pencarian nama dan review manual.',
   archive_ambiguous: 'ZIP berisi beberapa berkas atau nama ambigu; scan otomatis tidak diterapkan.',
   archive_unsupported: 'Isi atau metode ZIP belum didukung; gunakan review manual.',
+  chd_tool_unavailable: 'Alat pembaca serial CHD tidak tersedia; gunakan review manual.',
+  chd_invalid: 'Gambar CHD tidak dapat dibaca atau serial tidak valid; gunakan review manual.',
+  chd_serial_missing: 'Serial disc CHD tidak ditemukan; gunakan review manual.',
   asset_mismatch: 'Fingerprint aset berubah atau tidak sesuai; scan dihentikan.',
-  identification_timeout: 'Identifikasi ZIP melewati batas waktu; scan dihentikan.',
+  identification_timeout: 'Identifikasi ROM melewati batas waktu; scan dihentikan.',
   provider_error: 'ScreenScraper mengembalikan kegagalan HTTP.',
   quota_unknown: 'Kuota ScreenScraper belum dapat diverifikasi. Scan dijeda.',
 })
@@ -372,6 +387,25 @@ export class ScreenScraperClient {
     }, { signal: input.signal })
     const normalized = normalizeResponse(json, target.systemId)
     return Object.freeze({ method: 'name', systemId: target.systemId, candidates: normalized.candidates, query })
+  }
+
+  async searchBySerial(input = {}) {
+    this.ensureReady()
+    const target = resolveScreenScraperSystem(input.consoleId, input.fileName)
+    if (!target.systemId || target.hashLookup || target.reason !== 'format_requires_review'
+      || typeof input.fileName !== 'string' || !/\.chd$/i.test(input.fileName)) throw new ScreenScraperError('invalid_target', { reason: target.reason })
+    const serial = normalizeSerial(input.serial)
+    if (!serial) throw new ScreenScraperError('invalid_fingerprint')
+    // This payload carries no ROM bytes or hashes; the disc serial is the only
+    // fingerprint shared with the provider.
+    const json = await this.request(SCREENSCRAPER_ENDPOINTS.gameInfo, {
+      systemeid: target.systemId,
+      serialnum: serial,
+      romtype: 'iso',
+      romnom: input.fileName ? basename(input.fileName.replace(/\\/g, '/')) : undefined,
+    }, { signal: input.signal })
+    const normalized = normalizeResponse(json, target.systemId)
+    return Object.freeze({ method: 'serial', systemId: target.systemId, serial, candidates: normalized.candidates })
   }
 }
 

@@ -35,9 +35,10 @@ export function metadataDetail(db, game) {
   if (!db.prepare('SELECT 1 FROM game_metadata WHERE game_id = ?').get(game.id)) transaction(db, () => ensureLegacyMetadata(db, game))
   const job = db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ? ORDER BY generation DESC LIMIT 1').get(game.id)
   const candidates = storedCandidates(job, game)
+  const matchMethod = db.prepare('SELECT match_method FROM game_metadata WHERE game_id = ?').get(game.id)?.match_method ?? null
   return { gameId: game.id, generation: job?.generation ?? null, status: job?.status ?? 'disabled',
     cooldownUntil: db.prepare('SELECT next_at FROM metadata_provider_state WHERE id = 1').get().next_at,
-    phase: job?.phase ?? null, reason: job?.error_code ?? null, attempts: job?.attempts ?? 0,
+    phase: job?.phase ?? null, reason: job?.error_code ?? null, attempts: job?.attempts ?? 0, matchMethod,
     nextAt: job && ['retry_wait', 'failed', 'not_found', 'paused'].includes(job.status) ? job.next_at : null,
     updatedAt: job?.updated_at ?? null, preview: metadataPreview(db, game.id, candidates[0]),
     candidates: candidates.map(c => ({ id: c.id, systemId: c.systemId, title: c.metadata.title || 'Tanpa judul',

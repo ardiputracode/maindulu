@@ -7,11 +7,13 @@ test-results/
 playwright-report/
 public/bios/*.bin
 public/games/*.chd
+/vendor/rom-converto/
 /data/
 *.maindulu-lock/
 /testbck/
 .env
 .env.*
+!/.env.example
 # Probe ScreenScraper M0: secret dan lock lokal, bukan artefak repository.
 /.env.screenscraper.local
 /.screenscraper-m0.lock.local

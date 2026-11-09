@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { transaction } from '../auth/mutations.mjs'
 import { createScreenScraperClient, resolveScreenScraperSystem, ScreenScraperError } from './screenscraper.mjs'
-import { identifyCatalogRom, isIdentifiableZip } from './identification.mjs'
-import { metadataCacheKey, readMetadataCache, writeMetadataCache, pruneMetadata } from './cache.mjs'
-import { assessScreenScraperEvidence } from './screenscraper-policy.mjs'
+import { identifyCatalogRom, isIdentifiableChd, isIdentifiableZip } from './identification.mjs'
+import { metadataCacheKey, metadataSerialCacheKey, readMetadataCache, writeMetadataCache, pruneMetadata } from './cache.mjs'
+import { assessChdSerialEvidence, assessScreenScraperEvidence } from './screenscraper-policy.mjs'
 import { downloadScreenScraperCover, selectScreenScraperCover, CoverError } from './cover.mjs'
 import { applyVerifiedMetadata, metadataPreview } from './apply.mjs'
 import { validateCover } from '../catalog/validation.mjs'
@@ -28,7 +28,8 @@ async function abortable(promise, signal) {
 
 function classifyError(code) {
   if (code === 'not_found') return { status: 'not_found', retryable: false }
-  if (['unsupported_format', 'invalid_target', 'invalid_fingerprint', 'archive_invalid', 'archive_limits', 'archive_ambiguous', 'archive_unsupported', 'identification_timeout'].includes(code)) return { status: 'unsupported', retryable: false }
+  if (['unsupported_format', 'invalid_target', 'invalid_fingerprint', 'archive_invalid', 'archive_limits', 'archive_ambiguous', 'archive_unsupported',
+    'chd_tool_unavailable', 'chd_invalid', 'chd_serial_missing', 'identification_timeout'].includes(code)) return { status: 'unsupported', retryable: false }
   if (code === 'asset_mismatch') return { status: 'failed', retryable: false }
   if (['auth_rejected', 'forbidden', 'not_configured', 'disabled', 'quota_unknown', 'client_rejected'].includes(code)) return { status: 'paused', retryable: false }
   if (code === 'rate_limited' || code === 'quota_exhausted' || code === 'search_quota_exhausted' || code === 'provider_closed') return { status: 'retry_wait', retryable: true }
@@ -43,7 +44,7 @@ function backoffMs(attempts) {
 }
 
 export function createMetadataWorker({ db, config, storage, maintenance, logger = console, clientFactory = createScreenScraperClient,
-  downloadCover = downloadScreenScraperCover }) {
+  downloadCover = downloadScreenScraperCover, readSerial }) {
   let running = false
   let loopPromise = null
   let stopping = false
@@ -182,19 +183,26 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
       const expectedRevision = manual || job.request_method === 'hash' && Number.isSafeInteger(request.expectedRevision)
         ? request.expectedRevision : db.prepare('SELECT metadata_revision FROM game_metadata WHERE game_id = ?').get(game.id)?.metadata_revision
       checkCurrent(job, controller.signal)
-      let hashes = {}, result, lookupName = game.original_name, identification
+      let hashes = {}, result, lookupName = game.original_name, identification, serial
       async function identify() {
+        const chd = isIdentifiableChd(game.console_id, game.original_name)
         const file = await storage.open('games', game.storage_key)
         try {
+          // The CHD branch needs a validated filesystem path for the child
+          // process; other formats keep using only the open handle.
+          const filePath = chd ? await storage.assetPath('games', game.storage_key) : undefined
           const found = await identifyCatalogRom(file, { consoleId: game.console_id, fileName: game.original_name,
-            size: game.size, sha256: game.sha256, signal: controller.signal })
-          hashes = found.hashes; lookupName = found.fileName; identification = found.identification
+            size: game.size, sha256: game.sha256, signal: controller.signal,
+            ...(chd ? { filePath, chdBinary: config.screenscraper?.romConvertoPath,
+              timeoutMs: config.screenscraper?.romConvertoTimeoutMs } : {}),
+            ...(readSerial ? { readSerial } : {}) })
+          hashes = found.hashes; lookupName = found.fileName; identification = found.identification; serial = found.serial
         } finally { await file.close() }
       }
       const client = clientFactory(config.screenscraper)
       let intervalMs = screenScraperLimits.minRequestIntervalMs
       let quotaChecked = false
-      async function lookup(key, requestLookup) {
+      async function lookup(key, requestLookup, method = job.request_method) {
         const cached = readMetadataCache(db, key)
         if (cached) { metrics.cacheHits++; return cached }
         metrics.cacheMisses++
@@ -212,7 +220,7 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
         try { value = await abortable(requestLookup(), controller.signal) }
         catch (error) {
           if (!(error instanceof ScreenScraperError) || error.code !== 'not_found') throw error
-          value = { method: job.request_method, systemId: key.systemId, candidates: [] }
+          value = { method, systemId: key.systemId, candidates: [] }
         }
         checkCurrent(job, controller.signal)
         writeMetadataCache(db, key, value)
@@ -233,28 +241,40 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
 
         setPhase(job, 'lookup')
         checkCurrent(job, controller.signal)
-        result = await lookup(metadataCacheKey(target.systemId, hashes, lookupName), () => client.searchByHash({
-          consoleId: game.console_id,
-          fileName: lookupName,
-          size: hashes.size,
-          md5: hashes.md5,
-          sha1: hashes.sha1,
-          signal: controller.signal,
-        }))
+        result = serial
+          ? await lookup(metadataSerialCacheKey(target.systemId, serial, lookupName), () => client.searchBySerial({
+            consoleId: game.console_id,
+            fileName: lookupName,
+            serial,
+            signal: controller.signal,
+          }), 'serial')
+          : await lookup(metadataCacheKey(target.systemId, hashes, lookupName), () => client.searchByHash({
+            consoleId: game.console_id,
+            fileName: lookupName,
+            size: hashes.size,
+            md5: hashes.md5,
+            sha1: hashes.sha1,
+            signal: controller.signal,
+          }))
       }
       checkCurrent(job, controller.signal)
 
       const candidates = Array.isArray(result.candidates) ? result.candidates : []
       const payload = JSON.stringify({ method: result.method, systemId: result.systemId, candidates,
         identification,
-        fingerprint: manual ? result.fingerprint : { size: hashes.size, md5: hashes.md5, sha1: hashes.sha1 } })
+        fingerprint: manual ? result.fingerprint : serial ? { serial } : { size: hashes.size, md5: hashes.md5, sha1: hashes.sha1 } })
 
       if (candidates.length === 0) {
         finishJob(job, { status: 'not_found', phase: 'lookup', next_at: nowMs() + screenScraperLimits.negativeCacheTtlMs })
         return
       }
-      const evidence = assessScreenScraperEvidence({ method: result.method, consoleId: game.console_id,
-        fileName: lookupName, size: hashes.size, md5: hashes.md5, sha1: hashes.sha1 }, candidates)
+      let evidence = result.method === 'serial'
+        ? assessChdSerialEvidence({ method: 'serial', consoleId: game.console_id, fileName: lookupName, serial }, candidates)
+        : assessScreenScraperEvidence({ method: result.method, consoleId: game.console_id,
+          fileName: lookupName, size: hashes.size, md5: hashes.md5, sha1: hashes.sha1 }, candidates)
+      if (!manual && result.method === 'serial' && config?.screenscraper?.chdSerialAutoapply === false) {
+        evidence = { verified: false, reason: 'serial_autoapply_disabled' }
+      }
       if (!manual && !evidence.verified) {
         finishJob(job, { status: 'needs_review', phase: 'apply', error_code: evidence.reason,
           candidate_json: payload, candidate_at: nowMs() })
@@ -300,7 +320,8 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
         setPhase(job, 'apply')
         checkCurrent(job, controller.signal)
         const applied = applyVerifiedMetadata(db, storage, { job, candidate, expectedRevision, cover: promoted,
-          manual, replaceLocked, selectedFields: manual ? request.fields : null })
+          manual, replaceLocked, selectedFields: manual ? request.fields : null,
+          matchMethod: result.method === 'serial' ? 'serial' : 'hash' })
         if (applied) {
           finishJob(job, { status: 'succeeded', phase: 'apply', error_code: warning, candidate_json: payload, candidate_at: nowMs() })
         } else {

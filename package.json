@@ -26,7 +26,8 @@
     "test:e2e:asset-cache:spike": "playwright test --config=playwright.asset-cache-spike.config.ts",
     "test:e2e:asset-cache:large": "playwright test --config=playwright.asset-cache-large.config.ts",
     "build:demo": "node scripts/build-demo.mjs",
-    "vendor:engine": "node scripts/vendor-engine.mjs"
+    "vendor:engine": "node scripts/vendor-engine.mjs",
+    "vendor:rom-converto": "node scripts/vendor-rom-converto.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",

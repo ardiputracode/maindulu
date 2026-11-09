@@ -11,12 +11,19 @@ export function metadataCacheKey(systemId, hashes, fileName, query) {
   return { key: createHash('sha256').update(JSON.stringify([systemId, fingerprint, preferences, version])).digest('hex'), systemId, fingerprint }
 }
 
+// Serial lookups deliberately use a separate namespace so an old hash/name
+// cache entry can never be mistaken for serial evidence.
+export function metadataSerialCacheKey(systemId, serial, fileName) {
+  const fingerprint = createHash('sha256').update(JSON.stringify(['serial', serial, cleanRomName(fileName)])).digest('hex')
+  return { key: createHash('sha256').update(JSON.stringify([systemId, fingerprint, preferences, version])).digest('hex'), systemId, fingerprint }
+}
+
 export function readMetadataCache(db, key, now = Date.now()) {
   const row = db.prepare('SELECT * FROM provider_cache WHERE cache_key = ? AND expires_at > ? AND normalization_version = ?').get(key.key, now, version)
   if (!row) return null
   try {
     const value = JSON.parse(row.payload)
-    if (value.systemId !== key.systemId || !['hash', 'name'].includes(value.method) || !Array.isArray(value.candidates) || value.candidates.length > limits.maxCandidates) return null
+    if (value.systemId !== key.systemId || !['hash', 'name', 'serial'].includes(value.method) || !Array.isArray(value.candidates) || value.candidates.length > limits.maxCandidates) return null
     return value
   } catch { return null }
 }

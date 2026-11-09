@@ -74,6 +74,18 @@ const hex = (value, length) => typeof value === 'string' && value.length === len
 const identifier = value => typeof value === 'string' && /^[1-9][0-9]{0,19}(?![\s\S])/.test(value)
 const review = reason => ({ verified: false, reason })
 
+// Disc serials are shared with the provider; keep one canonical, fail-closed
+// representation. Control characters, whitespace, dots and underscores are
+// rejected rather than silently converted.
+export function normalizeSerial(value) {
+  if (typeof value !== 'string') return null
+  // Reject surrounding whitespace and control characters instead of silently
+  // canonicalizing malformed probe/provider output.
+  if (value !== value.trim() || /[\x00-\x1f\x7f]/.test(value)) return null
+  const serial = value.toUpperCase()
+  return /^[A-Z0-9-]{4,32}$/.test(serial) && /[0-9]/.test(serial) ? serial : null
+}
+
 // Input: server-computed fingerprint plus consoleId/fileName/method.
 // Candidates: normalized [{ id, systemId, notGame, rom: { id, size, md5,
 // sha1, totalSupports } }]. rom MUST come from the matched jeu.rom, never roms.
@@ -93,4 +105,25 @@ export function assessScreenScraperEvidence(input, candidates) {
   if (!hex(rom.md5, 32) || !hex(rom.sha1, 40)) return review('missing_hash_evidence')
   if (rom.md5.toLowerCase() !== input.md5.toLowerCase() || rom.sha1.toLowerCase() !== input.sha1.toLowerCase()) return review('hash_mismatch')
   return { verified: true, reason: 'exact_rom' }
+}
+
+// CHD PS1 serial evidence deliberately differs from the raw/ZIP hash gate:
+// one provider candidate for a validated disc serial is accepted without an
+// inner-disc hash. The candidate must still be a confirmed game on PS1 and
+// must not advertise a different multi-support ROM. A missing `rom` object is
+// not a failure because the provider may omit it for serial lookups.
+export function assessChdSerialEvidence(input, candidates) {
+  if (!input || typeof input !== 'object') return review('invalid_target')
+  if (input.method !== 'serial') return review('manual_lookup')
+  if (input.consoleId !== 'psx' || typeof input.fileName !== 'string' || !/\.chd$/i.test(input.fileName)) return review('invalid_target')
+  const target = screenScraperTarget(input.consoleId, input.fileName)
+  if (!target.systemId || target.hashLookup || target.reason !== 'format_requires_review') return review('invalid_target')
+  if (!normalizeSerial(input.serial)) return review('invalid_serial')
+  if (!Array.isArray(candidates) || candidates.length !== 1) return review('non_unique_result')
+  const game = candidates[0]
+  if (!game || !identifier(game.id) || game.notGame !== false) return review('unconfirmed_game')
+  if (game.systemId !== target.systemId) return review('system_mismatch')
+  const rom = game.rom
+  if (rom && typeof rom === 'object' && Number.isSafeInteger(rom.totalSupports) && rom.totalSupports !== 1) return review('unconfirmed_rom')
+  return { verified: true, reason: 'serial_unique' }
 }
