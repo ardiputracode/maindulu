@@ -14,7 +14,7 @@ import { registerAdmin } from './admin.mjs'
 import { createCatalogStorage } from './catalog/storage.mjs'
 import { registerCatalog } from './catalog/routes.mjs'
 
-const pages = ['/', '/index.html', '/console', '/library', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main', '/admin', '/admin/games', '/admin/bios']
+const pages = ['/', '/index.html', '/console', '/library', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main', '/admin', '/admin/games', '/admin/bios', '/admin/scan']
 const assetDirectories = new Set(['assets', 'vendor', 'player', 'catalog', 'games', 'bios', 'covers'])
 const backendMarker = '<meta name="maindulu-backend" content="enabled" />'
 
@@ -66,7 +66,7 @@ export async function createApp({ env = process.env, root, logger = false, metad
   app.get('/api/health', async (_request, reply) => {
     try { db.prepare('SELECT 1').get() }
     catch { return reply.code(503).send({ error: 'Penyimpanan server belum tersedia.' }) }
-    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: true, biosCatalog: true, metadata: true } }
+    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: true, biosCatalog: true, metadata: true, catalogScan: true } }
   })
   try {
     const storage = await createCatalogStorage(config, db)

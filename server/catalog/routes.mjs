@@ -10,6 +10,7 @@ import { CatalogHttpError, invalidCatalog } from './errors.mjs'
 import { transaction } from '../auth/mutations.mjs'
 import { enqueueMetadata, metadataDetail } from '../metadata/queue.mjs'
 import { getScreenScraperConfigStatus } from '../metadata/screenscraper.mjs'
+import { registerCatalogScans } from './scans.mjs'
 
 const overhead = 128 * 1024
 const oversized = () => new CatalogHttpError(413, 'UPLOAD_TOO_LARGE', 'Upload melebihi batas ukuran atau jumlah bagian yang diizinkan.')
@@ -169,6 +170,7 @@ export function registerCatalog(app, config, security, storage, metadataDependen
   }
   app.register(async api => {
     api.setErrorHandler(errorHandler)
+    registerCatalogScans(api, config, security, storage)
     await api.register(multipart, { attachFieldsToBody: false, preservePath: true })
     api.addHook('onRequest', async (request, reply) => {
       if (!request.routeOptions.config.catalogUpload) return

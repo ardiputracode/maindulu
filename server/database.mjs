@@ -317,6 +317,27 @@ const migrations = [
     DROP TABLE game_metadata;
     ALTER TABLE game_metadata_v15 RENAME TO game_metadata;`,
   },
+  {
+    version: 16,
+    name: 'catalog-folder-scans',
+    sql: `CREATE TABLE catalog_scans (
+      id TEXT PRIMARY KEY, actor TEXT NOT NULL, scope TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('queued','running','completed','cancelled','failed','interrupted')),
+      token TEXT NOT NULL, lease_until INTEGER NOT NULL, cancel INTEGER NOT NULL DEFAULT 0,
+      discovered INTEGER NOT NULL DEFAULT 0, processed INTEGER NOT NULL DEFAULT 0,
+      added INTEGER NOT NULL DEFAULT 0, skipped INTEGER NOT NULL DEFAULT 0, problems INTEGER NOT NULL DEFAULT 0,
+      metadata_queued INTEGER NOT NULL DEFAULT 0, truncated INTEGER NOT NULL DEFAULT 0,
+      physical_bytes INTEGER, usage_warning TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL, finished_at INTEGER, message TEXT NOT NULL DEFAULT ''
+    ) STRICT;
+    CREATE UNIQUE INDEX catalog_scan_active ON catalog_scans((1)) WHERE status IN ('queued','running');
+    CREATE INDEX catalog_scan_created ON catalog_scans(created_at DESC);
+    CREATE TABLE catalog_scan_results (
+      job_id TEXT NOT NULL REFERENCES catalog_scans(id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL, path TEXT NOT NULL, status TEXT NOT NULL, message TEXT NOT NULL, existing_id TEXT,
+      PRIMARY KEY(job_id, ordinal)
+    ) STRICT;`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

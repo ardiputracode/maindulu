@@ -1,5 +1,5 @@
-import { constants } from 'node:fs'
-import { lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises'
+import { constants, lstatSync, realpathSync } from 'node:fs'
+import { lstat, mkdir, open, opendir, readdir, realpath, rename, unlink } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { isWithin } from '../config.mjs'
@@ -38,12 +38,14 @@ export async function openRegular(path) {
   } catch (error) { await file.close(); throw error }
 }
 
-export async function fingerprintFile(file) {
+export async function fingerprintFile(file, check = () => {}) {
   const before = await file.stat()
   const hash = createHash('sha256')
   const buffer = Buffer.alloc(1024 * 1024)
   let size = 0, n
   while ((n = (await file.read(buffer, 0, buffer.length, size)).bytesRead)) {
+    check()
+    if (size + n > before.size) throw new Error('Berkas katalog berubah saat verifikasi.')
     hash.update(buffer.subarray(0, n)); size += n
   }
   const after = await file.stat()
@@ -63,6 +65,7 @@ export async function createCatalogStorage(config, db) {
     await safeDirectory(join(root, folder))
   }
   const staged = new WeakSet()
+  const adopted = new WeakMap()
   const promoted = new WeakSet()
   const mapping = (folder, key) => db?.prepare('SELECT * FROM catalog_asset_files WHERE folder = ? AND storage_key = ?').get(folder, key)
   const referenced = (folder, key) => db?.prepare(`SELECT 1 FROM ${folder} WHERE storage_key = ? AND deleted_at IS NULL`).get(key)
@@ -124,6 +127,70 @@ export async function createCatalogStorage(config, db) {
   }
   return {
     pathFor,
+    async physicalUsage(check = () => {}) {
+      await safeDirectory(root)
+      let bytes = 0, count = 0
+      async function walk(directory, depth = 0) {
+        if (depth > 16) throw unsafe()
+        await safeDirectory(directory)
+        for await (const entry of await opendir(directory)) {
+          check()
+          if (++count > 500000) throw unsafe()
+          const path = join(directory, entry.name)
+          if (entry.isDirectory()) await walk(path, depth + 1)
+          else {
+            let file
+            try { file = await openRegular(path); bytes += (await file.stat()).size }
+            catch (error) {
+              // Online cleanup can unlink between lstat/open/fstat (nlink=0).
+              // Only forgive a freshly confirmed missing pathname, not an
+              // unsafe file that still exists or a permission failure.
+              if (error.code !== 'ENOENT') {
+                try { await lstat(path) } catch (fresh) { if (fresh.code === 'ENOENT') continue; throw fresh }
+                throw error
+              }
+            }
+            finally { await file?.close() }
+          }
+        }
+      }
+      for (const folder of [...catalogFolders, 'roms']) await walk(join(root, folder))
+      return bytes
+    },
+    async adoption(kind, platform, fileName, check, minAge = 10000) {
+      const path = await namedPath({ folder: kind, platform, file_name: fileName, name_identity: storageNameIdentity(fileName) })
+      const file = await openRegular(path)
+      try {
+        const stat = await file.stat()
+        if (!stat.size || stat.size > catalogLimits[kind]) throw Object.assign(new Error('Berkas kosong atau melebihi batas ukuran.'), { scanStatus: 'invalid' })
+        if (Date.now() - Math.max(stat.mtimeMs, stat.ctimeMs) < minAge) throw Object.assign(new Error('Berkas terlalu baru; ulangi scan setelah transfer selesai.'), { scanStatus: 'not_ready' })
+        const actual = await fingerprintFile(file, check)
+        const value = Object.freeze({ kind, key: randomUUID() + '.bin', ...actual })
+        adopted.set(value, { path, stat, platform, fileName })
+        this.claimAdoption(value, false)
+        return value
+      } finally { await file.close() }
+    },
+    ownsAdoption(value, kind, consoleId, fileName) {
+      const candidate = adopted.get(value)
+      return !!candidate && value.kind === kind && candidate.fileName === fileName && candidate.platform === storagePlatform(consoleId, fileName, kind)
+    },
+    claimAdoption(value, insert = true) {
+      const candidate = adopted.get(value)
+      if (!candidate) throw unsafe()
+      const { path, stat, platform, fileName } = candidate
+      for (const dir of [root, join(root, value.kind === 'games' ? 'roms' : 'bios'), join(root, value.kind === 'games' ? 'roms' : 'bios', platform)]) {
+        const s = lstatSync(dir)
+        if (!s.isDirectory() || s.isSymbolicLink() || realpathSync(dir) !== resolve(dir)) throw unsafe()
+      }
+      const current = lstatSync(path)
+      if (!current.isFile() || current.isSymbolicLink() || current.nlink !== 1 || ['dev', 'ino', 'size', 'mtimeMs', 'ctimeMs'].some(key => current[key] !== stat[key])) throw Object.assign(new Error('Berkas berubah atau pathname diganti; ulangi scan.'), { scanStatus: 'not_ready' })
+      if (insert) {
+        if (db.prepare('SELECT 1 FROM catalog_asset_files WHERE folder = ? AND platform = ? AND name_identity = ?').get(value.kind, platform, storageNameIdentity(fileName))) throw Object.assign(new Error('Path sedang diklaim operasi lain.'), { scanStatus: 'busy' })
+        db.prepare("INSERT INTO catalog_asset_files VALUES (?, ?, ?, ?, ?, 'ready')").run(value.key, value.kind, platform, fileName, storageNameIdentity(fileName))
+        db.exec('UPDATE catalog_capacity SET generation = generation + 1 WHERE id = 1')
+      }
+    },
     async stage(kind, source) {
       if (!Object.hasOwn(catalogLimits, kind)) throw unsafe()
       const key = randomUUID() + '.tmp'

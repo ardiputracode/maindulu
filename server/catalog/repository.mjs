@@ -48,7 +48,7 @@ function metadata(kind, value, patch = false) {
   return result
 }
 
-export function createCatalogRepository(db, storage, { check = () => {}, onPromoted = () => {} } = {}) {
+export function createCatalogRepository(db, storage, { check = () => {}, onPromoted = () => {}, onPublished = () => {} } = {}) {
   function authorize(actor) {
     check(actor)
     if (typeof actor !== 'string' || db.prepare('SELECT role FROM users WHERE id = ?').get(actor)?.role !== 'admin') throw new CatalogError('ADMIN_REQUIRED', 'Hanya admin aktif yang dapat mengelola katalog.')
@@ -75,84 +75,92 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
     if (!cover || !types.has(cover.type) || !storage.ownsFile(cover.file, 'covers')) throw invalid()
     return [cover.file.key, cover.type, cover.file.size, cover.file.sha256]
   }
+  async function publish(kind, actor, value, stage, { cover = null, restoreId, scanMetadata = true } = {}, adoption = false) {
+    table(kind); authorize(actor)
+    const v = metadata(kind, value)
+    if (!(adoption ? storage.ownsAdoption(stage, kind, v.consoleId, v.fileName) : storage.ownsStage(stage, kind)) || (restoreId !== undefined && (typeof restoreId !== 'string' || !uuid.test(restoreId)))) throw invalid()
+    if (cover !== null && (!cover || kind !== 'games' || !types.has(cover.type) || !storage.ownsStage(cover.stage, 'covers'))) throw invalid()
+    // Files are durable before publication. Errors leave at most unreferenced
+    // server-generated files, reclaimed offline, never an active partial row.
+    // A metadata-only restore retains active rows but deliberately has no asset
+    // files. Only an absent immutable key permits reattachment, never a valid,
+    // damaged or unsafe existing file. Recheck the key under the transaction so
+    // two concurrent restorations cannot both replace the same publication.
+    const observed = db.prepare(`SELECT * FROM ${kind} WHERE console_id = ? AND sha256 = ?`).get(v.consoleId, stage.sha256)
+    let missingKey
+    if (observed?.deleted_at === null) {
+      let previousFile
+      try { previousFile = await storage.open(kind, observed.storage_key) }
+      catch (error) { if (error.code === 'ENOENT') missingKey = observed.storage_key; else throw error }
+      finally { await previousFile?.close() }
+    }
+    if (observed && (observed.size !== stage.size || ((!missingKey && observed.deleted_at === null) || restoreId !== observed.id))) {
+      if (observed.size !== stage.size) throw invalid()
+      throw duplicate(observed, !!missingKey)
+    }
+    if (restoreId !== undefined && (!observed || observed.id !== restoreId)) throw invalid()
+    // Explicit tombstone restoration may retire the old physical filename;
+    // its ownership token fences delayed cleanup from the replacement.
+    if (observed && restoreId === observed.id) await storage.removeUnreferenced(kind, observed.storage_key)
+    const file = adoption ? stage : await promote(kind, stage, { consoleId: v.consoleId, fileName: missingKey ? observed.original_name : v.fileName,
+      replaceMissingKey: missingKey, check: () => authorize(actor) })
+    const coverFile = cover ? { file: await promote('covers', cover.stage), type: cover.type } : null
+    const fields = coverFields(coverFile)
+    return transaction(db, () => {
+      authorize(actor) // Role may have been revoked during asynchronous I/O.
+      const previous = db.prepare(`SELECT * FROM ${kind} WHERE console_id = ? AND sha256 = ?`).get(v.consoleId, file.sha256)
+      if (previous && previous.size !== file.size) throw invalid()
+      const missing = previous && previous.id === observed?.id && previous.deleted_at === null && previous.storage_key === missingKey
+      if (previous && ((!missing && previous.deleted_at === null) || restoreId !== previous.id)) throw duplicate(previous, missing)
+      if (restoreId !== undefined && (!previous || previous.id !== restoreId)) throw invalid()
+      if (adoption) storage.claimAdoption(file)
+      const id = previous?.id ?? randomUUID()
+      const now = Date.now()
+      const titleWasProvided = kind !== 'games' || !!v.title.trim()
+      if (kind === 'games' && !v.title.trim()) v.title = v.fileName.replace(/\.[^.]+$/, '').replace(/_/g, ' ').trim().slice(0, 200) || 'Game'
+      if (previous) {
+        enqueueCleanup(db, kind, previous.storage_key)
+        if (kind === 'games' && previous.cover_storage_key && (!missing || cover !== null)) enqueueCleanup(db, 'covers', previous.cover_storage_key)
+        db.prepare(`UPDATE ${kind} SET storage_key = ?, original_name = ?, updated_at = ?, deleted_at = NULL WHERE id = ?`).run(file.key, missing ? previous.original_name : v.fileName, now, id)
+      } else {
+        const title = kind === 'games' ? 'title' : 'name'
+        const rights = kind === 'games' ? 'license' : 'distribution_rights'
+        db.prepare(`INSERT INTO ${kind} (id, ${title}, console_id, description, ${rights}, original_name, storage_key, size, sha256, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, v[title], v.consoleId, v.description, kind === 'games' ? v.license : v.distributionRights, v.fileName, file.key, file.size, file.sha256, actor, now, now)
+      }
+      if (kind === 'games' && (!missing || cover !== null)) db.prepare('UPDATE games SET cover_storage_key = ?, cover_type = ?, cover_size = ?, cover_sha256 = ? WHERE id = ?').run(...fields, id)
+      if (kind === 'games') {
+        const nowMeta = Date.now()
+        db.prepare(`INSERT OR IGNORE INTO game_metadata (game_id, metadata_revision, created_at, updated_at) VALUES (?, 1, ?, ?)`).run(id, nowMeta, nowMeta)
+        if (!previous) {
+          // An upload title is provisional when automatic metadata is enabled.
+          // Later explicit edits still lock the field against provider changes.
+          if (titleWasProvided) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'manual', ?, ?)`).run(id, scanMetadata ? 0 : 1, nowMeta)
+          else db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'filename', 0, ?)`).run(id, nowMeta)
+          if (v.description) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'description', 'manual', 1, ?)`).run(id, nowMeta)
+          else db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'description', 'filename', 0, ?)`).run(id, nowMeta)
+          if (coverFile) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', 'manual', 1, ?)`).run(id, nowMeta)
+        }
+        if (previous && coverFile) db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', 'manual', 1, ?)`).run(id, nowMeta)
+        db.prepare(`UPDATE metadata_jobs SET status = 'cancelled', updated_at = ? WHERE game_id = ? AND status IN ('queued', 'running', 'retry_wait', 'paused')`).run(nowMeta, id)
+        const generation = (db.prepare('SELECT COALESCE(MAX(generation), 0) + 1 AS g FROM metadata_jobs WHERE game_id = ?').get(id)?.g) || 1
+        db.prepare(`INSERT INTO metadata_jobs (id, game_id, asset_fingerprint, generation, phase, status, attempts, next_at, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 'identifying', ?, 0, ?, ?, ?)`)
+          .run(randomUUID(), id, `${file.sha256}:${file.size}`, generation, scanMetadata && !previous ? 'queued' : 'disabled', nowMeta, nowMeta, nowMeta)
+      }
+      db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
+      onPublished(kind, get(kind, id))
+      return get(kind, id)
+    })
+  }
   return {
     get,
     list(kind) { return db.prepare(`SELECT * FROM ${table(kind)} WHERE deleted_at IS NULL ORDER BY created_at DESC, id`).all() },
-    async publish(kind, actor, value, stage, { cover = null, restoreId, scanMetadata = true } = {}) {
-      table(kind); authorize(actor)
-      const v = metadata(kind, value)
-      if (!storage.ownsStage(stage, kind) || (restoreId !== undefined && (typeof restoreId !== 'string' || !uuid.test(restoreId)))) throw invalid()
-      if (cover !== null && (!cover || kind !== 'games' || !types.has(cover.type) || !storage.ownsStage(cover.stage, 'covers'))) throw invalid()
-      // Files are durable before publication. Errors leave at most unreferenced
-      // server-generated files, reclaimed offline, never an active partial row.
-      // A metadata-only restore retains active rows but deliberately has no asset
-      // files. Only an absent immutable key permits reattachment, never a valid,
-      // damaged or unsafe existing file. Recheck the key under the transaction so
-      // two concurrent restorations cannot both replace the same publication.
-      const observed = db.prepare(`SELECT * FROM ${kind} WHERE console_id = ? AND sha256 = ?`).get(v.consoleId, stage.sha256)
-      let missingKey
-      if (observed?.deleted_at === null) {
-        let previousFile
-        try { previousFile = await storage.open(kind, observed.storage_key) }
-        catch (error) { if (error.code === 'ENOENT') missingKey = observed.storage_key; else throw error }
-        finally { await previousFile?.close() }
-      }
-      if (observed && (observed.size !== stage.size || ((!missingKey && observed.deleted_at === null) || restoreId !== observed.id))) {
-        if (observed.size !== stage.size) throw invalid()
-        throw duplicate(observed, !!missingKey)
-      }
-      if (restoreId !== undefined && (!observed || observed.id !== restoreId)) throw invalid()
-      // Explicit tombstone restoration may retire the old physical filename;
-      // its ownership token fences delayed cleanup from the replacement.
-      if (observed && restoreId === observed.id) await storage.removeUnreferenced(kind, observed.storage_key)
-      const file = await promote(kind, stage, { consoleId: v.consoleId, fileName: missingKey ? observed.original_name : v.fileName,
-        replaceMissingKey: missingKey, check: () => authorize(actor) })
-      const coverFile = cover ? { file: await promote('covers', cover.stage), type: cover.type } : null
-      const fields = coverFields(coverFile)
-      return transaction(db, () => {
-        authorize(actor) // Role may have been revoked during asynchronous I/O.
-        const previous = db.prepare(`SELECT * FROM ${kind} WHERE console_id = ? AND sha256 = ?`).get(v.consoleId, file.sha256)
-        if (previous && previous.size !== file.size) throw invalid()
-        const missing = previous && previous.id === observed?.id && previous.deleted_at === null && previous.storage_key === missingKey
-        if (previous && ((!missing && previous.deleted_at === null) || restoreId !== previous.id)) throw duplicate(previous, missing)
-        if (restoreId !== undefined && (!previous || previous.id !== restoreId)) throw invalid()
-        const id = previous?.id ?? randomUUID()
-        const now = Date.now()
-        const titleWasProvided = kind !== 'games' || !!v.title.trim()
-        if (kind === 'games' && !v.title.trim()) v.title = v.fileName.replace(/\.[^.]+$/, '').replace(/_/g, ' ').trim().slice(0, 200) || 'Game'
-        if (previous) {
-          enqueueCleanup(db, kind, previous.storage_key)
-          if (kind === 'games' && previous.cover_storage_key && (!missing || cover !== null)) enqueueCleanup(db, 'covers', previous.cover_storage_key)
-          db.prepare(`UPDATE ${kind} SET storage_key = ?, original_name = ?, updated_at = ?, deleted_at = NULL WHERE id = ?`).run(file.key, missing ? previous.original_name : v.fileName, now, id)
-        } else {
-          const title = kind === 'games' ? 'title' : 'name'
-          const rights = kind === 'games' ? 'license' : 'distribution_rights'
-          db.prepare(`INSERT INTO ${kind} (id, ${title}, console_id, description, ${rights}, original_name, storage_key, size, sha256, created_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, v[title], v.consoleId, v.description, kind === 'games' ? v.license : v.distributionRights, v.fileName, file.key, file.size, file.sha256, actor, now, now)
-        }
-        if (kind === 'games' && (!missing || cover !== null)) db.prepare('UPDATE games SET cover_storage_key = ?, cover_type = ?, cover_size = ?, cover_sha256 = ? WHERE id = ?').run(...fields, id)
-        if (kind === 'games') {
-          const nowMeta = Date.now()
-          db.prepare(`INSERT OR IGNORE INTO game_metadata (game_id, metadata_revision, created_at, updated_at) VALUES (?, 1, ?, ?)`).run(id, nowMeta, nowMeta)
-          if (!previous) {
-            // An upload title is provisional when automatic metadata is enabled.
-            // Later explicit edits still lock the field against provider changes.
-            if (titleWasProvided) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'manual', ?, ?)`).run(id, scanMetadata ? 0 : 1, nowMeta)
-            else db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'title', 'filename', 0, ?)`).run(id, nowMeta)
-            if (v.description) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'description', 'manual', 1, ?)`).run(id, nowMeta)
-            else db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'description', 'filename', 0, ?)`).run(id, nowMeta)
-            if (coverFile) db.prepare(`INSERT INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', 'manual', 1, ?)`).run(id, nowMeta)
-          }
-          if (previous && coverFile) db.prepare(`INSERT OR REPLACE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at) VALUES (?, 'cover', 'manual', 1, ?)`).run(id, nowMeta)
-          db.prepare(`UPDATE metadata_jobs SET status = 'cancelled', updated_at = ? WHERE game_id = ? AND status IN ('queued', 'running', 'retry_wait', 'paused')`).run(nowMeta, id)
-          const generation = (db.prepare('SELECT COALESCE(MAX(generation), 0) + 1 AS g FROM metadata_jobs WHERE game_id = ?').get(id)?.g) || 1
-          db.prepare(`INSERT INTO metadata_jobs (id, game_id, asset_fingerprint, generation, phase, status, attempts, next_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 'identifying', ?, 0, ?, ?, ?)`)
-            .run(randomUUID(), id, `${file.sha256}:${file.size}`, generation, scanMetadata && !previous ? 'queued' : 'disabled', nowMeta, nowMeta, nowMeta)
-        }
-        db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
-        return get(kind, id)
-      })
+    publish,
+    adopt(kind, actor, value, candidate, options = {}) {
+      // Adoption is new-only: never inherit upload restoration or rollback paths.
+      if (!options || typeof options !== 'object' || Object.keys(options).some(key => key !== 'scanMetadata') || (options.scanMetadata !== undefined && typeof options.scanMetadata !== 'boolean')) throw invalid()
+      return publish(kind, actor, value, candidate, { scanMetadata: options.scanMetadata ?? false }, true)
     },
     async update(kind, actor, id, value, { cover, expectedRevision } = {}) {
       table(kind); authorize(actor)

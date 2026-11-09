@@ -6,6 +6,8 @@ Frontend emulator berbahasa Indonesia, bertema hijau hutan/mint. Logo dan banner
 
 ## Jalankan
 
+**Scan folder server:** backend menyediakan **Admin → Scan Koleksi** (`/admin/scan`) untuk mendaftarkan ROM/BIOS hasil transfer WinSCP langsung dari folder data, tanpa upload ulang. Lihat [panduan lokasi Docker, transfer aman, dan hasil scan](doc/scan-koleksi-folder.md). Upload browser tetap tersedia; file yang diadopsi mengikuti lifecycle delete katalog.
+
 Gunakan Node.js **24+** (backend opsional memakai SQLite bawaan Node, dan tes unit memakai dukungan TypeScript native Node).
 
 ```sh

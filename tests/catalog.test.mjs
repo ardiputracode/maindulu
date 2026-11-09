@@ -35,7 +35,7 @@ async function setup(t) {
 
 test('catalog migration from schema 7 preserves accounts, roles, sessions and every save table', async t => {
   const c = await setup(t)
-  c.db.exec('DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  c.db.exec('DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   c.db.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?)').run('test-token', c.actor, 1, Date.now() + 100000)
   c.db.prepare('INSERT INTO saves VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), c.actor, 'old-server-game', 'nes', 'fceumm', 1, 'old title', '{}', 2, 0, 'a'.repeat(64), null, 3)
   c.db.prepare('INSERT INTO game_saves VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), c.actor, 'local-nes-' + 'b'.repeat(64), 'nes', 'fceumm', 'old local', '{}', 1, 0, 'a'.repeat(64), null, 3)
@@ -46,7 +46,7 @@ test('catalog migration from schema 7 preserves accounts, roles, sessions and ev
   c.db.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   c.close()
   c.db = await openDatabase(c.config.dataDir)
-  assert.equal(schemaVersion, 15)
+  assert.equal(schemaVersion, 16)
   assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
   for (const name of tables) assert.deepEqual(c.db.prepare(`SELECT * FROM ${name}`).all(), before[name], name)
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM games').get().n, 0)
@@ -55,7 +55,7 @@ test('catalog migration from schema 7 preserves accounts, roles, sessions and ev
 
 test('failed catalog migration rolls back new tables and schema version without changing old accounts', async t => {
   const c = await setup(t)
-  c.db.exec('DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  c.db.exec('DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   const before = c.db.prepare('SELECT * FROM users').get()
   c.db.exec("DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7; CREATE TABLE bios (marker TEXT); INSERT INTO bios VALUES ('operator-owned');")
   c.close()

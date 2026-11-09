@@ -2,6 +2,7 @@
 // https://docs.romm.app/5.4.0/platforms/supported-platforms/#platform-slugs-coverage
 export const platformSlugs = Object.freeze(['nes', 'snes', 'gb', 'gbc', 'gba', 'genesis', 'psx'])
 const consoles = Object.freeze({ nes: 'nes', snes: 'snes', gb: 'gb', gba: 'gba', megadrive: 'genesis', psx: 'psx' })
+export const platformConsole = slug => slug === 'gbc' ? 'gb' : Object.keys(consoles).find(id => consoles[id] === slug)
 
 export function safeStorageName(name) {
   return typeof name === 'string' && name.length > 0 && name.length <= 240 && Buffer.byteLength(name, 'utf8') <= 255

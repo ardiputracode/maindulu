@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { statfs } from 'node:fs/promises'
 import { transaction } from '../auth/mutations.mjs'
-import { openRegular, catalogFolders, storageKeyPattern } from './storage.mjs'
+import { storageKeyPattern } from './storage.mjs'
 import { CatalogHttpError } from './errors.mjs'
 
 export function enqueueCleanup(db, folder, key) {
@@ -30,12 +30,7 @@ export function createCatalogMaintenance(db, storage, config, log) {
       const generation = db.prepare('SELECT generation FROM catalog_capacity WHERE id = 1').get().generation
       let physical = 0
       try {
-        for (const folder of catalogFolders) for (const key of await storage.entries(folder)) {
-          let file
-          try { file = await openRegular(await storage.pathFor(folder, key)); physical += (await file.stat()).size }
-          catch (error) { if (error.code !== 'ENOENT') throw error }
-          finally { await file?.close() }
-        }
+        physical = await storage.physicalUsage()
       } catch (error) {
         if (error.code === 'ENOENT') continue // Promotion/cleanup raced the sample.
         throw new CatalogHttpError(503, 'STORAGE_UNSAFE', 'Storage katalog tidak aman atau tidak dapat dibaca. Jalankan inspeksi recovery offline.')
