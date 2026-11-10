@@ -4,7 +4,7 @@ import type { MetadataJobPage, MetadataService } from '../lib/metadata'
 import type { ConsoleInfo } from '../lib/domain'
 import Dialog from './Dialog'
 
-const groups = { disabled: 'Belum pernah dipindai', not_found: 'Tidak ditemukan', failed: 'Gagal', paused: 'Dijeda' }
+const groups = { disabled: 'Belum pernah dipindai', not_found: 'Tidak ditemukan', failed: 'Gagal', paused: 'Dijeda', cancelled: 'Dibatalkan' }
 type Props = { service: MetadataService; data: MetadataJobPage; consoles: ConsoleInfo[]; consoleId: string; userId: string; unavailable: boolean; refresh: () => void; onDenied: (e: unknown) => void }
 export default function MetadataServiceControls({ service, data, consoles, consoleId, userId, unavailable, refresh, onDenied }: Props) {
   const [dialog, setDialog] = useState<'backfill' | 'cancel' | null>(null)

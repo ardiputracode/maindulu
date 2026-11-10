@@ -52,7 +52,7 @@ test('resume readiness/cooldown/idempotency and all controls enforce sessions, r
     assert.equal((await c.post(action)).statusCode, 403)
     c.db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(c.actor)
   }
-  for (const body of [{ statuses: [] }, { statuses: ['disabled', 'disabled'] }, { statuses: ['succeeded'] }, { statuses: 'disabled' }, { consoleId: 'unknown' }, { consoleId: 1 }, { replaceLocked: 'true' }]) assert.equal((await c.post('backfill', body)).statusCode, 400)
+  for (const body of [{ statuses: [] }, { statuses: ['disabled', 'disabled'] }, { statuses: ['succeeded'] }, { statuses: ['unsupported'] }, { statuses: 'disabled' }, { consoleId: 'unknown' }, { consoleId: 1 }, { replaceLocked: 'true' }]) assert.equal((await c.post('backfill', body)).statusCode, 400)
   for (const body of [{ statuses: ['disabled'] }, { consoleId: 'unknown' }, { replaceLocked: false }]) assert.equal((await c.post('jobs/cancel', body)).statusCode, 400)
   const off = await setup(t, {}, false)
   assert.equal((await off.post('service/resume')).json().code, 'METADATA_NOT_READY')
@@ -76,17 +76,27 @@ test('cancel mixed states is scoped/idempotent, preserves provider gate and leav
   assert.deepEqual((await c.post('jobs/cancel')).json(), { cancelled: 0, cancelling: 0, total: 0 })
 })
 
-test('control rate limit is shared across mutations and backfill accepts all four groups', async t => {
+test('control rate limit is shared across mutations and backfill accepts all five groups', async t => {
   const c = await setup(t)
-  for (const status of ['disabled', 'not_found', 'failed', 'paused']) await c.publish(status, status)
-  assert.equal((await c.post('backfill', { statuses: ['disabled', 'not_found', 'failed', 'paused'] })).json().queued, 4)
-  // Cancel also retires the superseded paused generation, not just the four
+  for (const status of ['disabled', 'not_found', 'failed', 'paused', 'cancelled']) await c.publish(status, status)
+  assert.equal((await c.post('backfill', { statuses: ['disabled', 'not_found', 'failed', 'paused', 'cancelled'] })).json().queued, 5)
+  // Cancel also retires the superseded paused generation, not just the five
   // newly queued generations. Historical terminal results stay untouched.
-  assert.equal((await c.post('jobs/cancel')).json().cancelled, 5)
+  assert.equal((await c.post('jobs/cancel')).json().cancelled, 6)
   for (let i = 0; i < 238; i++) assert.equal((await c.post('service/resume')).statusCode, 200)
   const limited = await c.post('jobs/cancel')
   assert.equal(limited.statusCode, 429)
   assert.ok(Number(limited.headers['retry-after']) > 0)
+})
+
+test('backfill cancelled group requeues admin-cancelled scans and leaves other terminal results alone', async t => {
+  const c = await setup(t)
+  const cancelled = await c.publish('cancelled', 'cancelled'), succeeded = await c.publish('succeeded', 'succeeded')
+  assert.deepEqual((await c.post('backfill', { statuses: ['cancelled'] })).json(), { queued: 1, skipped: 0, capacity: 1000 })
+  const latest = c.db.prepare('SELECT status, generation FROM metadata_jobs WHERE game_id = ? ORDER BY generation DESC LIMIT 1').get(cancelled.id)
+  assert.deepEqual({ ...latest }, { status: 'queued', generation: 2 })
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM metadata_jobs WHERE game_id = ?').get(succeeded.id).n, 1)
+  assert.equal((await c.post('backfill', { statuses: ['cancelled'] })).json().queued, 0)
 })
 
 test('backfill includes legacy rows and selected groups, excludes deleted/active, preserves locks and increments revision once', async t => {

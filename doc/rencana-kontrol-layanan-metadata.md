@@ -10,7 +10,7 @@ Halaman **Admin → Antrean Metadata** saat ini hanya bisa memantau dan melakuka
 
 - **Lanjutkan layanan** — membersihkan `paused_reason` tanpa menunggu retry per game.
 - **Hentikan semua scan** — membatalkan tugas `queued`/`retry_wait`/`paused` dan meminta tugas `running` berhenti.
-- **Scan game tanpa metadata** — mengantrekan scan ulang massal untuk game yang belum pernah dipindai (dan opsional: tidak ditemukan/gagal/dijeda).
+- **Scan game tanpa metadata** — mengantrekan scan ulang massal untuk game yang belum pernah dipindai (dan opsional: tidak ditemukan/gagal/dijeda/dibatalkan).
 - **Visibilitas game belum dipindai** — status `disabled` saat ini disembunyikan dari daftar, filter, dan counter sehingga admin tidak punya angka untuk di-backfill.
 - **Alasan jeda dalam bahasa manusia** — kode mentah seperti `disabled` tidak lagi menjadi satu-satunya teks.
 
@@ -129,6 +129,7 @@ Isi dialog:
   - ☐ **Tidak ditemukan** (`not_found`)
   - ☐ **Gagal** (`failed`)
   - ☐ **Dijeda** (`paused`)
+  - ☐ **Dibatalkan** (`cancelled`)
 - Scope: **Semua console** atau **Console: `<filter aktif>`**. Default mengikuti filter console halaman; jika kosong berarti semua.
 - ☐ **Ganti juga metadata yang terkunci** — **default mati** (aksi massal lebih konservatif daripada scan per game yang default nyala).
 - Ringkasan estimasi: *“≈ 87 game akan diantrekan · 982 slot antrean tersisa.”*
@@ -228,7 +229,7 @@ Semua endpoint admin, memakai guard sesi/role, origin, dan CSRF existing (`secur
 
 Validasi input:
 
-- `statuses`: subset `['disabled','not_found','failed','paused']`, tanpa duplikat, minimal satu.
+- `statuses`: subset `['disabled','not_found','failed','paused','cancelled']`, tanpa duplikat, minimal satu.
 - `consoleId`: string ≤ 80 karakter, harus console yang dikenal jika diisi.
 - Tolak properti tak dikenal (pola validasi route existing).
 - Jangan pernah mengembalikan kredensial, lease token, `request_json`, `candidate_json`, path storage, atau fingerprint aset.
@@ -316,7 +317,7 @@ UPDATE metadata_provider_state SET paused_reason = NULL WHERE paused_reason = 'd
 - Resume saat config tidak siap → 409; saat cooldown → 409; setelah siap → 200 dan idempoten.
 - Cancel campuran `queued`/`retry_wait`/`paused`/`running`: hitungan benar, running berhenti pada titik pemeriksaan, tidak menyentuh `next_at`.
 - Cancel berulang, cancel saat tidak ada job, cancel dengan filter status/console.
-- Backfill: default hanya `disabled`; kombinasi status; `replaceLocked` default `false`; game terhapus/aktif dilewati; kapasitas 1000 dihormati; cooldown/pause/not-ready ditolak dengan kode yang benar; game tanpa baris job ikut.
+- Backfill: default hanya `disabled`; kombinasi status termasuk `cancelled` (antrean ulang setelah stop massal); `replaceLocked` default `false`; game terhapus/aktif dilewati; kapasitas 1000 dihormati; cooldown/pause/not-ready ditolak dengan kode yang benar; game tanpa baris job ikut.
 - Daftar: default tetap mengecualikan `disabled` (kontrak tes existing `tests/screenscraper-m5-backend.test.mjs:50`), `status=disabled` mengembalikan total benar, `counts.disabled` akurat.
 - Validasi klien: item `disabled` diterima hanya pada respons baru; payload rusak tetap ditolak.
 - Keamanan: tamu 401, user 403, CSRF/origin invalid, input status/console invalid → 400.

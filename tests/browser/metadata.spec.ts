@@ -114,6 +114,24 @@ test('service controls resume explicitly, backfill conservatively and stop a run
   await page.screenshot({ path: test.info().outputPath('metadata-controls-mobile.png'), fullPage: true })
 })
 
+test('backfill dialog offers cancelled scans unchecked by default and requeues only when selected', async ({ page, site }) => {
+  const game = await upload(page, site, false, 'Cancelled fixture', false)
+  site.app.database.prepare("UPDATE metadata_jobs SET status = 'cancelled', error_code = 'CANCELLED_BY_ADMIN' WHERE game_id = ?").run(game.id)
+  await page.goto(site.address + '/admin/metadata?console=nes')
+  const panel = page.getByRole('region', { name: 'Kontrol layanan' })
+  await panel.getByRole('button', { name: 'Scan game tanpa metadata', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  const cancelled = dialog.getByLabel('Dibatalkan', { exact: true })
+  await expect(cancelled).not.toBeChecked()
+  await expect(dialog.getByRole('button', { name: /^Antrekan/ })).toBeDisabled()
+  await cancelled.check()
+  await expect(dialog).toContainText('≈ 1 game akan diantrekan')
+  await dialog.getByRole('button', { name: 'Antrekan 1 scan', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(panel).toContainText('1 scan diantrekan')
+  await expect.poll(() => site.app.database.prepare('SELECT COUNT(*) AS n FROM metadata_jobs WHERE game_id = ?').get(game.id).n).toBe(2)
+})
+
 for (const lostAccess of ['role', 'session']) test(`service blockers explain disabled actions and revoked ${lostAccess} cannot submit a backfill dialog`, async ({ page, site }) => {
   await upload(page, site, false, 'Blocked fixture', false)
   site.app.database.prepare("UPDATE metadata_provider_state SET paused_reason = 'forbidden', next_at = ?").run(Date.now() + 60000)
