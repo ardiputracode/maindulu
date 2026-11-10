@@ -502,7 +502,7 @@ test('M5 multi-page title changes retain URL filters/page and never render a mix
     ids.push(row.id)
   }
   await page.goto(site.address + '/library?console=nes&sort=title&q=Koleksi&page=2')
-  await expect(page.locator('.game-card')).toHaveCount(12)
+  await expect(page.locator('.game-card')).toHaveCount(20)
   const input = page.getByLabel('Cari game', { exact: true })
   await input.focus()
   await site.app.catalog.repository.update('games', actor, ids[0], { title: 'Koleksi ZZZ' })
@@ -511,7 +511,7 @@ test('M5 multi-page title changes retain URL filters/page and never render a mix
   await expect(input).toBeFocused()
   await expect(page.getByRole('button', { name: 'Mainkan Koleksi 024', exact: true })).toBeVisible()
   const titles = await page.locator('.game-name').allTextContents()
-  expect(new Set(titles).size).toBe(12)
+  expect(new Set(titles).size).toBe(20)
 })
 
 test('M5 cover warning can retry just the stored cover without repeating the successful lookup', async ({ page, site }) => {

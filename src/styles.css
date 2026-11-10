@@ -195,6 +195,20 @@
 .metadata-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 16px 0; }
 .metadata-summary .admin-panel { display: flex; flex-direction: column; gap: 6px; }
 .metadata-summary strong { font-size: 1.6rem; }
+/* Library pagination: full-row pages, explicit page numbers, and a page jump. */
+.pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 24px; font-size: 12px; }
+.pagination-pages { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.pagination .button { margin: 0; }
+.pagination-number { min-width: 38px; padding: 0 9px; }
+.pagination-number.is-current { background: var(--mint); border-color: #6bbf8c; color: #0d1712; }
+.pagination-gap { color: var(--faint); padding: 0 2px; user-select: none; }
+.pagination-jump { display: flex; align-items: center; gap: 8px; }
+.pagination-jump label { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+.pagination-jump input { width: 68px; min-height: 35px; padding: 0 9px; border: 1px solid #314535; border-radius: 7px; background: #18281f; color: var(--text); color-scheme: dark; font: inherit; font-size: 11px; }
+@media (max-width: 520px) {
+  .pagination { justify-content: center; }
+  .pagination-jump { width: 100%; justify-content: center; }
+}
 /* The door renders independently of Workspace: no catalog or stored lists. */
 .gate-page { min-height: 100dvh; display: grid; place-items: center; padding: 28px 18px; }
 .gate-card { width: min(100%, 480px); padding: clamp(24px, 5vw, 48px); border: 1px solid var(--border); border-radius: 24px; background: var(--surface); box-shadow: 0 18px 60px #163b2410; }

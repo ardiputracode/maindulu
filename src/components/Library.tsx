@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
 import { catalogGame, libraryGames, loadCatalog, mergeCatalog } from '../lib/catalog'
 import type { BackendState } from '../lib/backend'
 import type { ConsoleInfo, Game } from '../lib/domain'
+import Pagination from './Pagination'
+
+// The grid is 5 columns on desktop, 2 at medium widths, and 1 on phones.
+// 20 is divisible by all three, so a page never ends with a half-empty row.
+const PAGE_SIZE = 20
 
 export default function Library({ builtin, consoles, backend, onBackendRetry, renderCards, live }: {
   builtin: Game[]; consoles: ConsoleInfo[]; backend: BackendState; onBackendRetry: () => void;
@@ -39,8 +44,19 @@ export default function Library({ builtin, consoles, backend, onBackendRetry, re
     return next
   }, { replace: key === 'q' })
   const games = libraryGames(mergeCatalog(builtin, dynamic ? (live?.games ?? uploaded).filter(g => consoles.some(c => c.id === g.consoleId)) : []), q, consoleId, sort)
-  const pages = Math.max(1, Math.ceil(games.length / 12))
+  const pages = Math.max(1, Math.ceil(games.length / PAGE_SIZE))
   const busy = loading || (live && !live.loaded && !live.error) || backend.status === 'checking'
+  const toolbar = useRef<HTMLDivElement>(null)
+  const previousPage = useRef(page)
+  useEffect(() => {
+    if (previousPage.current === page) return
+    previousPage.current = page
+    toolbar.current?.scrollIntoView({ block: 'start' })
+    toolbar.current?.focus({ preventScroll: true })
+  }, [page])
+  const shown = games.length > 0 && page <= pages
+  const first = shown ? (page - 1) * PAGE_SIZE + 1 : 0
+  const last = shown ? Math.min(page * PAGE_SIZE, games.length) : 0
   const failure = backend.status === 'unavailable' ? 'Backend katalog tidak dapat dihubungi. Mode statis tidak diaktifkan otomatis. Periksa koneksi dan coba lagi.' : live?.error ?? error
   return <section aria-label="Library game">
     <div className="page-heading"><div><span className="eyebrow">KOLEKSI UNTUK JEDA MAINMU</span><h1>Library game.</h1><p>Temukan game server dan demo bawaan. ROM milikmu tetap bisa dibuka langsung dari perangkat.</p></div></div>
@@ -53,9 +69,9 @@ export default function Library({ builtin, consoles, backend, onBackendRetry, re
     {live?.notice && <p role="status">{live.notice}</p>}
     {failure && live?.loaded && <p role="alert">{failure} Daftar sebelumnya tetap ditampilkan.</p>}
     {busy ? <p role="status">Memuat Library…</p> : failure && !live?.loaded ? <div className="empty-state"><h2>Katalog belum tersedia.</h2><p role="alert">{failure}</p><button className="button primary" onClick={retry}>Coba lagi</button></div> : <>
-      <div className="list-toolbar"><span>{games.length} permainan · halaman {page} dari {pages}</span></div>
-      {games.length && page <= pages ? renderCards(games.slice((page - 1) * 12, page * 12)) : <div className="empty-state"><h2>{page > pages ? 'Halaman ini tidak tersedia.' : 'Belum ketemu judulnya.'}</h2><p>Ubah pencarian/filter atau buka ROM sendiri.</p><button className="button secondary" onClick={() => setParams({})}>Reset filter</button></div>}
-      <nav className="admin-pagination" aria-label="Halaman Library"><button className="button secondary small" disabled={page <= 1} onClick={() => change('page', String(page - 1))}>Sebelumnya</button><span>Halaman {page}</span><button className="button secondary small" disabled={page >= pages} onClick={() => change('page', String(page + 1))}>Berikutnya</button></nav>
+      <div className="list-toolbar" ref={toolbar} tabIndex={-1}><span aria-live="polite">{games.length ? (shown ? `Menampilkan ${first}–${last} dari ${games.length} permainan · halaman ${page} dari ${pages}` : `${games.length} permainan · halaman ${page} dari ${pages}`) : `0 permainan · halaman ${page} dari ${pages}`}</span></div>
+      {games.length && page <= pages ? renderCards(games.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)) : <div className="empty-state"><h2>{page > pages ? 'Halaman ini tidak tersedia.' : 'Belum ketemu judulnya.'}</h2><p>Ubah pencarian/filter atau buka ROM sendiri.</p><button className="button secondary" onClick={() => setParams({})}>Reset filter</button></div>}
+      {pages > 1 && page <= pages && <Pagination page={page} pages={pages} label="Halaman Library" onChange={next => change('page', String(next))} />}
     </>}
   </section>
 }
