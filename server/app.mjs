@@ -14,7 +14,7 @@ import { registerAdmin } from './admin.mjs'
 import { createCatalogStorage } from './catalog/storage.mjs'
 import { registerCatalog } from './catalog/routes.mjs'
 
-const pages = ['/', '/index.html', '/console', '/library', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main', '/admin', '/admin/games', '/admin/bios', '/admin/scan']
+const pages = ['/', '/index.html', '/console', '/library', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main', '/admin', '/admin/games', '/admin/bios', '/admin/scan', '/admin/metadata']
 const assetDirectories = new Set(['assets', 'vendor', 'player', 'catalog', 'games', 'bios', 'covers'])
 const backendMarker = '<meta name="maindulu-backend" content="enabled" />'
 

@@ -109,6 +109,29 @@ for (const archived of [false, true]) test(`${archived ? 'M7 ZIP' : 'M5 raw'} up
   expect(downloads).toBe(1) // A new title/cover does not invalidate the committed ROM cache.
 })
 
+test('metadata queue survives reload, filters jobs, shows live completion and opens review on mobile', async ({ page, site }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await upload(page, site)
+  await expect.poll(() => site.calls).toBe(1)
+  await page.getByRole('link', { name: 'Antrean Metadata', exact: true }).click()
+  await expect(page.getByRole('article', { name: 'sementara', exact: true })).toContainText('Sedang diproses')
+  await page.reload()
+  await expect(page.getByRole('article', { name: 'sementara', exact: true })).toContainText('Mencari metadata')
+  await page.getByLabel('Status metadata', { exact: true }).selectOption('succeeded')
+  await expect(page.getByText('Tidak ada tugas metadata.', { exact: true })).toBeVisible()
+  site.release()
+  const row = page.getByRole('article', { name: 'Judul otomatis', exact: true })
+  await expect(row).toContainText('Metadata selesai', { timeout: 15000 })
+  await page.getByLabel('Cari game atau berkas').fill('absent')
+  await expect(page.getByText('Tidak ada tugas metadata.', { exact: true })).toBeVisible()
+  await page.getByLabel('Cari game atau berkas').fill('sementara.nes')
+  await row.getByRole('button', { name: 'Review / scan metadata' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Metadata selesai')
+  await page.getByRole('dialog').getByRole('button', { name: 'Tutup', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Muat ulang antrean' })).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
 test('upload with a supplied title automatically applies verified metadata and cover without opening review', async ({ page, site }) => {
   const game = await upload(page, site, false, 'Judul upload sementara')
   await expect(page.getByRole('article', { name: 'Judul upload sementara', exact: true })).toBeVisible()

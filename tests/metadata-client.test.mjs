@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { loadCatalog } from '../src/lib/catalog.ts'
-import { readMetadata, fieldLabels } from '../src/lib/metadata.ts'
+import { readMetadata, readMetadataJobs, fieldLabels, metadataLabels } from '../src/lib/metadata.ts'
 import { refreshSavedMetadata } from '../src/lib/useLiveCatalog.ts'
 
 test('M5 review DTO rejects unsafe or incomplete previews and bounds candidates', () => {
@@ -9,6 +9,14 @@ test('M5 review DTO rejects unsafe or incomplete previews and bounds candidates'
   const data = { gameId: 'test', generation: 1, status: 'needs_review', preview, candidates: [] }
   assert.ok(readMetadata(data))
   for (const invalid of [{ ...data, status: 'unknown' }, { ...data, preview: {} }, { ...data, candidates: Array(31).fill({}) }, { ...data, preview: { ...preview, revision: -1 } }]) assert.equal(readMetadata(invalid), null)
+})
+
+test('metadata queue DTO validates bounded pages, statuses, counters and job fields', () => {
+  const counts = Object.fromEntries(Object.keys(metadataLabels).filter(key => key !== 'disabled').map(key => [key, 0]))
+  const job = { id: 'job', gameId: 'game', title: 'Game', consoleId: 'nes', fileName: 'game.nes', generation: 1, status: 'queued', phase: 'identifying', reason: null, attempts: 0, nextAt: 1, createdAt: 1, updatedAt: 1 }
+  const data = { items: [job], counts, total: 1, page: 1, pageSize: 12 }
+  assert.ok(readMetadataJobs(data))
+  for (const invalid of [{ ...data, counts: {} }, { ...data, pageSize: 101 }, { ...data, total: -1 }, { ...data, items: Array(13).fill(job) }, ...[{ status: 'unknown' }, { nextAt: -1 }, { attempts: '1' }, { phase: {} }, { gameId: null }].map(fields => ({ ...data, items: [{ ...job, ...fields }] }))]) assert.equal(readMetadataJobs(invalid), null)
 })
 
 test('M5 saved metadata refresh preserves IDs, ROM/cache identity, local/deleted records, ordering and lastPlayed', () => {

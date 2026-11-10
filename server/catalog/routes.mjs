@@ -11,6 +11,7 @@ import { transaction } from '../auth/mutations.mjs'
 import { enqueueMetadata, metadataDetail } from '../metadata/queue.mjs'
 import { getScreenScraperConfigStatus } from '../metadata/screenscraper.mjs'
 import { registerCatalogScans } from './scans.mjs'
+import { listMetadataJobs } from '../metadata/list.mjs'
 
 const overhead = 128 * 1024
 const oversized = () => new CatalogHttpError(413, 'UPLOAD_TOO_LARGE', 'Upload melebihi batas ukuran atau jumlah bagian yang diizinkan.')
@@ -274,6 +275,7 @@ export function registerCatalog(app, config, security, storage, metadataDependen
       const { generation, expectedRevision, fields, candidateId } = request.body ?? {}
       return enqueueMetadata(db, config, game, { method: 'apply', generation, expectedRevision, fields, candidateId }, () => security.requireAdmin(request))
     })
+    api.get('/api/admin/metadata/jobs', { onRequest: async request => { security.protectAdmin(request) } }, async request => listMetadataJobs(db, request.query))
     api.get('/api/admin/metadata/status', { onRequest: async request => { security.protectAdmin(request) } }, async () => {
       const screenScraper = getScreenScraperConfigStatus(config.screenscraper)
       const queue = db.prepare(`SELECT

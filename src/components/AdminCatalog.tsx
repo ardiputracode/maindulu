@@ -4,6 +4,7 @@ import { ArrowRight, HardDrive, Plus, RefreshCw, ShieldCheck } from 'lucide-reac
 import Dialog from './Dialog'
 import { adminRequest, catalogLabel, CatalogClientError, mutateCatalog, readAdminPage } from '../lib/admin-catalog'
 import MetadataReview from './MetadataReview'
+import MetadataQueue from './MetadataQueue'
 import CatalogScan from './CatalogScan'
 import { metadataReady } from '../lib/metadata'
 import { useVisiblePolling } from '../lib/useVisiblePolling'
@@ -58,10 +59,11 @@ export default function AdminCatalog({ backend, account, consoles, onLogin, onRe
   if (access.userId !== user.id) return <p role="status">Memeriksa sesi dan akses admin…</p>
   return <section className="admin-area" aria-label="Pengelolaan koleksi">
     <div className="page-heading"><div><span className="eyebrow">RUANG PENGELOLA</span><h1>Kelola koleksi.</h1><p>Game dan BIOS dikelola terpisah. Aset aktif dapat diunduh publik, termasuk oleh tamu.</p></div><ShieldCheck size={30} /></div>
-    <nav className="admin-tabs" aria-label="Menu admin"><NavLink to="/admin" end>Ringkasan</NavLink><NavLink to="/admin/games">Manage Game</NavLink><NavLink to="/admin/bios">Manage BIOS</NavLink>{backend.status === 'online' && backend.health.capabilities.catalogScan && <NavLink to="/admin/scan">Scan Koleksi</NavLink>}</nav>
+    <nav className="admin-tabs" aria-label="Menu admin"><NavLink to="/admin" end>Ringkasan</NavLink><NavLink to="/admin/games">Manage Game</NavLink><NavLink to="/admin/bios">Manage BIOS</NavLink>{backend.status === 'online' && backend.health.capabilities.catalogScan && <NavLink to="/admin/scan">Scan Koleksi</NavLink>}{backend.health.capabilities.metadata && <NavLink to="/admin/metadata">Antrean Metadata</NavLink>}</nav>
     <p className="notice">Backup menyimpan akun, save/progres, dan metadata katalog; tidak menyertakan berkas ROM, BIOS, atau cover. Jika aset hilang setelah restore, upload ulang berkas yang sama dan konfirmasi ID lama.</p>
     {backend.status === 'online' && backend.health.capabilities.catalogScan && <p><Link to="/admin/scan">Scan Koleksi dari folder server</Link> — daftarkan ROM/BIOS hasil transfer WinSCP tanpa upload ulang.</p>}
     <Routes>
+      <Route path="metadata" element={backend.health.capabilities.metadata ? <MetadataQueue consoles={consoles} userId={user.id} tasks={metadataTasks} onDenied={denied} /> : <p>API metadata tidak tersedia pada backend ini.</p>} />
       <Route path="scan" element={backend.status === 'online' && backend.health.capabilities.catalogScan ? <CatalogScan userId={user.id} onDenied={denied} /> : <p>Scan folder tidak tersedia pada backend ini.</p>} />
       <Route index element={<><div className="admin-links">{(['games', 'bios'] as const).map(kind => <Link key={kind} to={`/admin/${kind}`} className="admin-panel"><HardDrive size={24} /><h2>{kind === 'games' ? 'Manage Game' : 'Manage BIOS'}</h2><p>{kind === 'games' ? 'Upload ROM dan cover, edit metadata, atau hapus game.' : 'Upload firmware dan arsip BIOS, edit metadata, atau hapus BIOS.'}</p><span className="text-link">Buka pengelolaan <ArrowRight size={16} /></span></Link>)}</div><p className="page-footnote">Role akun tetap dikelola melalui terminal, bukan halaman ini.</p></>} />
       <Route path="games" element={backend.status === 'online' && backend.health.capabilities.gameCatalog ? <CatalogManager key="games" kind="games" consoles={consoles} userId={user.id} onDenied={denied} metadataEnabled={backend.health.capabilities.metadata === true} metadataTasks={metadataTasks} /> : <p>API katalog game tidak tersedia pada backend ini.</p>} />

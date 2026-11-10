@@ -183,3 +183,6 @@
 .metadata-toast > svg { flex-shrink: 0; }
 .metadata-toast > span { overflow-wrap: anywhere; }
 .metadata-toast .icon-button { flex-shrink: 0; }
+.metadata-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 16px 0; }
+.metadata-summary .admin-panel { display: flex; flex-direction: column; gap: 6px; }
+.metadata-summary strong { font-size: 1.6rem; }
