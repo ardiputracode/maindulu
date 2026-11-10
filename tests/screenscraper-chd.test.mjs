@@ -216,7 +216,7 @@ test('a changed asset fingerprint fences the job after the serial probe', async 
   await pending
   const job = db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ?').get(game.id)
   assert.notEqual(job.status, 'succeeded')
-  assert.equal(job.error_code, 'disabled')
+  assert.equal(job.error_code, 'stale')
   assert.equal(db.prepare('SELECT match_method FROM game_metadata WHERE game_id = ?').get(game.id).match_method, null)
 })
 

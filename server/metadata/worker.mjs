@@ -21,17 +21,19 @@ function nowMs() { return Date.now() }
 async function abortable(promise, signal) {
   signal.throwIfAborted()
   let abort
-  const cancelled = new Promise((_, reject) => { abort = () => reject(new ScreenScraperError('disabled')); signal.addEventListener('abort', abort, { once: true }) })
+  const cancelled = new Promise((_, reject) => { abort = () => reject(signal.reason); signal.addEventListener('abort', abort, { once: true }) })
   try { return await Promise.race([promise, cancelled]) }
   finally { signal.removeEventListener('abort', abort) }
 }
 
 function classifyError(code) {
+  if (['cancelled_by_admin', 'stale', 'config_disabled', 'disabled'].includes(code)) return { status: 'cancelled', retryable: false }
+  if (code === 'stopped') return { status: 'retry_wait', retryable: false }
   if (code === 'not_found') return { status: 'not_found', retryable: false }
   if (['unsupported_format', 'invalid_target', 'invalid_fingerprint', 'archive_invalid', 'archive_limits', 'archive_ambiguous', 'archive_unsupported',
     'chd_tool_unavailable', 'chd_invalid', 'chd_serial_missing', 'identification_timeout'].includes(code)) return { status: 'unsupported', retryable: false }
   if (code === 'asset_mismatch') return { status: 'failed', retryable: false }
-  if (['auth_rejected', 'forbidden', 'not_configured', 'disabled', 'quota_unknown', 'client_rejected'].includes(code)) return { status: 'paused', retryable: false }
+  if (['auth_rejected', 'forbidden', 'not_configured', 'quota_unknown', 'client_rejected'].includes(code)) return { status: 'paused', retryable: false }
   if (code === 'rate_limited' || code === 'quota_exhausted' || code === 'search_quota_exhausted' || code === 'provider_closed') return { status: 'retry_wait', retryable: true }
   if (code === 'timeout' || code === 'transport' || code === 'invalid_json' || code === 'invalid_envelope' || code === 'response_too_large' || code === 'provider_error' || code === 'bad_request') return { status: 'retry_wait', retryable: true }
   return { status: 'failed', retryable: false }
@@ -81,6 +83,10 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
         LIMIT 1
       `).get(now, now)
       if (!row) return null
+      if (row.cancel_requested) {
+        db.prepare("UPDATE metadata_jobs SET status = 'cancelled', error_code = 'CANCELLED_BY_ADMIN', lease_token = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?").run(now, row.id)
+        return null
+      }
 
       const game = db.prepare('SELECT * FROM games WHERE id = ? AND deleted_at IS NULL').get(row.game_id)
       if (!game) {
@@ -92,8 +98,9 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
         db.prepare(`UPDATE metadata_jobs SET status = 'cancelled', error_code = 'STALE_ASSET', updated_at = ? WHERE id = ?`).run(now, row.id)
         return null
       }
-      if (row.generation !== db.prepare('SELECT MAX(generation) AS g FROM metadata_jobs WHERE game_id = ?').get(row.game_id).g || row.attempts >= MAX_ATTEMPTS) {
-        db.prepare("UPDATE metadata_jobs SET status = 'failed', error_code = 'STALE_OR_EXHAUSTED', lease_token = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?").run(now, row.id)
+      const stale = row.generation !== db.prepare('SELECT MAX(generation) AS g FROM metadata_jobs WHERE game_id = ?').get(row.game_id).g
+      if (stale || row.attempts >= MAX_ATTEMPTS) {
+        db.prepare('UPDATE metadata_jobs SET status = ?, error_code = ?, lease_token = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?').run(stale ? 'cancelled' : 'failed', stale ? 'stale' : 'STALE_OR_EXHAUSTED', now, row.id)
         return null
       }
 
@@ -121,7 +128,10 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
     const row = db.prepare('SELECT j.*, g.sha256, g.size, g.deleted_at FROM metadata_jobs j JOIN games g ON g.id = j.game_id WHERE j.id = ?').get(job.id)
     const latest = db.prepare('SELECT MAX(generation) AS g FROM metadata_jobs WHERE game_id = ?').get(job.game_id).g
     const gate = db.prepare('SELECT lease_token, lease_expires_at FROM metadata_provider_state WHERE id = 1').get()
-    if (stopping || !isEnabled() || !row || row.deleted_at !== null || row.status !== 'running' || row.lease_token !== job.lease_token || row.lease_expires_at <= nowMs() || gate.lease_token !== job.lease_token || gate.lease_expires_at <= nowMs() || latest !== job.generation || `${row.sha256}:${row.size}` !== job.asset_fingerprint) throw new ScreenScraperError('disabled')
+    if (stopping) throw new ScreenScraperError('stopped')
+    if (!isEnabled()) throw new ScreenScraperError('config_disabled')
+    if (row?.cancel_requested) throw new ScreenScraperError('cancelled_by_admin')
+    if (!row || row.deleted_at !== null || row.status !== 'running' || row.lease_token !== job.lease_token || row.lease_expires_at <= nowMs() || gate.lease_token !== job.lease_token || gate.lease_expires_at <= nowMs() || latest !== job.generation || `${row.sha256}:${row.size}` !== job.asset_fingerprint) throw new ScreenScraperError('stale')
   }
 
   function finishJob(job, patch) {
@@ -153,13 +163,16 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
     const controller = new AbortController()
     currentAbort = controller
     setPhase(job, 'identifying')
-    const checkEnabled = setInterval(() => { if (stopping || !isEnabled()) controller.abort() }, 100)
+    const checkEnabled = setInterval(() => {
+      try { checkCurrent(job, controller.signal) }
+      catch (error) { if (!controller.signal.aborted) controller.abort(error) }
+    }, 100)
     checkEnabled.unref()
     const heartbeat = setInterval(() => {
       if (!stopping && !controller.signal.aborted) {
         db.prepare(`UPDATE metadata_jobs SET lease_expires_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`).run(nowMs() + LEASE_MS, job.id, job.lease_token)
         db.prepare('UPDATE metadata_provider_state SET lease_expires_at = ? WHERE id = 1 AND lease_token = ?').run(nowMs() + LEASE_MS, job.lease_token)
-        if (!isEnabled()) controller.abort()
+        if (!isEnabled()) controller.abort(new ScreenScraperError('config_disabled'))
       }
     }, LEASE_MS / 4)
     heartbeat.unref()
@@ -337,19 +350,26 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
         reservation?.release()
       }
     } catch (error) {
-      const code = error instanceof ScreenScraperError ? error.code : controller.signal.aborted ? 'CANCELLED' : 'provider_error'
+      // A provider rejection arriving after deletion/cancellation is not a
+      // provider-wide failure. Recheck ownership before changing its gate.
+      try { checkCurrent(job, controller.signal) } catch (interruption) { error = interruption }
+      const code = controller.signal.aborted && controller.signal.reason instanceof ScreenScraperError ? controller.signal.reason.code : error instanceof ScreenScraperError ? error.code : 'provider_error'
       const classified = classifyError(code)
       const attempts = job.attempts || 0
       let nextAt = classified.status === 'retry_wait'
         ? nowMs() + backoffMs(attempts)
         : nowMs() + 24 * 60 * 60 * 1000
       if (['quota_exhausted', 'search_quota_exhausted'].includes(code)) nextAt = nowMs() + 24 * 60 * 60 * 1000
+      if (code === 'stopped') {
+        nextAt = nowMs()
+        db.prepare("UPDATE metadata_jobs SET attempts = MAX(0, attempts - 1) WHERE id = ? AND status = 'running' AND lease_token = ?").run(job.id, job.lease_token)
+      }
       if (error instanceof ScreenScraperError && error.details.retryAfterMs) nextAt = Math.max(nextAt, nowMs() + error.details.retryAfterMs)
       if (classified.retryable || classified.status === 'paused') db.prepare('UPDATE metadata_provider_state SET next_at = MAX(next_at, ?), paused_reason = ? WHERE id = 1 AND lease_token = ?')
         .run(classified.retryable ? nextAt : 0, classified.status === 'paused' ? code : null, job.lease_token)
       finishJob(job, {
-        status: classified.status === 'retry_wait' && attempts >= MAX_ATTEMPTS ? 'failed' : classified.status,
-        error_code: code,
+        status: classified.retryable && attempts >= MAX_ATTEMPTS ? 'failed' : classified.status,
+        error_code: code === 'cancelled_by_admin' ? 'CANCELLED_BY_ADMIN' : code,
         next_at: nextAt,
       })
       // Never log a raw provider error: it may contain a URL with credentials.
@@ -363,7 +383,8 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
       const key = outcome?.status ?? 'cancelled'
       metrics.outcomes[key] = (metrics.outcomes[key] ?? 0) + 1
       currentAbort = null
-      db.prepare('UPDATE metadata_provider_state SET lease_token = NULL, lease_expires_at = NULL, next_at = MAX(next_at, ?) WHERE id = 1 AND lease_token = ?').run(nowMs() + (quota?.intervalMs ?? screenScraperLimits.minRequestIntervalMs), job.lease_token)
+      const interrupted = outcome?.status === 'cancelled' || ['CANCELLED_BY_ADMIN', 'stopped', 'stale', 'config_disabled', 'GAME_DELETED', 'STALE_ASSET'].includes(outcome?.error_code)
+      db.prepare('UPDATE metadata_provider_state SET lease_token = NULL, lease_expires_at = NULL, next_at = MAX(next_at, ?) WHERE id = 1 AND lease_token = ?').run(interrupted ? 0 : nowMs() + (quota?.intervalMs ?? screenScraperLimits.minRequestIntervalMs), job.lease_token)
     }
   }
 
@@ -406,7 +427,7 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
     running = false
     clearTimeout(timer)
     if (currentAbort) {
-      try { currentAbort.abort() } catch { /* ignore */ }
+      try { currentAbort.abort(new ScreenScraperError('stopped')) } catch { /* ignore */ }
     }
     // All network waits are abortable; wait for cleanup before SQLite closes.
     if (active) { try { await active } catch { /* safe tick error only */ } }

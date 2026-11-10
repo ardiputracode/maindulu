@@ -2,13 +2,15 @@ import multipart from '@fastify/multipart'
 import { createCatalogRepository, CatalogError } from './repository.mjs'
 import { catalogLimits } from './storage.mjs'
 import { createCatalogMaintenance, enqueueCleanup, activeReference } from './maintenance.mjs'
-import { metadataFields, fileName, validateCover, listQuery, validId } from './validation.mjs'
+import { metadataFields, fileName, validateCover, listQuery, validId, consoleExtensions } from './validation.mjs'
 import { catalogDto, adminDto, queryCatalog } from './queries.mjs'
 import { registerCatalogAssets } from './assets.mjs'
 import { createMetadataWorker } from '../metadata/worker.mjs'
 import { CatalogHttpError, invalidCatalog } from './errors.mjs'
 import { transaction } from '../auth/mutations.mjs'
-import { enqueueMetadata, metadataDetail } from '../metadata/queue.mjs'
+import { enqueueMetadata, metadataDetail, resumeMetadataService, cancelMetadataJobs, backfillMetadata, backfillStatuses, cancellableStatuses } from '../metadata/queue.mjs'
+import { createLimiter } from '../auth/limits.mjs'
+import { screenScraperLimits } from '../metadata/screenscraper-policy.mjs'
 import { getScreenScraperConfigStatus } from '../metadata/screenscraper.mjs'
 import { registerCatalogScans } from './scans.mjs'
 import { listMetadataJobs } from '../metadata/list.mjs'
@@ -22,6 +24,7 @@ export function registerCatalog(app, config, security, storage, metadataDependen
   const repository = createCatalogRepository(db, storage)
   const maintenance = createCatalogMaintenance(db, storage, config, app.log)
   const operations = new Set()
+  const metadataLimit = createLimiter()
   const worker = createMetadataWorker({ db, config, storage, maintenance, logger: app.log, ...metadataDependencies })
   const dto = (kind, row) => catalogDto(kind, kind === 'games' ? {
     ...row, ...db.prepare('SELECT * FROM game_metadata WHERE game_id = ?').get(row.id),
@@ -275,6 +278,25 @@ export function registerCatalog(app, config, security, storage, metadataDependen
       const { generation, expectedRevision, fields, candidateId } = request.body ?? {}
       return enqueueMetadata(db, config, game, { method: 'apply', generation, expectedRevision, fields, candidateId }, () => security.requireAdmin(request))
     })
+    const metadataGuard = { onRequest: async request => {
+      const session = security.protectAdmin(request)
+      metadataLimit(`metadata:${session.user_id}`, 240, 60000)
+    } }
+    function controlBody(request, action) {
+      const body = request.body === undefined ? {} : request.body, allowed = action === 'resume' ? [] : action === 'cancel' ? ['statuses', 'consoleId'] : ['statuses', 'consoleId', 'replaceLocked']
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !allowed.includes(key))) throw invalidCatalog('Pilihan kontrol metadata tidak valid.')
+      if (body.consoleId !== undefined && (typeof body.consoleId !== 'string' || body.consoleId.length > 80 || !Object.hasOwn(consoleExtensions, body.consoleId))) throw invalidCatalog('Console tidak dikenal.')
+      const statuses = action === 'cancel' ? cancellableStatuses : backfillStatuses
+      if (body.statuses !== undefined && (!Array.isArray(body.statuses) || !body.statuses.length || body.statuses.length > statuses.length || new Set(body.statuses).size !== body.statuses.length || body.statuses.some(s => !statuses.includes(s)))) throw invalidCatalog('Kelompok status metadata tidak valid.')
+      if (body.replaceLocked !== undefined && typeof body.replaceLocked !== 'boolean') throw invalidCatalog('Pilihan metadata terkunci tidak valid.')
+      return body
+    }
+    api.post('/api/admin/metadata/service/resume', metadataGuard, async request => {
+      controlBody(request, 'resume')
+      return resumeMetadataService(db, config, () => security.requireAdmin(request))
+    })
+    api.post('/api/admin/metadata/jobs/cancel', metadataGuard, async request => cancelMetadataJobs(db, controlBody(request, 'cancel'), () => security.requireAdmin(request)))
+    api.post('/api/admin/metadata/backfill', metadataGuard, async request => backfillMetadata(db, config, controlBody(request, 'backfill'), () => security.requireAdmin(request)))
     api.get('/api/admin/metadata/jobs', { onRequest: async request => { security.protectAdmin(request) } }, async request => listMetadataJobs(db, request.query))
     api.get('/api/admin/metadata/status', { onRequest: async request => { security.protectAdmin(request) } }, async () => {
       const screenScraper = getScreenScraperConfigStatus(config.screenscraper)
@@ -283,8 +305,9 @@ export function registerCatalog(app, config, security, storage, metadataDependen
         SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running,
         SUM(CASE WHEN status = 'needs_review' THEN 1 ELSE 0 END) AS needsReview,
         SUM(CASE WHEN status IN ('failed', 'paused') THEN 1 ELSE 0 END) AS problem,
-        MIN(CASE WHEN status IN ('queued', 'retry_wait') THEN created_at END) AS oldestCreatedAt
-        FROM metadata_jobs`).get()
+        MIN(CASE WHEN status IN ('queued', 'retry_wait') THEN j.created_at END) AS oldestCreatedAt
+        FROM metadata_jobs j JOIN games g ON g.id = j.game_id
+        WHERE g.deleted_at IS NULL AND j.generation = (SELECT MAX(generation) FROM metadata_jobs WHERE game_id = g.id)`).get()
       return {
         ready: screenScraper.ready,
         screenscraper: screenScraper,
@@ -292,6 +315,9 @@ export function registerCatalog(app, config, security, storage, metadataDependen
         pausedReason: db.prepare('SELECT paused_reason FROM metadata_provider_state WHERE id = 1').get().paused_reason,
         cooldownUntil: db.prepare('SELECT next_at FROM metadata_provider_state WHERE id = 1').get().next_at,
         queue: {
+          notScanned: listMetadataJobs(db, { status: 'disabled', pageSize: 1 }).total,
+          cancelling: db.prepare("SELECT COUNT(*) AS n FROM metadata_jobs WHERE status = 'running' AND cancel_requested = 1").get().n,
+          capacity: Math.max(0, screenScraperLimits.maxQueuedJobs - db.prepare("SELECT COUNT(*) AS n FROM metadata_jobs WHERE status IN ('queued', 'running', 'retry_wait')").get().n),
           pending: Number(queue?.pending || 0),
           running: Number(queue?.running || 0),
           needsReview: Number(queue?.needsReview || 0),

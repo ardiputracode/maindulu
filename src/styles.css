@@ -163,6 +163,15 @@
 .admin-progress { padding: 14px; border: 1px solid #48634e; border-radius: 8px; }
 .admin-progress progress { width: 100%; accent-color: var(--mint); margin: 10px 0; }
 .admin-dialog textarea:focus-visible { outline: 2px solid var(--mint); outline-offset: 4px; }
+.metadata-controls { margin: 18px 0; }
+.metadata-controls p { margin-top: 8px; overflow-wrap: anywhere; }
+.metadata-controls .admin-toolbar { gap: 12px; }
+.metadata-service-state.ready { color: var(--mint); }
+.metadata-service-state.warning { color: #efd19b; }
+.button.danger-outline { color: #ffb5ae; background: transparent; border: 1px solid #b96862; }
+.button.danger-outline:hover:not(:disabled) { background: #462824; }
+.metadata-check { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
+.metadata-check input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--mint); flex-shrink: 0; }
 @media (max-width: 760px) { .admin-links, .admin-list { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 520px) {
   .admin-panel { padding: 16px; }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
 import { getMetadataJobs, getMetadataService, metadataLabels, metadataPhases } from '../lib/metadata'
@@ -7,13 +8,14 @@ import type { ConsoleInfo } from '../lib/domain'
 import type { MetadataTasks } from '../lib/useMetadataTasks'
 import { useVisiblePolling } from '../lib/useVisiblePolling'
 import MetadataReview from './MetadataReview'
+import MetadataServiceControls from './MetadataServiceControls'
 
 type Props = { consoles: ConsoleInfo[]; userId: string; tasks: MetadataTasks; onDenied: (error: unknown) => void }
 export default function MetadataQueue(props: Props) {
   const [params, setParams] = useSearchParams()
   const q = params.get('q') || '', consoleId = params.get('console') || ''
   const rawStatus = params.get('status') || ''
-  const status = rawStatus !== 'disabled' && Object.hasOwn(metadataLabels, rawStatus) ? rawStatus : ''
+  const status = Object.hasOwn(metadataLabels, rawStatus) ? rawStatus : ''
   const rawPage = Number(params.get('page') || 1)
   const page = Number.isSafeInteger(rawPage) && rawPage > 0 && rawPage <= 1000000 ? rawPage : 1
   const query = new URLSearchParams({ q: q.slice(0, 200), console: consoleId, status, page: String(page), pageSize: '12' }).toString()
@@ -23,16 +25,15 @@ export default function MetadataQueue(props: Props) {
   return <>
     <h2>Antrean Metadata</h2>
     <p>Progres berdasarkan tahapan, bukan persentase. Menampilkan tugas terbaru tiap game aktif, termasuk hasil selesai. Data berasal dari server dan tetap tersedia setelah refresh.</p>
-    <div className="admin-filters">
+    <QueueResults key={`${props.userId}-${query}`} {...props} consoleId={consoleId} query={query} page={page} onPage={page => filter('page', String(page))} filters={<div className="admin-filters">
       <label>Cari game atau berkas<input type="search" maxLength={200} value={q} onChange={e => filter('q', e.target.value)} /></label>
       <label>Filter console<select value={consoleId} onChange={e => filter('console', e.target.value)}><option value="">Semua console</option>{props.consoles.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-      <label>Status metadata<select aria-label="Status metadata" value={status} onChange={e => filter('status', e.target.value)}><option value="">Semua status</option>{Object.entries(metadataLabels).filter(([key]) => key !== 'disabled').map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-    </div>
-    <QueueResults key={`${props.userId}-${query}`} {...props} query={query} page={page} onPage={page => filter('page', String(page))} />
+      <label>Status metadata<select aria-label="Status metadata" value={status} onChange={e => filter('status', e.target.value)}><option value="">Semua status</option>{Object.entries(metadataLabels).map(([key, label]) => <option key={key} value={key}>{key === 'disabled' ? 'Belum dipindai' : label}</option>)}</select></label>
+    </div>} />
   </>
 }
 
-function QueueResults({ consoles, userId, tasks, onDenied, query, page, onPage }: Props & { query: string; page: number; onPage: (page: number) => void }) {
+function QueueResults({ consoles, userId, tasks, onDenied, query, page, onPage, consoleId, filters }: Props & { query: string; page: number; consoleId: string; filters: ReactNode; onPage: (page: number) => void }) {
   const [data, setData] = useState<MetadataJobPage | null>(null)
   const [service, setService] = useState<MetadataService | null>(null)
   const [error, setError] = useState('')
@@ -55,17 +56,13 @@ function QueueResults({ consoles, userId, tasks, onDenied, query, page, onPage }
   }, 2500)
   const date = (value: number) => new Date(value).toLocaleString('id-ID')
   return <>
+    {service && data && <MetadataServiceControls service={service} data={data} consoles={consoles} consoleId={consoleId} userId={userId} unavailable={!!error} refresh={refresh} onDenied={onDenied} />}
+    {filters}
     <div className="admin-toolbar"><p className="field-hint">Diperbarui otomatis saat halaman aktif.{updated && ` Pembaruan terakhir: ${date(updated)}.`}</p><button ref={refreshButton} className="button secondary small" onClick={refresh}><RefreshCw size={16} />Muat ulang antrean</button></div>
     {error && <p className="error-message" role="alert">{error} {data && 'Data di bawah adalah pembaruan terakhir, bukan status terkini.'}</p>}
     {!data && !error && <p role="status">Memuat antrean metadata…</p>}
-    {service && <>
-      {!service.ready && <p className="notice">Scan nonaktif atau konfigurasi belum siap. Tugas dan hasil sebelumnya tetap ditampilkan.</p>}
-      {service.ready && (!service.worker.enabled || !service.worker.running) && <p className="notice">Worker metadata belum berjalan. Antrean belum dapat diproses.</p>}
-      {service.pausedReason && <p className="notice">Layanan dijeda: <code>{service.pausedReason}</code>. Buka review game untuk memeriksa dan mencoba kembali setelah penyebabnya diatasi.</p>}
-      {service.cooldownUntil > Date.now() && <p className="notice">Layanan dibatasi sampai {date(service.cooldownUntil)}.</p>}
-    </>}
     {data && <>
-      <div className="metadata-summary" aria-label="Ringkasan seluruh tugas metadata">{Object.entries(metadataLabels).filter(([key]) => key !== 'disabled').map(([key, label]) => <div className="admin-panel" key={key}><strong>{data.counts[key]}</strong><span>{label}</span></div>)}</div>
+      <div className="metadata-summary" aria-label="Ringkasan seluruh tugas metadata">{Object.entries(metadataLabels).map(([key, label]) => <div className="admin-panel" key={key}><strong>{data.counts[key] ?? 0}</strong><span>{key === 'disabled' ? 'Belum dipindai' : label}</span></div>)}</div>
       <p className="admin-count">Ringkasan seluruh game aktif (tidak mengikuti filter). Hasil filter: {data.total} tugas · halaman {page} dari {Math.max(1, Math.ceil(data.total / data.pageSize))}.</p>
       {!data.items.length && <div className="empty-state"><h3>Tidak ada tugas metadata.</h3><p>Ubah filter atau jalankan scan melalui Manage Game.</p></div>}
       <div className="admin-list">{data.items.map(job => <article className="admin-panel" key={job.id} aria-label={job.title || job.fileName}>

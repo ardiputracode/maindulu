@@ -198,7 +198,7 @@ test('schema-16 catalogs migrate without changing existing games or account/sess
   const config = c.app.appConfig
   await c.app.close(); c.app = null
   const old = new DatabaseSync(join(config.dataDir, 'maindulu.sqlite'))
-  old.exec('DROP TABLE catalog_external_files; DELETE FROM schema_migrations WHERE version > 16; PRAGMA user_version = 16;')
+  old.exec('ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DELETE FROM schema_migrations WHERE version > 16; PRAGMA user_version = 16;')
   old.close()
   await c.start()
   assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
@@ -216,7 +216,7 @@ test('schema-16 metadata backups still verify and restore before migration', asy
   const target = join(c.root, 'backup16')
   const manifest = await createDataBackup(config, target)
   const path = join(target, 'maindulu.sqlite'), snapshot = new DatabaseSync(path)
-  snapshot.exec('DROP TABLE catalog_external_files; DELETE FROM schema_migrations WHERE version > 16; PRAGMA user_version = 16;')
+  snapshot.exec('ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DELETE FROM schema_migrations WHERE version > 16; PRAGMA user_version = 16;')
   snapshot.close()
   const bytes = await readFile(path)
   manifest.schemaVersion = 16; delete manifest.counts.catalog_external_files
@@ -388,7 +388,7 @@ test('shared delete retries across restart, backup/restore reattaches old IDs, a
 
 // Reconstruct the actual v17 mapping shape, rather than relabel a v18 database.
 function schema17(db) {
-  db.exec(`CREATE TABLE external_v17 (
+  db.exec(`ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; CREATE TABLE external_v17 (
     storage_key TEXT PRIMARY KEY, folder TEXT NOT NULL CHECK(folder IN ('games', 'bios')), source_root TEXT NOT NULL,
     platform TEXT NOT NULL CHECK(platform IN ('nes', 'snes', 'gb', 'gbc', 'gba', 'genesis', 'psx')),
     file_name TEXT NOT NULL, name_identity TEXT NOT NULL, size INTEGER NOT NULL CHECK(size > 0), sha256 TEXT NOT NULL,

@@ -1,6 +1,6 @@
 # Rencana Kontrol Layanan & Aksi Massal Metadata
 
-Status: **rencana; belum diimplementasikan** — 2026-11-10.
+Status: **diimplementasikan** — 2026-11-10. Hasil verifikasi dicatat di bagian 11; diagnosis kondisi awal di bawah dipertahankan sebagai konteks historis.
 
 Dokumen pendamping: [Antrean Metadata](antrean-metadata.md), [Operasi ScreenScraper](milestone-6-screenscraper-operasi.md), [UI ScreenScraper](milestone-5-screenscraper-ui.md).
 
@@ -267,45 +267,45 @@ UPDATE metadata_provider_state SET paused_reason = NULL WHERE paused_reason = 'd
 
 ### Milestone 1 — Perbaikan akar masalah
 
-- [ ] Bedakan sentinel `cancelled_by_admin`, `stopped`, `stale`, `config_disabled`, dan kegagalan provider.
-- [ ] Hentikan penulisan `paused_reason='disabled'` untuk abort/shutdown/stale.
-- [ ] Shutdown mengembalikan job ke `retry_wait` agar otomatis lanjut setelah restart.
-- [ ] Migrasi 19: `cancel_requested` + pembersihan legacy `disabled`.
-- [ ] Tes: restart saat job berjalan tidak mengunci antrean; abort tidak menyetel `paused_reason`.
+- [x] Bedakan sentinel `cancelled_by_admin`, `stopped`, `stale`, `config_disabled`, dan kegagalan provider.
+- [x] Hentikan penulisan `paused_reason='disabled'` untuk abort/shutdown/stale.
+- [x] Shutdown mengembalikan job ke `retry_wait` agar otomatis lanjut setelah restart.
+- [x] Migrasi 19: `cancel_requested` + pembersihan legacy `disabled`.
+- [x] Tes: restart saat job berjalan tidak mengunci antrean; abort tidak menyetel `paused_reason`.
 
 **Kriteria selesai:** tidak ada lagi jalur non-provider yang bisa mengunci seluruh antrean.
 
 ### Milestone 2 — API kontrol layanan
 
-- [ ] `resume` dan `cancel` beserta guard ready/cooldown/CSRF/rate limit.
-- [ ] Cancel kooperatif untuk job running lewat `cancel_requested`.
-- [ ] Tes otorisasi, idempotensi, dan gate provider tidak berubah.
+- [x] `resume` dan `cancel` beserta guard ready/cooldown/CSRF/rate limit.
+- [x] Cancel kooperatif untuk job running lewat `cancel_requested`.
+- [x] Tes otorisasi, idempotensi, dan gate provider tidak berubah.
 
 **Kriteria selesai:** antrean bisa dihentikan dan dilanjutkan tanpa menyentuh database secara manual.
 
 ### Milestone 3 — Backfill dan visibilitas
 
-- [ ] Filter `status=disabled`, `counts.disabled`, perluasan status endpoint.
-- [ ] Endpoint backfill dengan kapasitas, cooldown, status, dan console.
-- [ ] Tes kapasitas 1000, skip job aktif, game terhapus, dan game tanpa baris job.
+- [x] Filter `status=disabled`, `counts.disabled`, perluasan status endpoint.
+- [x] Endpoint backfill dengan kapasitas, cooldown, status, dan console.
+- [x] Tes kapasitas 1000, skip job aktif, game terhapus, dan game tanpa baris job.
 
 **Kriteria selesai:** admin dapat melihat dan mengantrekan game belum dipindai secara massal dengan angka yang jujur.
 
 ### Milestone 4 — UI
 
-- [ ] Panel kontrol, label alasan jeda, dialog backfill dan stop dengan konfirmasi.
-- [ ] Filter “Belum dipindai”, kartu ringkasan, toast hasil, status disabled saat proses.
-- [ ] Validasi respons baru di `src/lib/metadata.ts`.
-- [ ] Aksesibilitas: `aria-live` untuk hasil, fokus dialog, tombol disabled beralasan, tata letak sempit.
-- [ ] Tes browser: resume, stop, backfill, refresh saat proses, sesi/role hilang.
+- [x] Panel kontrol, label alasan jeda, dialog backfill dan stop dengan konfirmasi.
+- [x] Filter “Belum dipindai”, kartu ringkasan, toast hasil, status disabled saat proses.
+- [x] Validasi respons baru di `src/lib/metadata.ts`.
+- [x] Aksesibilitas: `aria-live` untuk hasil, fokus dialog, tombol disabled beralasan, tata letak sempit.
+- [x] Tes browser: resume, stop, backfill, refresh saat proses, sesi/role hilang.
 
 **Kriteria selesai:** seluruh alur dapat diselesaikan dari halaman Antrean Metadata tanpa membuka game satu per satu.
 
 ### Milestone 5 — Regresi dan dokumentasi
 
-- [ ] `npm test`, `npm run build`, suite backend/browser relevan.
-- [ ] Perbarui `doc/antrean-metadata.md` dan catatan operasional.
-- [ ] Catat hasil tes nyata, bukan asumsi.
+- [x] `npm test`, `npm run build`, suite backend/browser relevan.
+- [x] Perbarui `doc/antrean-metadata.md` dan catatan operasional.
+- [x] Catat hasil tes nyata, bukan asumsi.
 
 ## 9. Matriks pengujian minimum
 
@@ -338,3 +338,22 @@ npm run test:e2e:backend -- tests/browser/admin-catalog.spec.ts tests/browser/li
 - Manajemen multi-akun/multi-provider secara paralel.
 - Riwayat job per game di luar generasi terbaru.
 - Mengubah kontrak player, save, atau alur upload.
+
+## 11. Catatan implementasi dan verifikasi
+
+- Panel/dialognya dipisah ke `src/components/MetadataServiceControls.tsx`; tetap berada di halaman/tab yang sama, tanpa state/routing aplikasi baru.
+- Status API juga mengirim `queue.capacity` (slot sebelum enqueue) dan `queue.cancelling` supaya kapasitas dan proses stop tetap jujur setelah reload. Game legacy tanpa job tampil sebagai baris virtual `disabled`; GET tidak membuat job/metadata.
+- `statuses` backfill boleh dihilangkan untuk default `['disabled']`. Query pencarian teks halaman tidak membatasi backfill; hanya kelompok status dan scope console.
+- Shutdown mengembalikan attempts yang baru diklaim, agar restart berulang tidak menghabiskan jatah kegagalan provider. Pembatalan/stale tidak mengubah gate provider, termasuk saat respons provider datang terlambat. Scan per game tetap mempertahankan perilaku retry eksplisit yang sudah ada.
+- `useMetadataTasks` tidak perlu status baru: hasil pembatalan admin tetap `cancelled`, dengan alasan aman `CANCELLED_BY_ADMIN`, sehingga notifikasi existing tetap berlaku.
+- Fixture migrasi/backup lama direkonstruksi tanpa kolom v19, bukan hanya mengganti angka versi database.
+- Tes tambahan: `tests/metadata-controls.test.mjs` (API/security/rate limit, gate, cancel, backfill 1000, legacy, restart, fencing, backup 18→19, validasi klien) dan skenario kontrol layanan dalam `tests/browser/metadata.spec.ts`.
+- Batas verifikasi: backend/SQLite nyata dan Edge headless pada Windows; provider/media tiruan. Tidak mengklaim pengujian kredensial/provider live, Docker, atau deployment Linux.
+
+Hasil eksekusi 2026-11-10:
+
+- `npm test`: **618 lulus, 0 gagal, 0 skip** (49,7 detik pada putaran akhir backend).
+- `npm run build`: lulus TypeScript dan Vite; masih ada peringatan ukuran chunk >500 kB, bukan kegagalan build.
+- `npm run test:e2e:backend -- tests/browser/admin-catalog.spec.ts tests/browser/library.spec.ts tests/browser/metadata.spec.ts`: **49 lulus, 0 gagal, 0 skip** (4,2 menit).
+- Setelah penyempurnaan fokus stop dan label saat permintaan berjalan, build diulang lulus dan `npm run test:e2e:backend -- tests/browser/metadata.spec.ts --grep "service controls|service blockers"`: **3 lulus** (12,2 detik). Meliputi resume, backfill konservatif, stop I/O tertahan, reload, fokus keyboard setelah stop, viewport 390 px tanpa overflow, cooldown/config blocker, serta pencabutan role dan sesi saat dialog terbuka.
+- `git diff --check`: lulus, hanya peringatan konversi akhir baris LF/CRLF dari konfigurasi Git Windows.

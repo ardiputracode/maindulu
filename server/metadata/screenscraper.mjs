@@ -99,6 +99,10 @@ export class ScreenScraperError extends Error {
 }
 
 const MESSAGES = Object.freeze({
+  cancelled_by_admin: 'Scan dibatalkan admin.',
+  stopped: 'Worker berhenti; scan akan dilanjutkan.',
+  stale: 'Tugas scan tidak lagi berlaku.',
+  config_disabled: 'Konfigurasi scan dinonaktifkan saat pemrosesan.',
   disabled: 'Fitur metadata ScreenScraper nonaktif.',
   not_configured: 'Konfigurasi ScreenScraper belum lengkap.',
   not_found: 'Game tidak ditemukan (404).',

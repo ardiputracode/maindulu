@@ -8,7 +8,7 @@ import { candidateTarget, isIdentifiableZip } from './identification.mjs'
 
 // Schema-9 catalogs predate metadata rows. Initialize only on explicit admin
 // inspection/scan, preserving historical values as manual, never enqueue here.
-function ensureLegacyMetadata(db, game) {
+function ensureLegacyMetadata(db, game, bumpRevision = true) {
   const now = Date.now()
   const inserted = db.prepare(`INSERT OR IGNORE INTO game_metadata (game_id, metadata_revision, created_at, updated_at)
     SELECT id, 1, ?, ? FROM games WHERE id = ? AND deleted_at IS NULL`).run(now, now, game.id)
@@ -17,8 +17,63 @@ function ensureLegacyMetadata(db, game) {
       db.prepare(`INSERT OR IGNORE INTO game_metadata_field_sources (game_id, field, source, locked, updated_at)
         VALUES (?, ?, 'manual', 1, ?)`).run(game.id, field, now)
     }
-    db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
+    if (bumpRevision) db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
   }
+}
+
+export const backfillStatuses = ['disabled', 'not_found', 'failed', 'paused']
+export const cancellableStatuses = ['queued', 'running', 'retry_wait', 'paused']
+
+export function resumeMetadataService(db, config, authorize = () => {}) {
+  return transaction(db, () => {
+    authorize()
+    if (!getScreenScraperConfigStatus(config.screenscraper).ready) throw new CatalogHttpError(409, 'METADATA_NOT_READY', 'Perbaiki konfigurasi ScreenScraper di server, lalu muat ulang.')
+    const gate = db.prepare('SELECT * FROM metadata_provider_state WHERE id = 1').get()
+    if (gate.next_at > Date.now()) throw new CatalogHttpError(409, 'METADATA_COOLDOWN', 'Tunggu cooldown berakhir.')
+    db.prepare('UPDATE metadata_provider_state SET paused_reason = NULL WHERE id = 1').run()
+    return { pausedReason: null, cooldownUntil: gate.next_at }
+  })
+}
+
+export function cancelMetadataJobs(db, { statuses = cancellableStatuses, consoleId } = {}, authorize = () => {}) {
+  return transaction(db, () => {
+    authorize()
+    const values = [...statuses], scope = consoleId ? ' AND game_id IN (SELECT id FROM games WHERE console_id = ?)' : ''
+    if (consoleId) values.push(consoleId)
+    const where = `status IN (${statuses.map(() => '?').join(',')})${scope}`
+    const now = Date.now()
+    const cancelled = db.prepare(`UPDATE metadata_jobs SET status = 'cancelled', error_code = 'CANCELLED_BY_ADMIN', updated_at = ? WHERE ${where} AND status != 'running'`).run(now, ...values).changes
+    const requested = db.prepare(`UPDATE metadata_jobs SET cancel_requested = 1, updated_at = ? WHERE ${where} AND status = 'running' AND cancel_requested = 0`).run(now, ...values).changes
+    const cancelling = db.prepare(`SELECT COUNT(*) AS n FROM metadata_jobs WHERE ${where} AND status = 'running'`).get(...values).n
+    if (cancelled || requested) db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
+    return { cancelled, cancelling, total: cancelled + cancelling }
+  })
+}
+
+export function backfillMetadata(db, config, { statuses = ['disabled'], consoleId, replaceLocked = false } = {}, authorize = () => {}) {
+  return transaction(db, () => {
+    authorize()
+    if (!getScreenScraperConfigStatus(config.screenscraper).ready) throw new CatalogHttpError(409, 'METADATA_DISABLED', 'Perbaiki konfigurasi ScreenScraper di server, lalu muat ulang.')
+    const gate = db.prepare('SELECT * FROM metadata_provider_state WHERE id = 1').get(), now = Date.now()
+    if (gate.paused_reason) throw new CatalogHttpError(409, 'METADATA_PAUSED', 'Lanjutkan layanan terlebih dahulu.')
+    if (gate.next_at > now) throw new CatalogHttpError(429, 'METADATA_COOLDOWN', 'Tunggu cooldown berakhir.')
+    const capacity = Math.max(0, screenScraperLimits.maxQueuedJobs - db.prepare("SELECT COUNT(*) AS n FROM metadata_jobs WHERE status IN ('queued', 'running', 'retry_wait')").get().n)
+    const from = `FROM games g LEFT JOIN metadata_jobs j ON j.game_id = g.id AND j.generation = (SELECT MAX(generation) FROM metadata_jobs WHERE game_id = g.id)
+      WHERE g.deleted_at IS NULL AND COALESCE(j.status, 'disabled') IN (${statuses.map(() => '?').join(',')})
+      AND NOT EXISTS (SELECT 1 FROM metadata_jobs a WHERE a.game_id = g.id AND a.status IN ('queued', 'running', 'retry_wait'))${consoleId ? ' AND g.console_id = ?' : ''}`
+    const values = consoleId ? [...statuses, consoleId] : statuses
+    const total = db.prepare(`SELECT COUNT(*) AS n ${from}`).get(...values).n
+    const games = db.prepare(`SELECT g.*, COALESCE(j.generation, 0) AS generation ${from} ORDER BY g.created_at ASC, g.id LIMIT ?`).all(...values, Math.min(1000, capacity))
+    const insert = db.prepare(`INSERT INTO metadata_jobs (id, game_id, asset_fingerprint, generation, phase, status, attempts, next_at, created_at, updated_at, request_method, request_json)
+      VALUES (?, ?, ?, ?, 'identifying', 'queued', 0, ?, ?, ?, 'hash', ?)`)
+    for (const game of games) {
+      ensureLegacyMetadata(db, game, false)
+      const expectedRevision = db.prepare('SELECT metadata_revision FROM game_metadata WHERE game_id = ?').get(game.id).metadata_revision
+      insert.run(randomUUID(), game.id, `${game.sha256}:${game.size}`, game.generation + 1, now, now, now, JSON.stringify({ replaceLocked, expectedRevision }))
+    }
+    if (games.length) db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
+    return { queued: games.length, skipped: total - games.length, capacity }
+  })
 }
 
 export function storedCandidates(job, game) {

@@ -375,6 +375,12 @@ const migrations = [
     ALTER TABLE catalog_external_files_v18 RENAME TO catalog_external_files;
     CREATE UNIQUE INDEX catalog_external_path ON catalog_external_files(folder, source_root, platform, name_identity) WHERE state != 'retired';`,
   },
+  {
+    version: 19,
+    name: 'metadata-service-controls',
+    sql: `ALTER TABLE metadata_jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0;
+      UPDATE metadata_provider_state SET paused_reason = NULL WHERE paused_reason = 'disabled';`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

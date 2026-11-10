@@ -61,7 +61,7 @@ test('M5 backup normalizes provider gate only in snapshot and still accepts sche
   const path = join(target, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
   assert.deepEqual({ ...legacy.prepare('SELECT * FROM metadata_provider_state').get() }, { id: 1, lease_token: null, lease_expires_at: null, next_at: 0, paused_reason: null })
-  legacy.exec('DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state; ALTER TABLE metadata_jobs DROP COLUMN request_method; ALTER TABLE metadata_jobs DROP COLUMN request_json; DELETE FROM schema_migrations WHERE version > 12; PRAGMA user_version = 12;')
+  legacy.exec('ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state; ALTER TABLE metadata_jobs DROP COLUMN request_method; ALTER TABLE metadata_jobs DROP COLUMN request_json; DELETE FROM schema_migrations WHERE version > 12; PRAGMA user_version = 12;')
   legacy.close()
   const bytes = await readFile(path)
   manifest.schemaVersion = 12
@@ -109,7 +109,7 @@ test('schema-14 backups verify before migration, then migrate and accept serial 
   const manifest = await createDataBackup(c.config, target)
   const path = join(target, 'maindulu.sqlite')
   const db = new DatabaseSync(path)
-  db.exec(`DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; CREATE TABLE game_metadata_v14 (
+  db.exec(`ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; CREATE TABLE game_metadata_v14 (
     game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
     release_date TEXT CHECK(release_date IS NULL OR length(release_date) BETWEEN 1 AND 32),
     release_precision TEXT CHECK(release_precision IS NULL OR release_precision IN ('year', 'month', 'day')),
@@ -159,7 +159,7 @@ async function historicalMetadataBackup(c, version, name) {
   const manifest = await createDataBackup(c.config, target)
   const path = join(target, 'maindulu.sqlite')
   const db = new DatabaseSync(path)
-  db.exec('DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  db.exec('ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   if (version === 9) {
     db.exec('DROP TABLE game_metadata_field_sources; DROP TABLE game_metadata; DROP TABLE metadata_jobs; DROP TABLE provider_cache; DROP TABLE catalog_revision;')
     for (const table of ['game_metadata_field_sources', 'game_metadata', 'metadata_jobs', 'provider_cache']) delete manifest.counts[table]
