@@ -157,7 +157,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     async function configure() {
       // The resolver has connection/idle timers, not a total 90s download cap.
       clearTimeout(timeout)
-      if (owner && !active.current) throw new Error('Sesi akun belum dapat dipastikan. Buka ulang permainan setelah login.')
+      if (owner && !active.current) throw new Error('Sesi akun belum bisa dipastikan. Masuk akun, lalu buka ulang game.')
       const assets = await preparePlayerAssets(session, controller.signal, value => {
         if (!disposed && !controller.signal.aborted) { setStatus(assetPreparationStatus(value)); setAssetProgress(value.phase === 'ready' ? null : value) }
       })
@@ -261,7 +261,12 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
         setStatus('Memuat ROM dan core dari server maindulu…')
         armTimeout('Pemuatan core terlalu lama. Periksa ROM/BIOS, lalu buka game kembali.')
       }
-      if (event.data.type === 'error') { clearTimeout(timeout); setStatus(''); setError(String(event.data.message || 'Engine tidak dapat dimuat.')) }
+      if (event.data.type === 'error') {
+        clearTimeout(timeout); setStatus(''); setError(String(event.data.message || 'Engine tidak dapat dimuat.'))
+        // The iframe's HEAD preflight does not use the host's fetch wrapper.
+        // Only relay after the origin, source window and session checks above.
+        if (typeof event.data.message === 'string' && /\bHTTP 401\b/.test(event.data.message)) window.dispatchEvent(new Event('maindulu:gate-check'))
+      }
       if (event.data.type === 'progress-error') setProgress({ status: 'failed', message: String(event.data.message || 'Layout progres tidak didukung.'), pending: false })
       if (event.data.type === 'display' && typeof event.data.widescreen === 'boolean' && event.data.widescreen !== widescreenValue.current) {
         widescreenValue.current = event.data.widescreen
@@ -353,7 +358,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     </section>}
     {owner && !progressAvailable && <p className="notice">Sinkronisasi save dalam game belum tersedia untuk core/backend ini. Save akun sementara di memori; ekspor cadangan atau simpan state sebelum keluar.</p>}
     {owner && <ServerStates session={session} owner={owner} enabled={enabled} accountChanged={account.status === 'authenticated' && account.user?.id !== owner} metadata={metadata} rpc={rpc} show={saveOverlay && !transfer && !preparingTransfer} onToggle={() => setSaveOverlay(!saveOverlay)} gameActive={gameRunning && !modalOpen} overlayContainer={shell.current} onAutosaveStatus={notifyAutosave} onTransfer={request => void openTransfer(request)} resolution={stateResolution} progressAvailable={progressAvailable} progressConflict={progress.status === 'conflict'} />}
-    {!owner && account.status === 'authenticated' && <p className="notice">Sesi ini dimulai sebagai tamu. Buka ulang game untuk memakai save state akun; save browser tidak otomatis diimpor.</p>}
+    {!owner && account.status === 'authenticated' && <p className="notice">Sesi ini main sebagai tamu. Simpanan ada di browser. Mau simpanan ikut ke server? Masuk akun, lalu buka ulang game. Simpanan browser tidak otomatis diimpor.</p>}
     <button className="controls-toggle" aria-expanded={controls} onClick={() => setControls(!controls)}><Keyboard size={18} />Panduan kontrol & simpan progres<ChevronDown size={17} className={controls ? 'rotated' : ''} /></button>
     {controls && <div className="controls-panel"><p>Klik layar emulator agar input keyboard masuk ke permainan. Buka menu emulator untuk melihat atau memetakan kontrol sesuai console, atau menyalakan <strong>Layar lebar</strong> (Settings → Graphics Settings) bila ingin gambar stretched mengisi layar.</p><div className="key-grid"><span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> Arah</span><span><kbd>Z</kbd><kbd>X</kbd> Tombol NES A/B</span><span><kbd>Enter</kbd> Start</span><span><kbd>Shift</kbd> Select</span></div><p><strong>Progres:</strong> save dalam game dan save state berbeda. Gunakan menu emulator untuk save/load serta ekspor cadangan. Riwayat maindulu hanya mencatat game yang dimainkan. Data browser dapat hilang saat penyimpanan situs dibersihkan.</p><p>Gamepad mengikuti dukungan browser; kontrol sentuh tersedia pada perangkat mobile. Core dan pemetaan tombol bisa berbeda.</p></div>}
   </div>

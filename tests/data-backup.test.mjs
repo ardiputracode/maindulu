@@ -7,8 +7,8 @@ import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { DatabaseSync } from 'node:sqlite'
 import { watch, mkdirSync, writeFileSync } from 'node:fs'
-import { createApp } from '../server/app.mjs'
-import { readConfig } from '../server/config.mjs'
+import { createApp, gateEnv } from './helpers/gated-backend.mjs'
+import { readConfig } from './helpers/gated-backend.mjs'
 import { acquireDataLock } from '../server/data-lock.mjs'
 import { createDataBackup, restoreDataBackup, verifyDataBackup } from '../server/data-backup.mjs'
 import { backendFixture } from './helpers/backend-fixture.mjs'
@@ -98,7 +98,7 @@ test('M8 restores accounts, all save types, tombstones, archives, receipts and q
 test('M8 exclusive maintenance excludes live server/admin connections in this and another process', async t => {
   const c = await setup(t)
   await assert.rejects(createDataBackup(c.config, c.backup), /Data sedang dipakai/)
-  const cli = spawnSync(process.execPath, ['scripts/data-backup.mjs', 'backup', c.backup], { encoding: 'utf8', env: { ...process.env, MAIN_DULU_DATA_DIR: c.config.dataDir }, timeout: 15000 })
+  const cli = spawnSync(process.execPath, ['scripts/data-backup.mjs', 'backup', c.backup], { encoding: 'utf8', env: { ...process.env, ...gateEnv, MAIN_DULU_DATA_DIR: c.config.dataDir }, timeout: 15000 })
   assert.equal(cli.status, 1, cli.stderr)
   assert.match(cli.stderr, /Data sedang dipakai/)
   await c.stop()
@@ -233,7 +233,7 @@ test('M8 refuses public/nested paths, existing targets and symlink/junction/hard
 test('M8 CLI creates/verifies/restores offline and returns safe nonzero errors', async t => {
   const c = await setup(t)
   await c.stop()
-  const env = { ...process.env, MAIN_DULU_DATA_DIR: c.config.dataDir }
+  const env = { ...process.env, ...gateEnv, MAIN_DULU_DATA_DIR: c.config.dataDir }
   for (const args of [['backup', c.backup], ['verify', c.backup], ['restore', c.backup, '--to', c.restored]]) {
     const r = spawnSync(process.execPath, ['scripts/data-backup.mjs', ...args], { encoding: 'utf8', env, timeout: 15000 })
     assert.equal(r.status, 0, r.stderr)

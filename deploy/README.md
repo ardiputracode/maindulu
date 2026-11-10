@@ -149,3 +149,9 @@ Validasi Compose statis pernah dilakukan saat deployment ini dibuat. Pada lingku
 - **Storage per origin.** Favorit/riwayat/save disimpan browser per origin (alamat + porta). Berpindah porta (7777 → lain), IP, atau HTTP/HTTPS tidak meneruskan data lama; pilih porta awal yang konsisten.
 - **Lisensi distribusi.** Jika image ini didistribusikan, README bagian lisensi mewajibkan penerima tetap bisa mengakses sumber engine yang terkait; bukan hanya bundle minified. Sumber readable bawaan tetap berada di `public/vendor/emulatorjs/4.2.3/data/src/` dan ikut ke dalam image.
 - **Hosting subpath tidak didukung.** URL runtime aplikasi memakai path absolut root (`/catalog/...`, `/player/...`), jadi aplikasi harus berada di root suatu origin (baik itu `:7777` ataupun reverse proxy yang meletakkannya di `/`).
+# Batas akses privat
+
+Compose Nginx di panduan ini adalah **build statis tanpa gerbang**; katalog dan
+ROM/BIOS terbuka, tidak untuk akses privat. Variabel `MAIN_DULU_GATE_*` hanya
+berlaku pada [backend Node](README.backend.md), yang mewajibkan konfigurasi
+username/password/hash saat startup. Lihat [pintu masuk](../doc/pintu-masuk.md).

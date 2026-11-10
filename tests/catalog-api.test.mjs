@@ -7,7 +7,7 @@ import { request as httpRequest } from 'node:http'
 import { once } from 'node:events'
 import { spawnSync } from 'node:child_process'
 import sharp from 'sharp'
-import { createApp } from '../server/app.mjs'
+import { createApp } from './helpers/gated-backend.mjs'
 import { csrfToken, hashToken } from '../server/auth/crypto.mjs'
 import { openDatabase, schemaVersion } from '../server/database.mjs'
 import { createCatalogStorage } from '../server/catalog/storage.mjs'
@@ -766,7 +766,7 @@ test('real HTTP aborted upload and route timeout release staging/reservations wi
   const port = c.app.server.address().port
   const body = multipart({ title: 'Interrupted', consoleId: 'nes' }, [{ field: 'rom', name: 'x.nes', bytes: Buffer.alloc(65536) }], false)
   function start() {
-    const req = httpRequest({ host: '127.0.0.1', port, path: '/api/admin/games', method: 'POST', headers: { ...c.headers, 'content-type': body.type, 'transfer-encoding': 'chunked' } })
+    const req = httpRequest({ host: '127.0.0.1', port, path: '/api/admin/games', method: 'POST', headers: { ...c.headers, cookie: c.headers.cookie + '; ' + c.app.testGateCookie, 'content-type': body.type, 'transfer-encoding': 'chunked' } })
     req.on('error', () => {})
     req.write(body.payload)
     return req

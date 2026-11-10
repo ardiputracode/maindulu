@@ -1,10 +1,10 @@
-import { test as base, expect } from '@playwright/test'
+import { test as base, expect } from './helpers/gated-test'
 import type { FrameLocator, Page } from '@playwright/test'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash, randomUUID } from 'node:crypto'
-import { createApp } from '../../server/app.mjs'
+import { createApp } from '../helpers/gated-backend.mjs'
 import { setAccountRoleByAdmin } from '../../server/auth/mutations.mjs'
 import { createDataBackup, restoreDataBackup, verifyDataBackup } from '../../server/data-backup.mjs'
 import { buildNesBatteryFixture } from '../fixtures/nes-battery.mjs'
@@ -243,7 +243,8 @@ test('game and BIOS API outages are visible/retryable and do not silently become
   await page.keyboard.press('Escape')
   await page.route('**/api/health', route => route.abort())
   await page.reload()
-  await expect(page.getByRole('alert')).toContainText('Mode statis tidak diaktifkan otomatis')
+  await expect(page.getByRole('heading', { name: 'Pintu masuk sedang istirahat.' })).toBeVisible()
+  await expect(page.locator('.game-card')).toHaveCount(0)
   await page.unroute('**/api/health')
   await page.getByRole('button', { name: 'Coba lagi', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Mainkan Jalan Pulang', exact: true })).toBeVisible()

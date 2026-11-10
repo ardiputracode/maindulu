@@ -2,6 +2,7 @@ import { realpath } from 'node:fs/promises'
 import { readScreenScraperConfig } from './metadata/screenscraper.mjs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { normalizeUsername, validPassword, validPasswordHash } from './auth/crypto.mjs'
 
 export const projectRoot = fileURLToPath(new URL('../', import.meta.url))
 
@@ -50,6 +51,14 @@ export async function readConfig(env = process.env, root = projectRoot) {
     }
   }
   const publicOrigin = publicOrigins[0] ?? null
+  const gateUsername = normalizeUsername(env.MAIN_DULU_GATE_USERNAME)
+  if (!gateUsername) throw new Error('MAIN_DULU_GATE_USERNAME wajib diisi: 3–24 huruf, angka, atau garis bawah.')
+  const gatePasswordHash = env.MAIN_DULU_GATE_PASSWORD_HASH || null
+  const gatePassword = env.MAIN_DULU_GATE_PASSWORD || null
+  if (gatePasswordHash ? !validPasswordHash(gatePasswordHash) : !validPassword(gatePassword)) throw new Error('MAIN_DULU_GATE_PASSWORD (6–128 karakter) atau MAIN_DULU_GATE_PASSWORD_HASH scrypt yang valid wajib diisi.')
+  const defaultUsername = env.MAIN_DULU_DEFAULT_USERNAME || null
+  const defaultPassword = env.MAIN_DULU_DEFAULT_PASSWORD || null
+  if ((defaultUsername || defaultPassword) && (!normalizeUsername(defaultUsername) || !validPassword(defaultPassword))) throw new Error('MAIN_DULU_DEFAULT_USERNAME dan MAIN_DULU_DEFAULT_PASSWORD harus diisi bersama dengan format akun yang valid.')
   const rawPort = env.MAIN_DULU_PORT ?? '7777'
   if (!/^\d+$/.test(rawPort) || Number(rawPort) < 1 || Number(rawPort) > 65535) throw new Error('MAIN_DULU_PORT harus berupa angka 1–65535.')
   const host = env.MAIN_DULU_HOST ?? '127.0.0.1'
@@ -78,6 +87,9 @@ export async function readConfig(env = process.env, root = projectRoot) {
   }
   if (externalWritable === 'true' && !Object.keys(externalCatalog).length) throw new Error('Mode folder bersama memerlukan MAIN_DULU_EXTERNAL_ROM_DIR atau MAIN_DULU_EXTERNAL_BIOS_DIR.')
   return { host, port: Number(rawPort), distDir, publicDir, dataDir, registrationOpen: registration === 'true', publicOrigin, publicOrigins, allowInsecureHttp,
+    gateUsername, gatePassword: gatePasswordHash ? null : gatePassword, gatePasswordHash,
+    gateSessionDays: integer('MAIN_DULU_GATE_SESSION_DAYS', 7, 1, 365),
+    defaultUsername: defaultUsername ? normalizeUsername(defaultUsername) : null, defaultPassword,
     externalCatalog, externalWritable: externalWritable === 'true',
     stateMaxBytes: bytes('MAIN_DULU_STATE_MAX_BYTES', 32 * 1024 * 1024, 64 * 1024 * 1024),
     gameSaveMaxBytes: bytes('MAIN_DULU_GAME_SAVE_MAX_BYTES', 8 * 1024 * 1024, 8 * 1024 * 1024),

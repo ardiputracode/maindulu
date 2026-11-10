@@ -1,7 +1,7 @@
 import { csrfToken, equalToken } from './crypto.mjs'
 import { AuthError } from './limits.mjs'
 
-function resolveRequestOrigin(request, config) {
+export function resolveRequestOrigin(request, config) {
   const host = request.headers.host
   // Host must be an authority, never a URL, credentials or a forwarded header.
   if (typeof host !== 'string' || !host || /[\s/\\@?#]/.test(host)) throw new AuthError(403, 'Origin akun tidak valid.')

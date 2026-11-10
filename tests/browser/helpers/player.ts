@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test'
 
 export async function launchDemo(page: Page) {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Mainkan Jalan Pulang', exact: true }).click()
+  await page.getByRole('button', { name: 'Mainkan Jalan Pulang', exact: true }).first().click()
   await page.getByRole('button', { name: 'Main sekarang', exact: true }).click()
   return startPlayer(page)
 }

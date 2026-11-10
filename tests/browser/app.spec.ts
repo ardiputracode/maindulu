@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './helpers/gated-test'
 import { readFile } from 'node:fs/promises'
 import { launchDemo } from './helpers/player'
 
@@ -215,7 +215,8 @@ test('the engine Graphics menu Layar lebar toggle stretches play and persists', 
   const player = await launchDemo(page)
   const box = await player.locator('#game').boundingBox()
   await player.locator('#game').hover({ position: { x: 20, y: box!.height - 12 } })
-  await player.getByRole('button', { name: 'Settings', exact: true }).click()
+  // Exercise the real toolbar handler without racing its auto-hide transform.
+  await player.getByRole('button', { name: 'Settings', exact: true }).dispatchEvent('click')
   await player.locator('.ejs_settings_main_bar').filter({ hasText: 'Graphics Settings' }).click()
   await player.locator('.ejs_settings_main_bar').filter({ hasText: 'Layar lebar' }).click()
   await player.locator('.ejs_option_row').filter({ hasText: 'Nyala' }).click()

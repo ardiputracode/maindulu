@@ -1,5 +1,9 @@
 # M3 — Akun Lokal dan Sesi
 
+**Revisi akses:** akun main tetap opsional **di dalam** [pintu masuk wajib](pintu-masuk.md).
+API akun tidak terbuka sebelum pintu masuk. Logout akun tetap sebagai Tamu;
+logout pintu masuk juga mencabut sesi akun perangkat ini. Uraian M3 di bawah historis.
+
 Status: M3 selesai. Akun lokal, sesi, ganti password, kode pemulihan saat daftar, dan regresi mode tamu/statis telah diverifikasi.
 
 Catatan: dokumen ini mencatat kondisi saat penutupan M3. Pemulihan password, penerbitan ulang kode, dan reset admin kemudian ditambahkan pada [M4 — Pemulihan Akun](milestone-4-pemulihan-akun.md); keterangan belum tersedia di bawah merupakan batas historis M3.

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './helpers/gated-test'
 import { build } from 'esbuild'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -7,7 +7,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Page } from '@playwright/test'
-import { createApp } from '../../server/app.mjs'
+import { createApp } from '../helpers/gated-backend.mjs'
 import { createCatalogStorage } from '../../server/catalog/storage.mjs'
 import { createCatalogRepository } from '../../server/catalog/repository.mjs'
 import { catalogDto } from '../../server/catalog/queries.mjs'
@@ -29,7 +29,7 @@ test.beforeAll(async ({}, info) => {
     format: 'iife', globalName: 'serverAssetTest', target: 'es2022', platform: 'browser' })).outputFiles[0].text
   const parent = process.platform === 'win32' && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Temp/opencode') : tmpdir()
   folder = await mkdtemp(join(parent, 'server-assets-m2-'))
-  app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data') } })
+  app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data'), MAIN_DULU_PUBLIC_ORIGIN: 'http://localhost:7777', MAIN_DULU_ALLOW_INSECURE_HTTP: 'true' } })
   const db = app.getDecorator<DatabaseSync>('database')
   actor = randomUUID()
   db.prepare('INSERT INTO users (id, username, password_hash, recovery_code_hash, created_at, role) VALUES (?, ?, ?, ?, ?, ?)').run(actor, 'm2_admin', 'test-only', 'test-only', Date.now(), 'admin')
@@ -56,6 +56,7 @@ test.beforeAll(async ({}, info) => {
   const bound = app.server.address()
   if (!bound || typeof bound === 'string') throw new Error('Missing server port')
   address = `http://127.0.0.1:${bound.port}`
+  app.appConfig.publicOrigins.push(address, ...Object.values(networkInterfaces()).flat().filter(value => value?.family === 'IPv4' && !value.internal).map(value => `http://${value!.address}:${bound.port}`))
 })
 test.afterAll(async () => {
   await app?.close()

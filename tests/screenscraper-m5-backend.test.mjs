@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import sharp from 'sharp'
 import { ScreenScraperError } from '../server/metadata/screenscraper.mjs'
 import { createMetadataWorker } from '../server/metadata/worker.mjs'
-import { createApp } from '../server/app.mjs'
+import { createApp } from './helpers/gated-backend.mjs'
 import { csrfToken, hashToken } from '../server/auth/crypto.mjs'
 import { backendFixture } from './helpers/backend-fixture.mjs'
 

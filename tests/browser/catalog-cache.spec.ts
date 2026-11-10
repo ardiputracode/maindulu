@@ -1,11 +1,11 @@
-import { test, expect, chromium } from '@playwright/test'
+import { test, expect, chromium, enterGate } from './helpers/gated-test'
 import type { BrowserContext, Page } from '@playwright/test'
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash, randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import { createApp } from '../../server/app.mjs'
+import { createApp } from '../helpers/gated-backend.mjs'
 import { setAccountRoleByAdmin } from '../../server/auth/mutations.mjs'
 import { startPlayer } from './helpers/player'
 import { observeAssetTransfers } from './helpers/asset-transfers'
@@ -58,6 +58,7 @@ test('HTTP cache revalidates real ROM/BIOS across sessions and browser restart; 
         viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block',
         args: ['--enable-unsafe-swiftshader'],
       })
+      await enterGate(context.request, address, context)
       const page = context.pages()[0] ?? await context.newPage()
       page.on('pageerror', error => errors.push(error.message))
       // Isolate HTTP cache validation from the separate default-on IndexedDB

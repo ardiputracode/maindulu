@@ -1,4 +1,3 @@
-import cookie from '@fastify/cookie'
 import { randomUUID } from 'node:crypto'
 import { csrfToken, dummyHash, equalToken, hashPassword, hashRecoveryCode, hashToken, normalizeRecoveryCode, normalizeUsername, randomToken, recoveryCode, validPassword, verifyPassword } from './crypto.mjs'
 import { AuthError, createLimiter } from './limits.mjs'
@@ -53,7 +52,6 @@ export function registerAuth(app, config) {
   function transaction(work) {
     return dbTransaction(db, work)
   }
-  app.register(cookie)
   app.register(async auth => {
     auth.decorateRequest('accountOrigin', null)
     auth.addHook('onRequest', async request => {

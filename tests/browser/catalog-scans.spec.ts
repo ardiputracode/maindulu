@@ -1,9 +1,9 @@
-import { test as base, expect } from '@playwright/test'
+import { test as base, expect } from './helpers/gated-test'
 import { mkdtemp, mkdir, rm, writeFile, readFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { createApp } from '../../server/app.mjs'
+import { createApp } from '../helpers/gated-backend.mjs'
 import { setAccountRoleByAdmin } from '../../server/auth/mutations.mjs'
 import { startPlayer } from './helpers/player'
 

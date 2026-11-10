@@ -1,11 +1,11 @@
-import { test as base, expect } from '@playwright/test'
+import { test as base, expect } from './helpers/gated-test'
 import type { Page } from '@playwright/test'
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash, randomUUID } from 'node:crypto'
 import sharp from 'sharp'
-import { createApp } from '../../server/app.mjs'
+import { createApp } from '../helpers/gated-backend.mjs'
 import { setAccountRoleByAdmin } from '../../server/auth/mutations.mjs'
 
 type Site = { app: Awaited<ReturnType<typeof createApp>>; address: string; username: string; headers: Record<string, string> }

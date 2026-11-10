@@ -1,11 +1,11 @@
-import { test as base, expect } from '@playwright/test'
+import { test as base, expect, prepareContext } from './helpers/gated-test'
 import type { Page, FrameLocator } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { DatabaseSync } from 'node:sqlite'
-import { createApp } from '../../server/app.mjs'
+import { createApp } from '../helpers/gated-backend.mjs'
 import { startPlayer } from './helpers/player'
 import { saveIdentity } from '../../src/lib/domain'
 
@@ -24,6 +24,7 @@ const test = base.extend({
     const app = await createApp({ env: { MAIN_DULU_DATA_DIR: folder } })
     const address = await app.listen({ host: '127.0.0.1', port: 0 })
     const context = await browser.newContext({ ...contextOptions, baseURL: address })
+    prepareContext(context, address)
     try { await use(context) }
     finally { await context.close(); await app.close(); await rm(folder, { recursive: true, force: true }) }
   },

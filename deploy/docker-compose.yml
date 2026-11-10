@@ -1,4 +1,6 @@
 # Membangun dan menjalankan maindulu sebagai web statis dalam satu container.
+# TANPA pintu masuk. MAIN_DULU_GATE_* tidak berlaku di Nginx; jangan pakai
+# untuk akses privat. Gunakan docker-compose.backend.yml untuk gerbang wajib.
 #   Dari akar repo:  docker compose -f deploy/docker-compose.yml up --build
 #   Dari deploy/:    docker compose up --build
 # Porta host lain:

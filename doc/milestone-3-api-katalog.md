@@ -1,5 +1,11 @@
 # Milestone 3 — API Katalog, Upload, Unduh, dan Delete
 
+**Revisi akses 2026-11-10:** semua endpoint katalog, ROM/BIOS/cover dan manifest
+kini memerlukan cookie `maindulu_gate`. “Publik” pada kontrak historis di bawah
+berarti API baca untuk **Tamu yang sudah lolos pintu masuk**, bukan akses anonim.
+Guard ini berjalan sebelum HEAD/range/ETag/304 maupun guard akun/admin. API admin
+tetap membutuhkan akun role admin + origin/CSRF. [Konfigurasi dan rotasi](pintu-masuk.md).
+
 Status: **Milestone 3 selesai dan terverifikasi pada 2026-10-26 dalam cakupan backend di bawah.** Dokumen ini menyimpan rencana, keputusan implementasi, kontrak operasional, serta hasil aktual Milestone 3 dari [rencana utama](rencana-admin-library-game.md).
 
 **Revisi kontrak setelah milestone ini:** backup byte ROM/BIOS bukan fitur MVP. [Backup format 2](backup-metadata-katalog.md) menyimpan akun/save/metadata tanpa aset, bukan lagi menolak katalog berisi data. `restoreId` juga dapat memulihkan entri aktif yang berkasnya hilang, hanya dengan byte/hash/ukuran yang sama; ID, metadata, dan nama berkas lama dipertahankan. Berkas aktif yang masih ada/rusak/unsafe tidak boleh diganti melalui jalur ini. Pengaman backup format 1 dan batas pengujian di bawah mencatat kondisi saat M3 ditutup.

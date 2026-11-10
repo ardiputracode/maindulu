@@ -23,6 +23,13 @@ services:
       - MAIN_DULU_EXTERNAL_BIOS_DIR
       - MAIN_DULU_EXTERNAL_WRITABLE=${MAIN_DULU_EXTERNAL_WRITABLE:-false}
       - MAIN_DULU_REGISTRATION_OPEN=${MAIN_DULU_REGISTRATION_OPEN:-true}
+      # Wajib saat runtime; tidak pernah disertakan dalam build frontend.
+      - MAIN_DULU_GATE_USERNAME
+      - MAIN_DULU_GATE_PASSWORD
+      - MAIN_DULU_GATE_PASSWORD_HASH
+      - MAIN_DULU_GATE_SESSION_DAYS=${MAIN_DULU_GATE_SESSION_DAYS:-7}
+      - MAIN_DULU_DEFAULT_USERNAME
+      - MAIN_DULU_DEFAULT_PASSWORD
       # Bare key: jika tidak disetel di host/.env Compose, jangan kirim string kosong.
       - MAIN_DULU_PUBLIC_ORIGIN
       - MAIN_DULU_PUBLIC_ORIGINS

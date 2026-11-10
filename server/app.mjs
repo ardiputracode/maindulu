@@ -13,6 +13,10 @@ import { registerSaveBackups } from './save-backups.mjs'
 import { registerAdmin } from './admin.mjs'
 import { createCatalogStorage } from './catalog/storage.mjs'
 import { registerCatalog } from './catalog/routes.mjs'
+import cookie from '@fastify/cookie'
+import { randomUUID } from 'node:crypto'
+import { createGate } from './auth/gate.mjs'
+import { hashPassword, hashRecoveryCode, recoveryCode } from './auth/crypto.mjs'
 
 const pages = ['/', '/index.html', '/console', '/library', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main', '/admin', '/admin/games', '/admin/bios', '/admin/scan', '/admin/metadata']
 const assetDirectories = new Set(['assets', 'vendor', 'player', 'catalog', 'games', 'bios', 'covers'])
@@ -58,17 +62,42 @@ export async function createApp({ env = process.env, root, logger = false, metad
       if (error.retryAfter) reply.header('Retry-After', String(error.retryAfter))
       return reply.code(error.statusCode).send({ error: error.message, ...(error.code ? { code: error.code } : {}) })
     }
-    request.log.error(error)
     const status = error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 500
+    // JSON/parser errors can quote the supplied body. Never log expected client
+    // errors: a malformed login body may contain a password, hash or cookie.
+    if (status === 500) request.log.error(error)
     reply.code(status).send({ error: status === 500 ? 'Terjadi kesalahan pada server.' : 'Permintaan tidak valid.' })
   })
   app.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: 'Halaman atau berkas tidak ditemukan.' }))
   app.get('/api/health', async (_request, reply) => {
     try { db.prepare('SELECT 1').get() }
     catch { return reply.code(503).send({ error: 'Penyimpanan server belum tersedia.' }) }
-    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: true, biosCatalog: true, metadata: true, catalogScan: true } }
+    return { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { gate: true, accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: true, biosCatalog: true, metadata: true, catalogScan: true } }
   })
   try {
+    await app.register(cookie)
+    const gate = createGate(config, db)
+    const publicExact = new Set([...pages, '/api/health', '/api/gate/login', '/api/gate/session', '/api/gate/logout'])
+    app.addHook('onRequest', async request => {
+      const path = request.url.split('?')[0]
+      // Do not let encoded separators or dot segments turn a public asset URL
+      // into a protected path in the static resolver.
+      const unambiguous = !/%|\\/.test(path) && !path.split('/').some(part => part === '.' || part === '..')
+      if (publicExact.has(path) || (unambiguous && ['/assets/', '/vendor/', '/player/'].some(prefix => path.startsWith(prefix)))) return
+      gate.guard(request)
+    })
+    app.post('/api/gate/login', gate.login)
+    app.get('/api/gate/session', async request => gate.session(request))
+    app.post('/api/gate/logout', gate.logout)
+    if (config.defaultUsername && !db.prepare('SELECT 1 FROM users LIMIT 1').get()) {
+      const passwordHash = await hashPassword(config.defaultPassword)
+      // Recheck under SQLite's write lock after the asynchronous KDF.
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        if (!db.prepare('SELECT 1 FROM users LIMIT 1').get()) db.prepare('INSERT INTO users (id, username, password_hash, recovery_code_hash, created_at, role) VALUES (?, ?, ?, ?, ?, ?)').run(randomUUID(), config.defaultUsername, passwordHash, hashRecoveryCode(recoveryCode()), Date.now(), 'admin')
+        db.exec('COMMIT')
+      } catch (error) { db.exec('ROLLBACK'); throw error }
+    }
     const storage = await createCatalogStorage(config, db)
     const security = registerAuth(app, config)
     registerAdmin(app, security)
@@ -91,7 +120,7 @@ export async function createApp({ env = process.env, root, logger = false, metad
         if (!assetDirectories.has(parts[0]) || parts.some(part => part.startsWith('.')) || /\.(?:sqlite|sqlite3|db)(?:-(?:wal|shm))?$/i.test(pathname)) return false
         try {
           const file = realpathSync(resolve(staticRoot, '.' + pathname))
-          return isWithin(file, config.distDir) && statSync(file).isFile()
+          return isWithin(file, config.distDir) && (!['assets', 'vendor', 'player'].includes(parts[0]) || isWithin(file, resolve(config.distDir, parts[0]))) && statSync(file).isFile()
         }
         catch { return false }
       },

@@ -58,7 +58,7 @@ export default function AdminCatalog({ backend, account, consoles, onLogin, onRe
   if (access.error) return <AdminNotice title="Akses admin belum terkonfirmasi." text={access.error} onRetry={retry} />
   if (access.userId !== user.id) return <p role="status">Memeriksa sesi dan akses admin…</p>
   return <section className="admin-area" aria-label="Pengelolaan koleksi">
-    <div className="page-heading"><div><span className="eyebrow">RUANG PENGELOLA</span><h1>Kelola koleksi.</h1><p>Game dan BIOS dikelola terpisah. Aset aktif dapat diunduh publik, termasuk oleh tamu.</p></div><ShieldCheck size={30} /></div>
+    <div className="page-heading"><div><span className="eyebrow">RUANG PENGELOLA</span><h1>Kelola koleksi.</h1><p>Game dan BIOS dikelola terpisah. Aset aktif hanya terbuka untuk tamu yang sudah lewat pintu masuk.</p></div><ShieldCheck size={30} /></div>
     <nav className="admin-tabs" aria-label="Menu admin"><NavLink to="/admin" end>Ringkasan</NavLink><NavLink to="/admin/games">Manage Game</NavLink><NavLink to="/admin/bios">Manage BIOS</NavLink>{backend.status === 'online' && backend.health.capabilities.catalogScan && <NavLink to="/admin/scan">Scan Koleksi</NavLink>}{backend.health.capabilities.metadata && <NavLink to="/admin/metadata">Antrean Metadata</NavLink>}</nav>
     <p className="notice">Backup menyimpan akun, save/progres, dan metadata katalog; tidak menyertakan berkas ROM, BIOS, atau cover. Jika aset hilang setelah restore, upload ulang berkas yang sama dan konfirmasi ID lama.</p>
     {backend.status === 'online' && backend.health.capabilities.catalogScan && <p><Link to="/admin/scan">Scan Koleksi dari folder server</Link> — daftarkan ROM/BIOS hasil transfer WinSCP tanpa upload ulang.</p>}
@@ -223,7 +223,7 @@ function CatalogForm({ kind, item, consoles, userId, onClose, onSaved, onDenied,
   }
   return <Dialog title={item ? `Edit metadata ${label}` : `Upload ${label}`} eyebrow="PENGELOLAAN KOLEKSI" onClose={onClose} busy={busy} className="admin-dialog">
     <form className="account-form" onSubmit={e => { e.preventDefault(); void submit() }}>
-      <p>{item ? 'ROM/firmware dan console tidak dapat diganti. Identitas game dan save tetap.' : 'Hanya upload berkas yang berhak kamu distribusikan. Aset aktif bersifat publik.'}</p>
+      <p>{item ? 'ROM/firmware dan console tidak dapat diganti. Identitas game dan save tetap.' : 'Hanya upload berkas yang berhak kamu distribusikan. Aset aktif hanya terbuka untuk tamu yang sudah lewat pintu masuk.'}</p>
       {!item && <p>Nama dan ekstensi berkas dipertahankan di folder platform. Nama yang sudah dipakai tidak ditimpa; ganti nama berkas sebelum upload jika isinya berbeda. Maksimum 240 karakter dan 255 byte UTF-8.</p>}
       <fieldset disabled={busy}>
         <label htmlFor="admin-title">{game ? 'Judul game' : 'Nama BIOS'}</label><input id="admin-title" required={kind !== 'games' || !!item} maxLength={200} value={title} onChange={e => setTitle(e.target.value)} />

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { readConfig } from '../server/config.mjs'
+import { gateEnv } from './helpers/gated-backend.mjs'
 
 const text = path => readFile(new URL('../' + path, import.meta.url), 'utf8')
 
@@ -24,7 +25,7 @@ test('Docker backend has production dependencies, non-root runtime and a volume 
   assert.match(dockerfile, /RUN npm ci --omit=dev/)
   const runtime = dockerfile.split('FROM node:24-alpine AS runtime')[1]
   assert.ok(runtime)
-  for (const source of ['COPY server ./server', 'COPY src/lib/game-save-format.ts ./src/lib/game-save-format.ts', 'COPY scripts/reset-account.mjs scripts/set-account-role.mjs scripts/data-backup.mjs scripts/recover-catalog.mjs ./scripts/', 'COPY deploy/healthcheck.mjs ./deploy/healthcheck.mjs', 'USER node', 'VOLUME ["/var/lib/maindulu"]', 'CMD ["node", "server/index.mjs"]']) assert.ok(runtime.includes(source), source)
+  for (const source of ['COPY server ./server', 'COPY src/lib/game-save-format.ts ./src/lib/game-save-format.ts', 'COPY scripts/reset-account.mjs scripts/set-account-role.mjs scripts/hash-gate-password.mjs scripts/data-backup.mjs scripts/recover-catalog.mjs ./scripts/', 'COPY deploy/healthcheck.mjs ./deploy/healthcheck.mjs', 'USER node', 'VOLUME ["/var/lib/maindulu"]', 'CMD ["node", "server/index.mjs"]']) assert.ok(runtime.includes(source), source)
   assert.match(runtime, /MAIN_DULU_HOST=0\.0\.0\.0/)
   assert.match(runtime, /MAIN_DULU_DATA_DIR=\/var\/lib\/maindulu\/data/)
   assert.doesNotMatch(runtime, /COPY \. |COPY public|vendor:engine|npm install|USER root/)
@@ -67,6 +68,20 @@ test('shared overlay explicitly opts in to write/delete on the same folders with
   assert.ok(compose.includes('MAIN_DULU_EXTERNAL_WRITABLE=${MAIN_DULU_EXTERNAL_WRITABLE:-false}'))
 })
 
+test('all backend Compose variants forward gate secrets only at runtime and never embed default passwords', async () => {
+  const pkg = JSON.parse(await text('package.json'))
+  for (const name of ['account:reset', 'account:role', 'data:backup', 'data:verify', 'data:restore', 'storage:recover']) assert.ok(pkg.scripts[name].includes('--env-file-if-exists=.env'), name)
+  for (const file of ['deploy/docker-compose.backend.yml', 'deploy/docker-compose.portainer.example.yml']) {
+    const compose = await text(file)
+    for (const name of ['MAIN_DULU_GATE_USERNAME', 'MAIN_DULU_GATE_PASSWORD', 'MAIN_DULU_GATE_PASSWORD_HASH', 'MAIN_DULU_DEFAULT_USERNAME', 'MAIN_DULU_DEFAULT_PASSWORD']) assert.match(compose, new RegExp('^      - ' + name + '\\r?$', 'm'))
+    assert.ok(compose.includes('MAIN_DULU_GATE_SESSION_DAYS=${MAIN_DULU_GATE_SESSION_DAYS:-7}'))
+    assert.doesNotMatch(compose, /VITE_.*GATE|GATE_PASSWORD=/)
+  }
+  const result = spawnSync(process.execPath, ['scripts/hash-gate-password.mjs', 'do-not-echo-this'], { encoding: 'utf8' })
+  assert.equal(result.status, 1)
+  assert.doesNotMatch(result.stdout + result.stderr, /do-not-echo-this|scrypt\$/)
+})
+
 test('Portainer standalone example uses 200 GiB, writable sources, existing private volume and no embedded credentials', async () => {
   const stack = await text('deploy/docker-compose.portainer.example.yml')
   assert.match(stack, /^      - MAIN_DULU_PUBLIC_ORIGINS$/m)
@@ -92,7 +107,7 @@ test('Portainer example variables resolve to valid backend settings and private 
     if (operator === '?') throw new Error('Missing required variable: ' + name)
     return fallback
   })]))
-  const config = await readConfig(runtime)
+  const config = await readConfig({ ...runtime, ...gateEnv })
   assert.equal(config.catalogQuotaBytes, 200 * 1024 ** 3)
   assert.equal(config.externalWritable, true)
   assert.equal(config.allowInsecureHttp, true)
@@ -114,7 +129,8 @@ test('backend LAN environment example is accepted with explicit HTTP opt-in and 
     assert.ok(separator > 0)
     return [line.slice(0, separator), line.slice(separator + 1)]
   }))
-  const config = await readConfig(env)
+  await assert.rejects(readConfig(env), /MAIN_DULU_GATE/)
+  const config = await readConfig({ ...env, ...gateEnv })
   assert.equal(config.allowInsecureHttp, true)
   assert.equal(config.publicOrigin, env.MAIN_DULU_PUBLIC_ORIGIN)
   const origin = new URL(config.publicOrigin)
@@ -129,7 +145,7 @@ test('Docker context is deny-by-default with narrow source exceptions, not a bla
   const exceptions = rules.filter(s => s.startsWith('!'))
   assert.deepEqual(exceptions, [
     '!package.json', '!package-lock.json', '!index.html', '!vite.config.ts', '!tsconfig.json', '!tsconfig.app.json', '!tsconfig.node.json',
-     '!src/', '!src/**', '!public/', '!public/**', '!server/', '!server/*.mjs', '!server/auth/', '!server/auth/*.mjs', '!server/catalog/', '!server/catalog/*.mjs', '!server/metadata/', '!server/metadata/*.mjs', '!scripts/', '!scripts/reset-account.mjs', '!scripts/set-account-role.mjs', '!scripts/data-backup.mjs', '!scripts/recover-catalog.mjs', '!scripts/build-player-assets.mjs',
+     '!src/', '!src/**', '!public/', '!public/**', '!server/', '!server/*.mjs', '!server/auth/', '!server/auth/*.mjs', '!server/catalog/', '!server/catalog/*.mjs', '!server/metadata/', '!server/metadata/*.mjs', '!scripts/', '!scripts/reset-account.mjs', '!scripts/set-account-role.mjs', '!scripts/hash-gate-password.mjs', '!scripts/data-backup.mjs', '!scripts/recover-catalog.mjs', '!scripts/build-player-assets.mjs',
     '!deploy/', '!deploy/Dockerfile', '!deploy/Dockerfile.backend', '!deploy/nginx.docker.conf', '!deploy/healthcheck.mjs',
   ])
   // Re-exclude children after admitting a parent directory; otherwise a negated

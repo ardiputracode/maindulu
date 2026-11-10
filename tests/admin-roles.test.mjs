@@ -5,10 +5,11 @@ import { createHash } from 'node:crypto'
 import { access } from 'node:fs/promises'
 import { join } from 'node:path'
 import Fastify from 'fastify'
-import { createApp } from '../server/app.mjs'
+import cookiePlugin from '@fastify/cookie'
+import { createApp, gateEnv } from './helpers/gated-backend.mjs'
 import { openDatabase, schemaVersion } from '../server/database.mjs'
 import { acquireDataLock } from '../server/data-lock.mjs'
-import { readConfig } from '../server/config.mjs'
+import { readConfig } from './helpers/gated-backend.mjs'
 import { registerAuth } from '../server/auth/routes.mjs'
 import { AuthError } from '../server/auth/limits.mjs'
 import { setAccountRoleByAdmin, resetAccountByAdmin } from '../server/auth/mutations.mjs'
@@ -30,6 +31,7 @@ async function setup(t, uploadHarness = false) {
     // or multipart parser are enabled in the production milestone-1 app.
     const db = await openDatabase(c.config.dataDir)
     c.app = Fastify({ bodyLimit: 64 * 1024 })
+    await c.app.register(cookiePlugin)
     c.app.decorate('database', db)
     c.app.addHook('onClose', async () => db.close())
     c.app.setErrorHandler((error, _request, reply) => reply.code(error instanceof AuthError ? error.statusCode : error.statusCode ?? 500).send({ error: error.message }))
@@ -177,7 +179,7 @@ test('version-6 migration preserves credentials, active sessions and both save t
 test('role CLI promotes/demotes live sessions, refuses missing accounts/data and respects maintenance locks', async t => {
   const c = await setup(t)
   const owner = await register(c.app)
-  const run = (args, dataDir = c.config.dataDir) => spawnSync(process.execPath, ['scripts/set-account-role.mjs', ...args], { encoding: 'utf8', env: { ...process.env, MAIN_DULU_DATA_DIR: dataDir }, timeout: 15000 })
+  const run = (args, dataDir = c.config.dataDir) => spawnSync(process.execPath, ['scripts/set-account-role.mjs', ...args], { encoding: 'utf8', env: { ...process.env, ...gateEnv, MAIN_DULU_DATA_DIR: dataDir }, timeout: 15000 })
   for (const role of ['admin', 'admin', 'user']) {
     const r = run([' ROLE_USER ', role])
     assert.equal(r.status, 0, r.stderr)

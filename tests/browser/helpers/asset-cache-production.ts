@@ -1,12 +1,13 @@
 import { build } from 'esbuild'
 import { mkdtemp, rm, statfs, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { tmpdir, freemem, totalmem, platform, release } from 'node:os'
+import { tmpdir, freemem, totalmem, platform, release, networkInterfaces } from 'node:os'
 import { createHash, randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Page, TestInfo } from '@playwright/test'
-import { createApp } from '../../../server/app.mjs'
+import { createApp } from '../../helpers/gated-backend.mjs'
+import { enterGate } from './gated-test'
 import { createCatalogStorage } from '../../../server/catalog/storage.mjs'
 import { createCatalogRepository } from '../../../server/catalog/repository.mjs'
 import { catalogDto } from '../../../server/catalog/queries.mjs'
@@ -19,7 +20,7 @@ export const CHUNK = 4 * 1024 * 1024
 export async function productionFixture() {
   const parent = process.platform === 'win32' && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Temp/opencode') : tmpdir()
   const folder = await mkdtemp(join(parent, 'asset-cache-m5-'))
-  const app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data') } })
+  const app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data'), MAIN_DULU_PUBLIC_ORIGIN: 'http://localhost:7777', MAIN_DULU_ALLOW_INSECURE_HTTP: 'true' } })
   try {
     const bundle = (await build({ entryPoints: ['tests/fixtures/asset-cache-production.ts'], bundle: true, write: false,
       format: 'iife', globalName: 'productionCacheTest', target: 'es2022', platform: 'browser' })).outputFiles[0].text
@@ -33,6 +34,8 @@ export async function productionFixture() {
     await app.listen({ host: '0.0.0.0', port: 0 })
     const bound = app.server.address()
     if (!bound || typeof bound === 'string') throw Error('Missing M5 server port')
+    const origins = [`http://127.0.0.1:${bound.port}`, `http://localhost:${bound.port}`, ...Object.values(networkInterfaces()).flat().filter(value => value?.family === 'IPv4' && !value.internal).map(value => `http://${value!.address}:${bound.port}`)]
+    app.appConfig.publicOrigins.push(...origins)
     return { app, db, storage, repo, actor, folder, bundle, transfers, port: bound.port,
       address: `http://127.0.0.1:${bound.port}`, phase: (value: string) => { phase = value },
       async publish(size: number, kind: 'games' | 'bios' = 'games', bytes?: Uint8Array): Promise<CatalogEntry> {
@@ -58,6 +61,7 @@ export async function productionFixture() {
 }
 export type ProductionFixture = Awaited<ReturnType<typeof productionFixture>>
 export async function instrument(page: Page, fixture: ProductionFixture, origin = fixture.address) {
+  await enterGate(page.request, origin, page.context())
   const cdp = await page.context().newCDPSession(page)
   await cdp.send('Network.enable')
   await cdp.send('Network.setCacheDisabled', { cacheDisabled: true })

@@ -1,6 +1,6 @@
 # Rencana Gerbang Login (Gate) dan Akun Personal
 
-Status: **Rencana — belum diimplementasikan.** Versi ini menggantikan model "Tamu vs Akun" pada revisi sebelumnya. Keputusan pengguna: gunakan **gerbang login wajib** dengan satu kredensial bersama dari `.env`; siapa pun yang tidak lolos gerbang adalah **anonim** dan tidak boleh mengakses fitur atau data apa pun. Di dalam gerbang, akun personal tetap terpisah dan opsional untuk save server.
+Status: **G1–G5 selesai dalam cakupan terverifikasi (2026-11-10).** Hasil, pengulangan tes, dan batas Docker/HTTPS dicatat pada G5. Versi ini menggantikan model "Tamu vs Akun" pada revisi sebelumnya. Keputusan pengguna: gunakan **gerbang login wajib** dengan satu kredensial bersama dari `.env`; siapa pun yang tidak lolos gerbang adalah **anonim** dan tidak boleh mengakses fitur atau data apa pun. Di dalam gerbang, akun personal tetap terpisah dan opsional untuk save server. Panduan operator: [pintu masuk, hash, rotasi, dan deployment](pintu-masuk.md).
 
 Dokumen terkait: [Login dan progres server](rencana-login-cloud-save.md), [Role akun dan admin](admin-role-akun.md), [Akun lokal](milestone-3-akun-lokal.md), dan [API katalog](milestone-3-api-katalog.md).
 
@@ -82,7 +82,7 @@ Berkas baru `server/auth/gate.mjs`:
 - `createGate(config, db)` mengembalikan `{ guard, login, logout, session }`.
 - Token cookie: `v1.<expiresAtUnix>.<hmacHex>`.
 - HMAC-SHA256 dengan kunci turunan dari kredensial gerbang + `installation_id`:
-  - `key = HKDF-SHA256(ikm = password/hash, salt = installation_id, info = "maindulu-gate-v1")`.
+  - Implementasi: `key = HKDF-SHA256(ikm = JSON.stringify([username_normalized, password/hash]), salt = installation_id, info = "maindulu-gate-v1")`. Username ikut diikat agar rotasi username juga mencabut cookie lama.
 - Verifikasi memakai `timingSafeEqual`; token rusak/kedaluwarsa ditolak.
 - Karena kunci diturunkan dari kredensial, **mengganti password/hash gerbang otomatis membatalkan semua cookie lama**.
 - Cookie `maindulu_gate`: `HttpOnly`, `SameSite=strict`, `Secure` bila origin HTTPS, `path=/`, `maxAge` sesuai `MAIN_DULU_GATE_SESSION_DAYS`.
@@ -258,23 +258,28 @@ Dengan pemisahan ini, tamu yang belum lolos gerbang tidak pernah memicu perminta
 
 | Milestone | Hasil utama | Dependensi | Status |
 | --- | --- | --- | --- |
-| G1 | Backend gerbang: konfigurasi wajib, token, endpoint, default-deny | — | Rencana |
-| G2 | Frontend gerbang: GatePage, useGate, pemisahan App, penanganan 401 | G1 | Rencana |
-| G3 | Integrasi akun personal dan penggantian teks UI | G1, G2 | Rencana |
-| G4 | Env, deployment, dokumentasi, dan rotasi kredensial | G1 | Rencana |
-| G5 | Verifikasi regresi, build, dan penutupan | G1–G4 | Rencana |
+| G1 | Backend gerbang: konfigurasi wajib, token, endpoint, default-deny | — | Selesai |
+| G2 | Frontend gerbang: GatePage, useGate, pemisahan App, penanganan 401 | G1 | Selesai |
+| G3 | Integrasi akun personal dan penggantian teks UI | G1, G2 | Selesai |
+| G4 | Env, deployment, dokumentasi, dan rotasi kredensial | G1 | Selesai (kontrak Node/konfigurasi) |
+| G5 | Verifikasi regresi, build, dan penutupan | G1–G4 | Selesai (batas di bawah) |
 
 ### G1 — Backend Gerbang
 
 Tujuan: menolak semua akses data bagi anonim dan menerima tamu dengan kredensial `.env`.
 
-- [ ] Tambahkan `MAIN_DULU_GATE_USERNAME`, `MAIN_DULU_GATE_PASSWORD`/`_HASH`, dan `MAIN_DULU_GATE_SESSION_DAYS` ke `server/config.mjs`; tolak start jika tidak lengkap.
-- [ ] Buat `server/auth/gate.mjs` dengan token HMAC, verifikasi constant-time, dan opsi cookie.
-- [ ] Tambahkan endpoint `POST /api/gate/login`, `GET /api/gate/session`, `POST /api/gate/logout`.
-- [ ] Tambahkan hook default-deny di `server/app.mjs` dengan allowlist shell dan endpoint gerbang.
-- [ ] Tambahkan `capabilities.gate` pada `/api/health` dan terima di `src/lib/backend.ts`.
-- [ ] Pastikan `/catalog/*`, `/api/games*`, `/api/bios*`, `/games/*`, `/bios/*`, `/covers/*`, dan `/api/auth/*` mengembalikan `401` tanpa cookie gerbang.
-- [ ] Uji token rusak, kedaluwarsa, tamper, rotasi kredensial, dan rate limit.
+- [x] Tambahkan `MAIN_DULU_GATE_USERNAME`, `MAIN_DULU_GATE_PASSWORD`/`_HASH`, dan `MAIN_DULU_GATE_SESSION_DAYS` ke `server/config.mjs`; tolak start jika tidak lengkap.
+- [x] Buat `server/auth/gate.mjs` dengan token HMAC, verifikasi constant-time, dan opsi cookie.
+- [x] Tambahkan endpoint `POST /api/gate/login`, `GET /api/gate/session`, `POST /api/gate/logout`.
+- [x] Tambahkan hook default-deny di `server/app.mjs` dengan allowlist shell dan endpoint gerbang.
+- [x] Tambahkan `capabilities.gate` pada `/api/health` dan terima di `src/lib/backend.ts`.
+- [x] Pastikan `/catalog/*`, `/api/games*`, `/api/bios*`, `/games/*`, `/bios/*`, `/covers/*`, dan `/api/auth/*` mengembalikan `401` tanpa cookie gerbang.
+- [x] Uji token rusak, kedaluwarsa, tamper, rotasi kredensial, dan rate limit.
+
+**Tinjauan G1:** `tests/gate.test.mjs` + parser health mencakup default-deny,
+HEAD/range/conditional request, traversal/alias shell, scrypt, origin/HTTPS,
+rate limit, rotasi pada instalasi yang sama, seed idempoten dan log tanpa secret.
+Regresi awal `gate + server + auth`: 46/46 lulus; pengujian tambahan juga lulus.
 
 **Selesai jika:** anonim tidak dapat mengakses satu pun jalur data, tamu dengan kredensial benar dapat mengakses semuanya, dan server menolak start bila konfigurasi gerbang tidak lengkap.
 
@@ -282,13 +287,18 @@ Tujuan: menolak semua akses data bagi anonim dan menerima tamu dengan kredensial
 
 Tujuan: menampilkan halaman gerbang sebelum shell aplikasi dan menangani sesi kedaluwarsa.
 
-- [ ] Buat `src/lib/gate.ts` dan `src/lib/useGate.ts`.
-- [ ] Buat `src/components/GatePage.tsx` dengan form username/password, pesan error, dan status loading.
-- [ ] Pecah `src/App.tsx` menjadi pembungkus gerbang dan `Workspace`.
-- [ ] Pindahkan pemuatan katalog dan hook akun ke `Workspace` agar tidak berjalan sebelum gerbang lolos.
-- [ ] Tangani `401` data sebagai gerbang kedaluwarsa; tampilkan `GatePage` lagi.
-- [ ] Tambahkan aksi logout gerbang yang juga membersihkan sesi akun.
-- [ ] Uji alur login benar/salah, refresh, kedaluwarsa, dan logout.
+- [x] Buat `src/lib/gate.ts` dan `src/lib/useGate.ts`.
+- [x] Buat `src/components/GatePage.tsx` dengan form username/password, pesan error, dan status loading.
+- [x] Pecah `src/App.tsx` menjadi pembungkus gerbang dan `Workspace`.
+- [x] Pindahkan pemuatan katalog dan hook akun ke `Workspace` agar tidak berjalan sebelum gerbang lolos.
+- [x] Tangani `401` data sebagai gerbang kedaluwarsa; tampilkan `GatePage` lagi.
+- [x] Tambahkan aksi logout gerbang yang juga membersihkan sesi akun.
+- [x] Uji alur login benar/salah, refresh, kedaluwarsa, dan logout.
+
+**Tinjauan G2:** browser backend terfokus 22/22 lulus (pintu masuk, akun, status).
+Tes anonim mencatat Network: nol permintaan katalog/akun/data/engine sebelum
+login. Cookie hilang + 401 dan timer kedaluwarsa melepas Workspace/iframe.
+401 akun personal hanya memicu pemeriksaan pintu masuk, bukan logout gerbang.
 
 **Selesai jika:** anonim hanya melihat `GatePage`, tamu masuk ke shell tanpa permintaan data sebelum gerbang lolos, dan sesi kedaluwarsa kembali ke gerbang dengan aman.
 
@@ -296,15 +306,21 @@ Tujuan: menampilkan halaman gerbang sebelum shell aplikasi dan menangani sesi ke
 
 Tujuan: memastikan akun personal tetap terpisah dan seluruh teks UI sesuai model gerbang.
 
-- [ ] Pastikan `/api/auth/*` hanya dapat diakses setelah gerbang lolos.
-- [ ] Pastikan logout gerbang mencabut cookie dan baris sesi akun personal.
-- [ ] Pastikan fitur save server tetap hanya tampil untuk akun personal.
-- [ ] Terapkan [Panduan Nada Teks](#panduan-nada-teks) pada seluruh teks gerbang, akun, panduan, dan player.
-- [ ] Ganti seluruh teks pada tabel [penggantian teks UI](#5-penggantian-teks-ui).
-- [ ] Sapu istilah kaku di alur utama (`anonim`, `kredensial`, `autentikasi`, `publik`, `gerbang`) dan sisakan hanya di Pengaturan/status/legal.
-- [ ] Perbarui assertion teks di e2e yang mengecek string lama.
-- [ ] Tambahkan peringatan build statis tanpa gerbang di Pengaturan/status.
-- [ ] Uji alur: gerbang → tamu main → login akun → save server → logout gerbang.
+- [x] Pastikan `/api/auth/*` hanya dapat diakses setelah gerbang lolos.
+- [x] Pastikan logout gerbang mencabut cookie dan baris sesi akun personal.
+- [x] Pastikan fitur save server tetap hanya tampil untuk akun personal.
+- [x] Terapkan [Panduan Nada Teks](#panduan-nada-teks) pada seluruh teks gerbang, akun, panduan, dan player.
+- [x] Ganti seluruh teks pada tabel [penggantian teks UI](#5-penggantian-teks-ui).
+- [x] Sapu istilah kaku di alur utama (`anonim`, `kredensial`, `autentikasi`, `publik`, `gerbang`) dan sisakan hanya di Pengaturan/status/legal.
+- [x] Perbarui assertion teks di e2e yang mengecek string lama.
+- [x] Tambahkan peringatan build statis tanpa gerbang di Pengaturan/status.
+- [x] Uji alur: gerbang → tamu main → login akun → save server → logout gerbang.
+
+**Tinjauan G3:** suite terisolasi `npm run test:e2e:gate` 8/8 lulus. Skenario
+menjalankan engine NES sebagai Tamu, masuk akun, menyimpan state ke server,
+logout akun tanpa menutup pintu, lalu logout pintu dan mencoba ulang cookie akun
+lama (ditolak). 401 dari preflight ROM iframe juga memeriksa pintu melalui host
+yang sudah memvalidasi origin/source/session. Peringatan statis lulus di e2e.
 
 **Selesai jika:** tamu tidak dapat memakai save server tanpa akun, logout gerbang tidak meninggalkan sesi akun, dan tidak ada teks yang menyebut file server publik.
 
@@ -312,12 +328,19 @@ Tujuan: memastikan akun personal tetap terpisah dan seluruh teks UI sesuai model
 
 Tujuan: memastikan gerbang wajib terpasang di semua deployment backend.
 
-- [ ] Perbarui `.env.example`, `.env.backend`, `deploy/backend.env.example`, dan compose Docker.
-- [ ] Dokumentasikan penolakan start bila variabel gerbang kosong.
-- [ ] Dokumentasikan rotasi kredensial gerbang dan efeknya terhadap cookie lama.
-- [ ] Dokumentasikan bahwa build statis tidak memiliki gerbang dan tidak untuk akses privat.
-- [ ] Perbarui README/panduan deployment terkait.
-- [ ] Perbarui helper tes backend agar menyertakan kredensial gerbang.
+- [x] Perbarui `.env.example`, `.env.backend`, `deploy/backend.env.example`, dan compose Docker.
+- [x] Dokumentasikan penolakan start bila variabel gerbang kosong.
+- [x] Dokumentasikan rotasi kredensial gerbang dan efeknya terhadap cookie lama.
+- [x] Dokumentasikan bahwa build statis tidak memiliki gerbang dan tidak untuk akses privat.
+- [x] Perbarui README/panduan deployment terkait.
+- [x] Perbarui helper tes backend agar menyertakan kredensial gerbang.
+
+**Tinjauan G4:** contoh env sengaja tanpa password; `readConfig` menolaknya
+sampai operator mengisi secret sendiri. `.env.backend` lokal dibuat tanpa secret
+dan diabaikan Git; `.env` pengguna tidak diubah. Compose backend dan
+Portainer meneruskan gate/seed saat runtime, bukan build. Helper regresi login
+melalui endpoint asli tanpa bypass produksi; skenario gate menguji app asli.
+Docker CLI tidak tersedia, sehingga build/recreate container nyata tidak diklaim.
 
 **Selesai jika:** instalasi baru dengan `.env` gerbang berjalan, instalasi tanpa gerbang menolak start, dan dokumentasi deployment menjelaskan batas build statis.
 
@@ -325,12 +348,62 @@ Tujuan: memastikan gerbang wajib terpasang di semua deployment backend.
 
 Tujuan: memastikan gerbang tidak merusak akun, save, admin, atau mode statis.
 
-- [ ] Jalankan unit/integrasi backend dan build frontend.
-- [ ] Jalankan e2e mode backend nyata dengan alur gerbang + akun.
-- [ ] Jalankan e2e mode statis dan pastikan peringatan "tanpa gerbang" muncul.
-- [ ] Uji regresi save state, progres game, backup, pemulihan akun, dan admin.
-- [ ] Uji sesi gerbang kedaluwarsa, rotasi kredensial, dan logout gerbang.
-- [ ] Catat bukti dan batasan pada dokumen ini.
+- [x] Jalankan unit/integrasi backend dan build frontend.
+- [x] Jalankan e2e mode backend nyata dengan alur gerbang + akun.
+- [x] Jalankan e2e mode statis dan pastikan peringatan "tanpa gerbang" muncul.
+- [x] Uji regresi save state, progres game, backup, pemulihan akun, dan admin.
+- [x] Uji sesi gerbang kedaluwarsa, rotasi kredensial, dan logout gerbang.
+- [x] Catat bukti dan batasan pada dokumen ini.
+
+**Bukti G5 — Windows, Microsoft Edge headless, Node v26.12.1:**
+
+| Pengujian yang dijalankan | Hasil |
+| --- | --- |
+| `npm test` (pengulangan akhir) | **629/629 lulus**, nol gagal/skip. |
+| `npm run build` (build bersih akhir) | **Lulus**; peringatan Vite chunk JS >500 kB tidak memblokir build. |
+| `npm run test:e2e:gate` | **8/8 lulus**, termasuk 401 dari iframe dan alur Tamu → akun → state server → logout pintu. |
+| `npm run test:e2e:backend` (run penuh awal) | **181/195 lulus**, 14 kegagalan migrasi fixture/assertion; bukan run penuh bersih. |
+| `npm run test:e2e:backend -- --last-failed` (sesudah perbaikan) | **14/14 lulus**, seluruh kegagalan run awal sudah diuji ulang. |
+| Pengulangan terfokus `server-game-saves.spec.ts` + `server-saves.spec.ts` | **22/22 lulus**: state, progres CPU/SRAM, konflik, impor, backup/restore, pergantian akun, dan autosave. |
+| Pengulangan terfokus aset backend | **7/7 lulus**, termasuk HTTP LAN non-loopback. |
+| `npm run test:e2e` (statis dev) | **66 lulus**, 134 skip khusus backend pada susunan suite saat itu. |
+| `npm run test:e2e:production` (statis produksi) | **66 lulus**, 135 skip khusus backend setelah tambahan tes iframe. |
+| `git diff --check` | **Lulus**. |
+
+Cakupan backend akhir **196 skenario unik mendapat hasil lulus secara
+kumulatif**: 195 skenario run penuh setelah seluruh kasus gagal lulus ulang,
+ditambah satu skenario 401 iframe baru. Ini **bukan klaim satu run bersih
+196/196**. Pengulangan terfokus juga memakai backend, cookie, SQLite, dan engine
+asli; tidak melonggarkan limiter atau melewati guard produksi.
+
+Perbaikan fixture: skenario save yang membuat backend sendiri harus memakai
+origin backend itu untuk login pintu masuk, bukan `baseURL` server tes bersama.
+Helper sekarang menerima origin eksplisit, memakai URL absolut untuk request,
+dan gagal cepat bila origin halaman tidak sesuai. Fixture HTTP LAN menyetel
+origin dan opt-in HTTP secara eksplisit. Assertion gangguan backend mengikuti
+model baru (Workspace ditutup), pemilih demo membedakan kartu utama/riwayat,
+dan pengujian toolbar memakai event DOM asli agar tidak berlomba dengan auto-hide.
+
+Pemeriksaan log juga mencakup body login JSON yang rusak: error parser 4xx
+tidak dicatat mentah karena pesannya dapat mengutip password/token dari body.
+Kredensial, hash, dan cookie tidak muncul pada log request normal.
+
+**Batas verifikasi dan operasi:**
+
+- Docker CLI tidak tersedia: penerusan env, allowlist build context, Dockerfile,
+  serta Compose diuji sebagai kontrak konfigurasi; build/recreate container
+  Node 24/Linux nyata belum dijalankan. Runtime pengujian aktual Node 26.12.1.
+- Cookie HTTPS dan origin diuji unit serta proxy TLS lokal. Reverse proxy/CDN,
+  sertifikat, cache bersama, dan rotasi pada deployment operator tetap harus
+  diperiksa di lingkungan nyata; tidak diklaim sudah diuji di internet.
+- Gameplay memakai NES nyata dan BIOS sintetis untuk plumbing. Tidak mengklaim
+  pengujian ulang gameplay semua core/ROM/BIOS atau semua variasi PS1.
+- `.env` operator tidak diubah. Password pada contoh dan `.env.backend` lokal
+  sengaja kosong: isi secret sendiri sebelum start, atau gunakan `npm run gate:hash`.
+  Build statis tetap tanpa gerbang dan tidak boleh dipakai untuk akses privat.
+- Logout pintu menghapus cookie perangkat ini dan baris sesi akun terkait,
+  bukan denylist token gerbang stateless. Byte/cache yang pernah diterima tidak
+  dihapus. Cabut semua cookie gerbang dengan rotasi kredensial dan restart/recreate.
 
 **Selesai jika:** seluruh kriteria selesai terpenuhi dan tidak ada regresi pada akun, save, admin, maupun build statis.
 

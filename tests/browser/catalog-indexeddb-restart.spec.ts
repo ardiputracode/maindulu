@@ -1,4 +1,4 @@
-import { test, expect, chromium } from '@playwright/test'
+import { test, expect, chromium } from './helpers/gated-test'
 import type { BrowserContext } from '@playwright/test'
 import { readFile, rename, truncate, link, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -179,6 +179,7 @@ test('M5 actual origin HEAD 503 rejects a cached asset; recovery keeps and reuse
   const bound = proxy.address()
   if (!bound || typeof bound === 'string') throw Error('Missing proxy address')
   const origin = `http://127.0.0.1:${bound.port}`
+  fixture.app.appConfig.publicOrigins.push(origin)
   try {
     await instrument(page, fixture, origin); await page.evaluate(() => window.productionCacheTest.settings())
     expect(await page.evaluate(entry => window.productionCacheTest.run(entry, 'rom'), entry)).toMatchObject({ persistence: 'stored' })

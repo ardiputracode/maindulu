@@ -1,5 +1,9 @@
 # M2 — Fondasi Backend Lokal Tanpa Docker
 
+**Startup versi terkini:** backend memerlukan `MAIN_DULU_GATE_USERNAME` dan
+password/hash pintu masuk di environment; tanpa itu startup ditolak. Konfigurasi
+dan perilaku kegagalan M2 di bawah bersifat historis. [Panduan pintu masuk](pintu-masuk.md).
+
 Status: M2 selesai. Web + API satu proses, SQLite persisten, mode frontend statis mandiri, dan skenario kegagalan backend telah diverifikasi.
 
 Catatan: dokumen ini mencatat lingkup dan hasil M2. Akun/sesi kemudian ditambahkan pada [M3](milestone-3-akun-lokal.md); keterangan kapabilitas serta skema di bawah menggambarkan kondisi saat penutupan M2, bukan batas versi terbaru.

@@ -28,6 +28,12 @@ Folder `dist/` berisi aplikasi **dan seluruh aset engine**. Tidak ada langkah un
 
 ### Web + backend lokal, tanpa Docker
 
+**Pintu masuk wajib:** salin `.env.example` ke `.env` jika belum ada, lalu isi
+`MAIN_DULU_GATE_USERNAME` dan `MAIN_DULU_GATE_PASSWORD` (atau `_HASH`). Tanpa
+konfigurasi lengkap, backend menolak start. Login bersama membuka akses Tamu;
+akun main tetap terpisah untuk simpanan server. Hash, rotasi, seed admin dan
+batas cache dijelaskan di [panduan pintu masuk](doc/pintu-masuk.md).
+
 ```sh
 npm run build
 npm start
@@ -124,7 +130,7 @@ Tidak ada BIOS proprietary yang disertakan. Tambahkan berkas yang berhak didistr
 ]
 ```
 
-Semua isi `public/` dapat diunduh pengunjung, **bukan penyimpanan privat**. BIOS yang salah dapat membuat game gagal walaupun ekstensi lolos validasi. Pertahankan nama firmware sesuai core. Untuk banyak firmware gunakan satu ZIP. Jalur BIOS lokal dikemas sebagai ZIP tanpa kompresi di memori agar nama file yang diharapkan core tidak hilang karena URL blob.
+Pada build statis, semua isi `public/` dapat diunduh pengunjung: **tidak untuk akses privat**. Backend Node melindungi katalog, ROM/BIOS dan cover dengan pintu masuk; folder shell `/assets/`, `/vendor/`, `/player/` tetap terbuka, jangan simpan data privat di sana. BIOS yang salah dapat membuat game gagal walaupun ekstensi lolos validasi. Pertahankan nama firmware sesuai core. Untuk banyak firmware gunakan satu ZIP. Jalur BIOS lokal dikemas sebagai ZIP tanpa kompresi di memori agar nama file yang diharapkan core tidak hilang karena URL blob.
 
 ## Format dan batas MVP
 
@@ -212,13 +218,13 @@ Default porta host `7777`, dapat diubah lewat `MAIN_DULU_PORT`. Perilaku serving
 Compose di atas menyajikan frontend statis lewat Nginx, tanpa API akun. Untuk **backend Docker 0.5.0** (akun, state/progres server, volume privat), gunakan:
 
 ```sh
-# Default hanya localhost
-docker compose -f deploy/docker-compose.backend.yml up -d --build
+# Isi kredensial pintu masuk di .env.backend lebih dahulu; default hanya localhost
+docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -d --build
 ```
 
 Untuk LAN tanpa domain/HTTPS, salin `deploy/backend.env.example` ke `.env.backend`, ganti IP server, lalu gunakan `docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -d --build`. Ini mengaktifkan HTTP tanpa enkripsi secara eksplisit, hanya untuk jaringan tepercaya. Panduan lengkap: **[Docker backend: konfigurasi, build, deploy, backup/update, dan troubleshooting](deploy/README.backend.md)**. Jangan jalankan Compose statis dan backend pada port host sama.
 
-Gunakan `npm start` untuk web + API tanpa Docker. Jangan menaruh database/folder data di `public/` atau `dist/`; seluruh aset publik, termasuk berkas yang diabaikan Git, tetap ikut hasil build dan dapat diunduh pengunjung.
+Gunakan `npm start` untuk web + API tanpa Docker. Jangan menaruh database/folder data di `public/` atau `dist/`; berkas yang diabaikan Git di `public/` tetap ikut hasil build. Compose statis/preview tidak memiliki gerbang dan tidak boleh dipakai untuk akses privat. Untuk backend, proxy harus meneruskan seluruh jalur data ke Node dan tidak boleh shared-cache aset terlindungi; lihat [panduan pintu masuk](doc/pintu-masuk.md).
 
 Gunakan HTTPS, MIME JavaScript/CSS/WASM yang benar, dan cache panjang hanya untuk aset ber-versi/ber-hash. Manifest sebaiknya revalidate. Player membutuhkan WebAssembly serta script blob; jangan menerapkan CSP global yang menolak kebutuhan tersebut. Threaded cores tidak diaktifkan sehingga COOP/COEP tidak diwajibkan MVP.
 
@@ -230,6 +236,7 @@ npm run test:e2e
 npm run build
 npm run test:e2e:production
 npm run test:e2e:backend
+npm run test:e2e:gate
 ```
 
 Tes browser menggunakan Microsoft Edge yang terpasang di Windows. Jika tidak tersedia, ubah `channel` di `playwright.config.ts` atau instal Chromium Playwright. Tes mencakup desktop/mobile, file lokal, BIOS plumbing lokal/server, riwayat/favorit/pengaturan, peluncuran demo server, round-trip save/load state, penutupan player, core yang hilang, serta cold-cache dengan semua request origin eksternal diblokir. BIOS sintetis pada tes hanya menguji jalur file, bukan kompatibilitas firmware proprietary. Screenshot hasil uji berada di `test-results/` (diabaikan Git). Build sebelum menjalankan `test:e2e:production` maupun `test:e2e:backend` agar yang diuji benar-benar frontend dan bridge terbaru.

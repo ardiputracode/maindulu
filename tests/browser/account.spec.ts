@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './helpers/gated-test'
 import type { Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { createServer } from 'node:net'
 import { createServer as createHttpsServer } from 'node:https'
 import { request as httpRequest } from 'node:http'
-import { createApp } from '../../server/app.mjs'
+import { createApp } from '../helpers/gated-backend.mjs'
 import { key, cert } from '../helpers/test-tls.mjs'
 
 // Exercise the exact minimum through registration, login and password change.
@@ -243,7 +243,7 @@ test('mobile account forms remain keyboard-accessible and validation errors do n
 test('an account API outage is visible and recoverable without affecting the guest catalog', async ({ page }) => {
   await page.route('**/api/auth/session', route => route.abort())
   const dialog = await openLogin(page)
-  await expect(dialog.getByRole('alert')).toContainText('Informasi akun belum dapat dimuat')
+  await expect(dialog.getByRole('alert')).toContainText('Informasi akun belum bisa diambil')
   await page.unroute('**/api/auth/session')
   await dialog.getByRole('button', { name: 'Periksa akun lagi' }).click()
   await expect(dialog.getByLabel('Username', { exact: true })).toBeVisible()

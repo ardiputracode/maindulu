@@ -23,10 +23,14 @@ export async function hashPassword(password) {
 }
 
 export async function verifyPassword(password, encoded) {
+  if (!validPasswordHash(encoded)) return false
   const parts = encoded.split('$')
-  if (parts.length !== 6 || parts.slice(0, 4).join('$') !== 'scrypt$32768$8$3' || !/^[0-9a-f]{32}$/.test(parts[4]) || !/^[0-9a-f]{128}$/.test(parts[5])) return false
   const key = await derive(password, Buffer.from(parts[4], 'hex'), 64, options)
   return timingSafeEqual(key, Buffer.from(parts[5], 'hex'))
+}
+
+export function validPasswordHash(value) {
+  return typeof value === 'string' && /^scrypt\$32768\$8\$3\$[a-f0-9]{32}\$[a-f0-9]{128}$/.test(value)
 }
 
 export const randomToken = () => randomBytes(32).toString('hex')

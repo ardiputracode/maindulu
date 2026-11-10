@@ -1,5 +1,10 @@
 # Rencana Login Opsional dan Penyimpanan Progres Server
 
+**Model akses terkini:** login akun main tetap opsional, tetapi backend sekarang
+mewajibkan [pintu masuk bersama](pintu-masuk.md) sebelum katalog/data/akun.
+Pintu masuk tidak membuat akun personal. Build statis tetap tanpa gerbang dan
+tidak untuk akses privat. Implementasi/checklist: [G1–G5](rencana-akses-dua-level.md).
+
 Status: **M1–M8 selesai dalam cakupan terverifikasi masing-masing; M8 ditutup untuk penggunaan lokal.** Konflik, impor browser/file, dan cadangan M7 dibuktikan otomatis pada NES legacy; pengguna juga mengonfirmasi tes PS1 M7 berhasil manual, tanpa rincian skenario/konfigurasi. M8 menyediakan backup/verify/restore offline melalui CLI dan pembuktian pemulihan instalasi NES ke folder bersih; pengguna mengonfirmasi progres PS1 terbaca setelah restore instalasi. Bukti manual M6, M7, dan M8 tetap terpisah, bukan tes otomatis PS1 atau klaim seluruh game/card/varian. **HTTPS belum diimplementasikan/diuji oleh pengguna dan ditunda; akun dari perangkat lain belum dinyatakan siap.** Lihat [panduan M6 dan hasil manual PS1](milestone-6-progres-game.md), [panduan M7](milestone-7-konflik-impor-save.md), serta [operasi dan bukti M8](milestone-8-backup-operasi.md).
 
 Pelaksanaan dilakukan per milestone. Lihat bagian [Milestone Implementasi](#milestone-implementasi) untuk checklist dan kriteria selesai, serta [hasil pembuktian M1](milestone-1-integrasi-save.md) untuk kontrak engine, bukti pengujian, dan batasan integrasi berikutnya.

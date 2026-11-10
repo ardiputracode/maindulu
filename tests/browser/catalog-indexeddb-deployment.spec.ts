@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './helpers/gated-test'
 import type { Page } from '@playwright/test'
 import { fork, execFile } from 'node:child_process'
 import { once } from 'node:events'

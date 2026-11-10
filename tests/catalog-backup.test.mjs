@@ -7,7 +7,7 @@ import { Readable } from 'node:stream'
 import { DatabaseSync } from 'node:sqlite'
 import { spawnSync } from 'node:child_process'
 import { backendFixture } from './helpers/backend-fixture.mjs'
-import { readConfig } from '../server/config.mjs'
+import { readConfig, gateEnv } from './helpers/gated-backend.mjs'
 import { openDatabase, schemaVersion } from '../server/database.mjs'
 import { createCatalogStorage } from '../server/catalog/storage.mjs'
 import { createCatalogRepository } from '../server/catalog/repository.mjs'
@@ -282,7 +282,7 @@ test('metadata-only backups include active/deleted catalog metadata but delibera
         if (scenario === 'tombstone') assert.notEqual(check.prepare('SELECT deleted_at FROM games').get().deleted_at, null)
       } finally { check.close() }
       assert.equal((await readdir(c.root)).some(name => name.includes('.partial-')), false)
-      const cli = spawnSync(process.execPath, ['scripts/data-backup.mjs', 'verify', destination], { encoding: 'utf8', env: { ...process.env, MAIN_DULU_DATA_DIR: c.config.dataDir }, timeout: 15000 })
+      const cli = spawnSync(process.execPath, ['scripts/data-backup.mjs', 'verify', destination], { encoding: 'utf8', env: { ...process.env, ...gateEnv, MAIN_DULU_DATA_DIR: c.config.dataDir }, timeout: 15000 })
       assert.equal(cli.status, 0, cli.stderr)
       assert.match(cli.stdout, /ROM, BIOS, dan cover tidak disertakan/)
     })

@@ -78,7 +78,7 @@ export default function CatalogScan({ userId, onDenied }: { userId: string; onDe
   return <div className="account-form">
     <h2>Scan Koleksi</h2>
     <p>Sumber ROM: {sources ? sources.games === 'shared' ? 'folder bersama baca/tulis' : sources.games === 'external' ? 'eksternal hanya-baca' : 'folder roms pada data server' : 'memeriksa…'}. Sumber BIOS: {sources ? sources.bios === 'shared' ? 'folder bersama baca/tulis' : sources.bios === 'external' ? 'eksternal hanya-baca' : 'folder bios pada data server' : 'memeriksa…'}. Setiap sumber memakai subfolder &lt;platform&gt; yang dipilih di bawah; subfolder bertingkat tidak diikuti.</p>
-    <p>Berkas valid otomatis masuk katalog dan dapat diunduh publik, termasuk oleh tamu. Tidak ada tahap konfirmasi impor. Pada mode folder bersama, upload admin memakai folder yang sama dengan scan. Pada mode eksternal hanya-baca, upload tetap internal.</p>
+    <p>Berkas valid otomatis masuk katalog. Hanya tamu yang sudah lewat pintu masuk yang bisa mengunduhnya. Tidak ada tahap konfirmasi impor. Pada mode folder bersama, upload admin memakai folder yang sama dengan scan. Pada mode eksternal hanya-baca, upload tetap internal.</p>
     <p className="notice">Tunggu minimal 10 detik setelah perubahan terakhir. Scan tidak menyalin atau mengubah sumber. Pada folder bersama, Hapus ikut menghapus file fisik yang dipakai RomM. Pada sumber hanya-baca Hapus tetap dinonaktifkan. Jangan overwrite berkas terdaftar; perubahan byte dilaporkan sebagai konflik. Berkas hilang tidak menghapus ID/save. Daftar RomM dan maindulu perlu scan/refresh masing-masing. Validasi bukan jaminan playable/autentik.</p>
     <form onSubmit={e => { e.preventDefault(); void mutate() }}>
       <fieldset disabled={active || busy || !loaded}>

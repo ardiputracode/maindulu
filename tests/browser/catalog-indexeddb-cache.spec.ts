@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './helpers/gated-test'
 import type { Page, FrameLocator } from '@playwright/test'
 import { build } from 'esbuild'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -7,7 +7,7 @@ import { tmpdir, networkInterfaces } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import type { DatabaseSync } from 'node:sqlite'
-import { createApp } from '../../server/app.mjs'
+import { createApp } from '../helpers/gated-backend.mjs'
 import { createCatalogStorage } from '../../server/catalog/storage.mjs'
 import { createCatalogRepository } from '../../server/catalog/repository.mjs'
 import { catalogDto } from '../../server/catalog/queries.mjs'
@@ -41,7 +41,7 @@ test.beforeAll(async ({}, info) => {
     define: { 'process.env.NODE_ENV': '"development"' } })).outputFiles[0].text
   const parent = process.platform === 'win32' && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Temp/opencode') : tmpdir()
   folder = await mkdtemp(join(parent, 'player-assets-m3-'))
-  app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data') } })
+  app = await createApp({ env: { MAIN_DULU_DATA_DIR: join(folder, 'data'), MAIN_DULU_PUBLIC_ORIGIN: 'http://localhost:7777', MAIN_DULU_ALLOW_INSECURE_HTTP: 'true' } })
   const db = app.getDecorator<DatabaseSync>('database'), actor = randomUUID()
   db.prepare('INSERT INTO users (id, username, password_hash, recovery_code_hash, created_at, role) VALUES (?, ?, ?, ?, ?, ?)').run(actor, 'm3_admin', 'test-only', 'test-only', Date.now(), 'admin')
   const storage = await createCatalogStorage(app.getDecorator('appConfig'), app.database)
@@ -71,6 +71,7 @@ test.beforeAll(async ({}, info) => {
   const bound = app.server.address()
   if (!bound || typeof bound === 'string') throw Error('Missing server port')
   address = `http://127.0.0.1:${bound.port}`
+  app.appConfig.publicOrigins.push(address, ...Object.values(networkInterfaces()).flat().filter(value => value?.family === 'IPv4' && !value.internal).map(value => `http://${value!.address}:${bound.port}`))
 })
 test.afterAll(async () => {
   await app?.close()
@@ -567,14 +568,9 @@ test('M4 HTTP LAN settings opt-in and real NES miss/hit work without secure-cont
   await toggle.click(); await expect(toggle).not.toBeChecked()
   await toggle.click(); await expect(toggle).toBeChecked()
   async function launchGuest() {
-    // This fixture deliberately does not opt HTTP network accounts in. Preserve
-    // the real application's explicit confirmation instead of bypassing auth.
-    const accept = async (dialog: import('@playwright/test').Dialog) => {
-      expect(dialog.message()).toContain('Mulai sebagai tamu dengan save browser?')
-      await dialog.accept()
-    }
-    page.on('dialog', accept)
-    try { return await launch(page) } finally { page.off('dialog', accept) }
+    // The door and account API now require an explicitly configured LAN origin.
+    // Entering the shared door still does not create a personal account.
+    return launch(page)
   }
   await launchGuest()
   await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Tersimpan di perangkat')

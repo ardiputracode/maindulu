@@ -6,9 +6,9 @@ import { DatabaseSync } from 'node:sqlite'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import { fileURLToPath } from 'node:url'
-import { createApp } from '../server/app.mjs'
+import { createApp, gateEnv } from './helpers/gated-backend.mjs'
 import { openDatabase, schemaVersion } from '../server/database.mjs'
-import { readConfig } from '../server/config.mjs'
+import { readConfig } from './helpers/gated-backend.mjs'
 import { backendFixture } from './helpers/backend-fixture.mjs'
 
 test('backend configuration defaults to loopback and validates port and private data location', async t => {
@@ -118,7 +118,7 @@ test('one server serves SPA pages with runtime discovery and a JSON health endpo
     assert.doesNotMatch(await readFile(join(root, 'dist/index.html'), 'utf8'), /maindulu-backend/)
     const health = await app.inject('/api/health')
     assert.equal(health.statusCode, 200)
-    assert.deepEqual(health.json(), { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: true, biosCatalog: true, metadata: true, catalogScan: true } })
+    assert.deepEqual(health.json(), { service: 'maindulu', apiVersion: 1, status: 'ok', capabilities: { gate: true, accounts: true, serverSaves: true, gameSaves: true, admin: true, gameCatalog: true, biosCatalog: true, metadata: true, catalogScan: true } })
     assert.doesNotMatch(health.body, /sqlite|installation_id|dataDir|distDir/)
   } finally { await app.close() }
 })
@@ -183,7 +183,7 @@ test('the real CLI serves web and API in one process and retains SQLite identity
   await new Promise((resolve, reject) => { reserve.once('error', reject); reserve.listen(0, '127.0.0.1', resolve) })
   const port = reserve.address().port
   await new Promise(resolve => reserve.close(resolve))
-  const env = { ...process.env, MAIN_DULU_HOST: '127.0.0.1', MAIN_DULU_PORT: String(port), MAIN_DULU_DIST_DIR: join(root, 'dist'), MAIN_DULU_DATA_DIR: join(root, 'data') }
+  const env = { ...process.env, ...gateEnv, MAIN_DULU_HOST: '127.0.0.1', MAIN_DULU_PORT: String(port), MAIN_DULU_DIST_DIR: join(root, 'dist'), MAIN_DULU_DATA_DIR: join(root, 'data') }
   async function start() {
     const child = spawn(process.execPath, [fileURLToPath(new URL('../server/index.mjs', import.meta.url))], { env, stdio: ['ignore', 'pipe', 'pipe'] })
     try {

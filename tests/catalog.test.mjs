@@ -8,8 +8,8 @@ import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { DatabaseSync } from 'node:sqlite'
 import { openDatabase, schemaVersion } from '../server/database.mjs'
-import { readConfig } from '../server/config.mjs'
-import { createApp } from '../server/app.mjs'
+import { readConfig, gateEnv } from './helpers/gated-backend.mjs'
+import { createApp } from './helpers/gated-backend.mjs'
 import { createCatalogStorage, catalogLimits, storageKeyPattern } from '../server/catalog/storage.mjs'
 import { createCatalogRepository, safeOriginalName } from '../server/catalog/repository.mjs'
 import { recoverCatalogStorage } from '../server/catalog/recovery.mjs'
@@ -316,7 +316,7 @@ test('offline recovery preserves active files and saves, reports damage/unknown/
 test('recovery CLI defaults to inspection and refuses live server leases', async t => {
   const c = await setup(t)
   const orphan = await c.stage()
-  const run = args => spawnSync(process.execPath, ['scripts/recover-catalog.mjs', ...args], { encoding: 'utf8', env: { ...process.env, MAIN_DULU_DATA_DIR: c.config.dataDir }, timeout: 15000 })
+  const run = args => spawnSync(process.execPath, ['scripts/recover-catalog.mjs', ...args], { encoding: 'utf8', env: { ...process.env, ...gateEnv, MAIN_DULU_DATA_DIR: c.config.dataDir }, timeout: 15000 })
   const live = run(['--apply'])
   assert.equal(live.status, 1)
   assert.match(live.stderr, /Data sedang dipakai/)

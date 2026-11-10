@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { gateEnv } from './helpers/gated-backend.mjs'
 import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
 import { spawnSync } from 'node:child_process'
@@ -80,7 +81,7 @@ test('actual admin CLI resets an existing database with simulated interactive te
     };
   `)
   const result = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, 'scripts/reset-account.mjs', ' PLAYER_ONE '], {
-    encoding: 'utf8', timeout: 15000, env: { ...process.env, MAIN_DULU_DATA_DIR: dataDir },
+    encoding: 'utf8', timeout: 15000, env: { ...process.env, ...gateEnv, MAIN_DULU_DATA_DIR: dataDir },
   })
   assert.equal(result.status, 0, result.stderr)
   const output = result.stdout + result.stderr

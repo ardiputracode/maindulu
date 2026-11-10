@@ -1,4 +1,4 @@
-import { test as base, expect } from '@playwright/test'
+import { test as base, expect, prepareContext } from './helpers/gated-test'
 import type { Page, FrameLocator } from '@playwright/test'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { DatabaseSync } from 'node:sqlite'
 import type { readConfig } from '../../server/config.mjs'
-import { createApp } from '../../server/app.mjs'
+import { createApp } from '../helpers/gated-backend.mjs'
 import { createDataBackup, restoreDataBackup } from '../../server/data-backup.mjs'
 import { buildNesBatteryFixture } from '../fixtures/nes-battery.mjs'
 import { encodeGameSave } from '../../src/lib/game-save-format'
@@ -41,6 +41,7 @@ const test = base.extend<{ backend: Backend | null }>({
   },
   context: async ({ browser, backend, baseURL, contextOptions }, use) => {
     const context = await browser.newContext({ ...contextOptions, baseURL: backend?.address ?? baseURL })
+    if (backend) prepareContext(context, backend.address)
     try { await use(context) } finally { await context.close() }
   },
 })

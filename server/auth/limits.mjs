@@ -1,8 +1,9 @@
 export class AuthError extends Error {
-  constructor(statusCode, message, retryAfter) {
+  constructor(statusCode, message, retryAfter, code) {
     super(message)
     this.statusCode = statusCode
     this.retryAfter = retryAfter
+    this.code = code
   }
 }
 

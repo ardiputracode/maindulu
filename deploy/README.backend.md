@@ -2,6 +2,12 @@
 
 Frontend + API akun/save disajikan oleh **satu server Node.js 24**, bukan Nginx. SQLite, state, progres game, dan cadangan konflik disimpan pada named volume privat. Tidak perlu Node/npm atau database terpisah di host.
 
+**Pintu masuk sekarang wajib, termasuk upgrade:** isi `MAIN_DULU_GATE_USERNAME`
+dan `MAIN_DULU_GATE_PASSWORD` atau `_HASH`. Env kosong/tidak valid menolak startup.
+Login pintu masuk bersama bukan akun personal; tamu mendapat katalog/ROM/BIOS dan
+save browser, akun main membuka save server. Baca [hash, rotasi, seed admin,
+proxy dan batas statis](../doc/pintu-masuk.md). Template sengaja tanpa password.
+
 > **HTTP LAN adalah pilihan berisiko, bukan HTTPS.** Password, kode pemulihan, cookie sesi, dan save dapat disadap/diubah di perjalanan. Gunakan hanya pada jaringan tepercaya, jangan gunakan password layanan lain, dan jangan membuka port HTTP ini ke internet. Pemeriksaan origin/CSRF tidak mengenkripsi koneksi dan tidak mencegah penyadapan. Mode ini tidak membatasi subnet otomatis; operator harus mengatur firewall.
 
 ## 1. Prasyarat
@@ -19,10 +25,14 @@ Frontend + API akun/save disajikan oleh **satu server Node.js 24**, bukan Nginx.
 | LAN HTTP (opt-in) | `0.0.0.0` atau IP LAN server | `http://IP-SERVER:7777` | **`true`** |
 | HTTPS reverse proxy | `127.0.0.1` untuk proxy di host | `https://main.example.com` | `false` |
 
-### A. Localhost, tanpa konfigurasi
+### A. Localhost
+
+Siapkan `.env.backend` privat dengan origin `http://localhost:7777`, bind
+`127.0.0.1`, `MAIN_DULU_ALLOW_INSECURE_HTTP=false`, username dan password/hash
+pintu masuk. Jangan menimpa env-file yang sudah ada.
 
 ```sh
-docker compose -f deploy/docker-compose.backend.yml up -d --build
+docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml up -d --build
 ```
 
 Buka **http://localhost:7777 pada server sendiri**. `localhost` pada PC/HP lain menunjuk perangkat tersebut, bukan server. Default sengaja tidak membuka akun ke jaringan.
@@ -38,6 +48,10 @@ cp deploy/backend.env.example .env.backend
 ```
 
 Edit `.env.backend` di akar repo:
+
+Isi juga `MAIN_DULU_GATE_USERNAME` dan password/hash pintu masuk (jangan
+menggunakan nilai contoh sebagai password). `MAIN_DULU_GATE_SESSION_DAYS=7`
+adalah default. Di LAN, URL/origin dan kredensial harus dikonfigurasi sebelum start.
 
 ```dotenv
 MAIN_DULU_BIND_ADDRESS=0.0.0.0
@@ -56,7 +70,7 @@ docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml ps
 docker compose --env-file .env.backend -f deploy/docker-compose.backend.yml logs --tail=50 backend
 ```
 
-Buka **http://192.168.2.251:7777** dari PC/HP lain. Tidak perlu Nginx, sertifikat, atau pengaturan keamanan browser. Pilih **Masuk → Daftar**, simpan kode pemulihan, lalu login sebelum membuka game agar sesi memakai save server. Game tamu tetap memakai browser.
+Buka **http://192.168.2.251:7777** dari PC/HP lain. Buka pintu masuk memakai username/password bersama dari pengelola. Setelah masuk, pilih **Masuk → Daftar** untuk akun main, simpan kode pemulihan, lalu login sebelum membuka game agar sesi memakai save server. Game tamu tetap memakai browser.
 
 `PORTS` harus menampilkan `0.0.0.0:7777->7777/tcp` (atau IP bind yang dipilih). Izinkan TCP 7777 hanya dari LAN tepercaya pada firewall LXC/host/Proxmox; jangan mengaktifkan port forwarding router. Bind `0.0.0.0` mencakup semua interface IPv4, bukan hanya LAN.
 
@@ -81,6 +95,11 @@ MAIN_DULU_ALLOW_INSECURE_HTTP=false
 ```
 
 Proxy meneruskan seluruh path ke `http://127.0.0.1:7777`, mempertahankan **Host publik beserta port bila nonstandar** (Nginx: `proxy_set_header Host $http_host;`), dan menerima body biner sampai batas state yang dikonfigurasi. Jangan mengubah error API menjadi HTML. Jika proxy di container lain, gunakan jaringan Docker bersama, bukan `127.0.0.1` container proxy.
+
+Termasuk `/catalog/`, `/games/`, `/bios/`, `/covers/`: jangan melayani file langsung
+dari Nginx/CDN/alias yang melewati Node. Teruskan Cookie/Set-Cookie dan nonaktifkan
+shared cache data/aset terlindungi. Rotasi password/hash memerlukan recreate
+container dan membatalkan semua cookie pintu masuk lama tanpa menghapus akun/save.
 
 Untuk API upload katalog pengembangan, lihat [batas multipart, buffering, timeout, dan contoh location proxy](../doc/milestone-3-api-katalog.md#reverse-proxy). API akun/save tetap memakai limit sendiri; jangan mengekspos volume data melalui Nginx.
 

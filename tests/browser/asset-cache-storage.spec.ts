@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './helpers/gated-test'
 import { build } from 'esbuild'
 import type * as Harness from '../fixtures/asset-cache-storage'
 

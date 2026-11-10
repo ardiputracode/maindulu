@@ -28,6 +28,7 @@ server/metadata/**
 scripts/**
 !scripts/reset-account.mjs
 !scripts/set-account-role.mjs
+!scripts/hash-gate-password.mjs
 !scripts/data-backup.mjs
 !scripts/recover-catalog.mjs
 !scripts/build-player-assets.mjs

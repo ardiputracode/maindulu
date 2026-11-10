@@ -1,5 +1,11 @@
 # Role akun dan otorisasi admin
 
+**Akses terkini:** backend mewajibkan [pintu masuk bersama](pintu-masuk.md)
+sebelum semua API, termasuk akun/admin. Tamu berarti sudah lewat pintu masuk,
+bukan role database; role tetap `user` / `admin`. Env gerbang wajib juga untuk CLI
+yang membaca konfigurasi backend. Seed admin personal pertama tersedia terpisah
+melalui `MAIN_DULU_DEFAULT_*` hanya saat tabel users kosong.
+
 Fondasi Milestone 1 pada [rencana Admin/Library/BIOS](rencana-admin-library-game.md), **selesai dan terverifikasi pada 2026-10-26** dalam cakupan pengujian di bawah. **Belum menyediakan halaman admin, katalog dinamis, atau upload game/BIOS.**
 
 Catatan perkembangan: batas di atas adalah cakupan historis Milestone 1. API tersedia sejak Milestone 3, pengelolaan pada [Milestone 4](milestone-4-ui-admin.md), dan Library/pilihan BIOS dinamis pada [Milestone 5](milestone-5-library-player.md). [Backup format 2](backup-metadata-katalog.md) menyertakan akun/save/metadata katalog, tetapi sengaja tidak mencadangkan byte ROM/BIOS/cover sesuai keputusan pengguna.
