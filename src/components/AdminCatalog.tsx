@@ -20,7 +20,7 @@ const message = (error: unknown) => error instanceof Error ? error.message : 'Pe
 const bytes = (size: number) => size < 1024 ? `${size} B` : size < 1024 * 1024
   ? `${(size / 1024).toLocaleString('id-ID', { maximumFractionDigits: 2 })} KiB`
   : `${(size / 1024 / 1024).toLocaleString('id-ID', { maximumFractionDigits: 2 })} MiB`
-const fileStates: Record<string, string> = { available: 'Tersedia', missing: 'Berkas hilang', damaged: 'Ukuran tidak sesuai', unsafe: 'Berkas tidak aman', none: 'Tidak ada' }
+const fileStates: Record<string, string> = { available: 'Tersedia', missing: 'Berkas hilang', damaged: 'Isi/ukuran tidak sesuai', unsafe: 'Berkas tidak aman', none: 'Tidak ada' }
 
 export default function AdminCatalog({ backend, account, consoles, onLogin, onRetry, metadataTasks }: {
   backend: BackendState; account: Account; consoles: ConsoleInfo[]; onLogin: () => void; onRetry: () => void;
@@ -61,7 +61,7 @@ export default function AdminCatalog({ backend, account, consoles, onLogin, onRe
     <div className="page-heading"><div><span className="eyebrow">RUANG PENGELOLA</span><h1>Kelola koleksi.</h1><p>Game dan BIOS dikelola terpisah. Aset aktif hanya terbuka untuk tamu yang sudah lewat pintu masuk.</p></div><ShieldCheck size={30} /></div>
     <nav className="admin-tabs" aria-label="Menu admin"><NavLink to="/admin" end>Ringkasan</NavLink><NavLink to="/admin/games">Manage Game</NavLink><NavLink to="/admin/bios">Manage BIOS</NavLink>{backend.status === 'online' && backend.health.capabilities.catalogScan && <NavLink to="/admin/scan">Scan Koleksi</NavLink>}{backend.health.capabilities.metadata && <NavLink to="/admin/metadata">Antrean Metadata</NavLink>}</nav>
     <p className="notice">Backup menyimpan akun, save/progres, dan metadata katalog; tidak menyertakan berkas ROM, BIOS, atau cover. Jika aset hilang setelah restore, upload ulang berkas yang sama dan konfirmasi ID lama.</p>
-    {backend.status === 'online' && backend.health.capabilities.catalogScan && <p><Link to="/admin/scan">Scan Koleksi dari folder server</Link> — daftarkan ROM/BIOS hasil transfer WinSCP tanpa upload ulang.</p>}
+    {backend.status === 'online' && backend.health.capabilities.catalogScan && <p><Link to="/admin/scan">Scan Koleksi dari folder server</Link> — daftarkan ROM/BIOS hasil transfer WinSCP dan perbarui ketersediaan file tanpa upload ulang. File hilang/rusak disembunyikan dari Library tanpa menghapus ID atau save.</p>}
     <Routes>
       <Route path="metadata" element={backend.health.capabilities.metadata ? <MetadataQueue consoles={consoles} userId={user.id} tasks={metadataTasks} onDenied={denied} /> : <p>API metadata tidak tersedia pada backend ini.</p>} />
       <Route path="scan" element={backend.status === 'online' && backend.health.capabilities.catalogScan ? <CatalogScan userId={user.id} onDenied={denied} /> : <p>Scan folder tidak tersedia pada backend ini.</p>} />

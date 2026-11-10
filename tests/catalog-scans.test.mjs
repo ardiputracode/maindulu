@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { renameSync, writeFileSync } from 'node:fs'
-import { link, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { link, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { Readable } from 'node:stream'
@@ -318,4 +318,196 @@ test('over-quota adoption keeps actual bytes visible and retention trims details
   const retained = (await c.get('/' + oldId)).json().job
   assert.equal(retained.truncated, true); assert.equal(retained.added, 1)
   assert.equal((await c.get('/' + oldId + '/results')).json().total, 0)
+})
+
+test('completed scoped scan hides missing ROM/BIOS, preserves saves/metadata and restores identical bytes with the same IDs', async t => {
+  const c = await setup(t)
+  const rom = await c.put('games', 'nes', 'keep.nes', 'original ROM')
+  const color = await c.put('games', 'gbc', 'color.gbc')
+  const bios = await c.put('bios', 'nes', 'boot.bin', 'original BIOS')
+  await c.scan()
+  const game = c.db.prepare("SELECT * FROM games WHERE original_name = 'keep.nes'").get()
+  const firmware = c.db.prepare('SELECT * FROM bios').get()
+  c.db.prepare('INSERT INTO saves VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(randomUUID(), c.actor, game.id, 'nes', 'fceumm', 1, 'saved title', '{}', 2, 0, 'a'.repeat(64), null, 3)
+  c.db.prepare('INSERT INTO game_saves VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(randomUUID(), c.actor, game.id, 'nes', 'fceumm', 'saved title', '{}', 2, 0, 'b'.repeat(64), null, 3)
+  const preserved = ['games', 'bios', 'game_metadata', 'game_metadata_field_sources', 'metadata_jobs', 'saves', 'game_saves']
+  const before = Object.fromEntries(preserved.map(table => [table, c.db.prepare(`SELECT * FROM ${table}`).all()]))
+  const revision = c.db.prepare('SELECT revision FROM catalog_revision').get().revision
+  await unlink(rom); await unlink(color); await unlink(bios)
+  const missing = await c.scan({ kind: 'games', platforms: ['nes'] })
+  assert.equal(missing.job.status, 'completed')
+  assert.equal(missing.results[0].status, 'missing'); assert.equal(missing.results[0].existingId, game.id)
+  const page = (await c.app.inject({ url: '/api/games?pageSize=1' })).json()
+  assert.equal(page.total, 1); assert.equal(page.items[0].fileName, 'color.gbc')
+  assert.ok(page.revision > revision)
+  assert.equal((await c.app.inject({ url: '/api/bios' })).json().total, 1)
+  assert.equal((await c.app.inject({ url: `/api/games/${game.id}` })).statusCode, 404)
+  for (const method of ['GET', 'HEAD']) assert.equal((await c.app.inject({ method, url: `/games/${game.id}/rom/keep.nes`, headers: { 'if-none-match': `"${game.sha256}"` } })).statusCode, 404)
+  const admin = (await c.app.inject({ url: '/api/admin/games', headers: c.headers })).json()
+  assert.equal(admin.total, 2); assert.equal(admin.items.find(row => row.id === game.id).fileStatus, 'missing')
+  await c.scan({ kind: 'bios', platforms: ['nes'] })
+  assert.equal((await c.app.inject({ url: '/api/bios' })).json().total, 0)
+  assert.equal((await c.app.inject({ url: `/api/bios/${firmware.id}` })).statusCode, 404)
+  await writeFile(rom, 'original ROM'); await writeFile(bios, 'original BIOS')
+  // A returned pathname is not published until another successful scan.
+  assert.equal((await c.app.inject({ url: `/api/games/${game.id}` })).statusCode, 404)
+  const restored = await c.scan({ platforms: ['nes'] })
+  assert.equal(restored.results.filter(row => row.status === 'restored').length, 2)
+  assert.equal((await c.app.inject({ url: '/api/games' })).json().total, 2)
+  assert.equal((await c.app.inject({ url: '/api/bios' })).json().items[0].id, firmware.id)
+  assert.equal((await c.app.inject({ url: `/games/${game.id}/rom/keep.nes` })).body, 'original ROM')
+  for (const table of preserved) assert.deepEqual(c.db.prepare(`SELECT * FROM ${table}`).all(), before[table], table)
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_cleanup').get().n, 0)
+})
+
+test('same-size byte replacement and empty files are hidden, not adopted; only the original hash restores availability', async t => {
+  const c = await setup(t)
+  const path = await c.put('games', 'nes', 'hash.nes', 'same')
+  await c.scan()
+  const game = c.db.prepare('SELECT * FROM games').get()
+  await writeFile(path, 'diff')
+  const changed = await c.scan()
+  assert.ok(changed.results.some(row => row.status === 'damaged'))
+  assert.equal((await c.app.inject({ url: '/api/games' })).json().total, 0)
+  assert.equal((await c.app.inject({ url: '/api/admin/games', headers: c.headers })).json().items[0].fileStatus, 'damaged')
+  assert.equal((await c.app.inject({ url: `/games/${game.id}/rom/hash.nes` })).statusCode, 404)
+  await writeFile(path, '')
+  await c.scan()
+  assert.equal((await c.app.inject({ url: '/api/games' })).json().total, 0)
+  await writeFile(path, 'same')
+  const restored = await c.scan()
+  assert.ok(restored.results.some(row => row.status === 'restored'))
+  assert.deepEqual(c.db.prepare('SELECT * FROM games').get(), game)
+  c.app.catalog.repository.delete('games', c.actor, game.id)
+  await c.scan()
+  assert.equal((await c.app.inject({ url: '/api/games' })).json().total, 0)
+  assert.ok(c.db.prepare('SELECT deleted_at FROM games').get().deleted_at)
+})
+
+test('cancel, lease loss, demotion and failed scans never commit staged availability changes', async t => {
+  for (const action of ['cancel', 'lease', 'role', 'failure']) await t.test(action, async t => {
+    const c = await setup(t)
+    const gone = await c.put('games', 'nes', 'gone.nes')
+    await c.put('games', 'snes', 'hold.sfc')
+    await c.scan()
+    await unlink(gone)
+    const revision = c.db.prepare('SELECT revision FROM catalog_revision').get().revision
+    const adoption = c.storage.adoption
+    let enter, release
+    const entered = new Promise(resolve => { enter = resolve }), held = new Promise(resolve => { release = resolve })
+    c.storage.adoption = async (...args) => {
+      const value = await adoption(...args)
+      enter(); await held
+      if (action === 'failure') throw Object.assign(new Error('controlled database failure'), { code: 'SQLITE_ERROR' })
+      return value
+    }
+    try {
+      const response = await c.post('', { kind: 'games', platforms: ['nes', 'snes'] })
+      const id = response.json().job.id
+      await entered
+      if (action === 'cancel') await c.post('/' + id + '/cancel')
+      if (action === 'lease') c.db.prepare('UPDATE catalog_scans SET lease_until = 0 WHERE id = ?').run(id)
+      if (action === 'role') c.db.prepare("UPDATE users SET role = 'user' WHERE id = ?").run(c.actor)
+      release()
+      for (let n = 0; n < 100 && ['queued', 'running'].includes(c.db.prepare('SELECT status FROM catalog_scans WHERE id = ?').get(id).status); n++) await delay(10)
+      assert.ok(['cancelled', 'interrupted', 'failed'].includes(c.db.prepare('SELECT status FROM catalog_scans WHERE id = ?').get(id).status))
+      assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_file_status').get().n, 0)
+      assert.equal(c.db.prepare('SELECT revision FROM catalog_revision').get().revision, revision)
+      assert.equal((await c.app.inject({ url: '/api/games' })).json().total, 2)
+    } finally { release() }
+  })
+})
+
+test('missing platform folders do not imply missing games; safe folders still reconcile and hard links stay hidden', async t => {
+  const c = await setup(t)
+  const nes = await c.put('games', 'nes', 'mount.nes')
+  const snes = await c.put('games', 'snes', 'gone.sfc')
+  await c.scan()
+  await rename(join(c.app.appConfig.dataDir, 'roms/nes'), join(c.app.appConfig.dataDir, 'roms/nes-offline'))
+  await unlink(snes)
+  const scan = await c.scan({ kind: 'games', platforms: ['nes', 'snes'] })
+  assert.equal(scan.job.status, 'completed')
+  assert.ok(scan.results.some(row => row.path === 'roms/nes' && row.status === 'unsafe'))
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_file_status').get().n, 1)
+  assert.equal((await c.app.inject({ url: '/api/games' })).json().items[0].fileName, 'mount.nes')
+  await rename(join(c.app.appConfig.dataDir, 'roms/nes-offline'), join(c.app.appConfig.dataDir, 'roms/nes'))
+  await link(nes, nes + '.copy')
+  await c.scan({ kind: 'games', platforms: ['nes'] })
+  assert.equal((await c.app.inject({ url: '/api/games' })).json().total, 0)
+  assert.equal((await c.app.inject({ url: '/api/admin/games', headers: c.headers })).json().items.find(row => row.fileName === 'mount.nes').fileStatus, 'unsafe')
+})
+
+test('final publication fence ignores a returned file and a lost folder after enumeration', async t => {
+  for (const action of ['returned', 'unmounted']) await t.test(action, async t => {
+    const c = await setup(t)
+    const path = await c.put('games', 'nes', 'return.nes')
+    await c.put('games', 'snes', 'hold.sfc')
+    await c.scan(); await unlink(path)
+    const adoption = c.storage.adoption
+    c.storage.adoption = async (...args) => {
+      const value = await adoption(...args)
+      if (action === 'returned') await writeFile(path, 'return.nes')
+      else await rename(join(c.app.appConfig.dataDir, 'roms/nes'), join(c.app.appConfig.dataDir, 'roms/offline'))
+      return value
+    }
+    assert.equal((await c.scan({ kind: 'games', platforms: ['nes', 'snes'] })).job.status, 'completed')
+    assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_file_status').get().n, 0)
+  })
+})
+
+test('availability persists across restart and metadata-only backup strips local availability', async t => {
+  const c = await setup(t)
+  const path = await c.put('games', 'nes', 'restart.nes')
+  await c.scan(); await unlink(path); await c.scan()
+  const id = c.db.prepare('SELECT id FROM games').get().id
+  await c.app.close()
+  c.app = await createApp({ root: c.root, env: {} }); c.db = c.app.database
+  await c.app.catalog.worker.stop()
+  assert.equal((await c.app.inject({ url: '/api/games' })).json().total, 0)
+  const config = c.app.appConfig
+  await c.app.close(); c.app = null
+  const target = join(c.root, 'availability-backup'), restored = join(c.root, 'availability-restored')
+  await createDataBackup(config, target); await restoreDataBackup(config, target, restored)
+  const db = await openDatabase(restored)
+  try {
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalog_file_status').get().n, 0)
+    assert.equal(db.prepare('SELECT id FROM games').get().id, id)
+  } finally { db.close() }
+})
+
+test('availability and scan details roll back together on a failed reconciliation transaction', async t => {
+  const c = await setup(t)
+  const first = await c.put('games', 'nes', 'first.nes'), second = await c.put('games', 'nes', 'second.nes')
+  await c.scan(); await unlink(first); await unlink(second)
+  const revision = c.db.prepare('SELECT revision FROM catalog_revision').get().revision
+  c.db.exec(`CREATE TRIGGER fail_availability BEFORE INSERT ON catalog_file_status
+    WHEN (SELECT COUNT(*) FROM catalog_file_status) > 0 BEGIN SELECT RAISE(ABORT, 'controlled failure'); END;`)
+  const scan = await c.scan()
+  assert.equal(scan.job.status, 'failed')
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_file_status').get().n, 0)
+  assert.equal(c.db.prepare('SELECT revision FROM catalog_revision').get().revision, revision)
+  assert.equal(scan.results.filter(row => row.status === 'missing').length, 0)
+  assert.equal((await c.app.inject({ url: '/api/games' })).json().total, 2)
+})
+
+test('a concurrent upload repair cannot be hidden by an older missing observation', async t => {
+  const c = await setup(t)
+  const path = await c.put('games', 'nes', 'repair.nes', 'original')
+  await c.put('games', 'snes', 'hold.sfc')
+  await c.scan(); await unlink(path)
+  const game = c.db.prepare("SELECT * FROM games WHERE original_name = 'repair.nes'").get()
+  const adoption = c.storage.adoption
+  let repaired
+  c.storage.adoption = async (...args) => {
+    const file = await adoption(...args)
+    const stage = await c.storage.stage('games', Readable.from([Buffer.from('original')]))
+    repaired = await c.app.catalog.repository.publish('games', c.actor, { title: 'Unchanged', consoleId: 'nes', fileName: 'repair.nes' }, stage, { restoreId: game.id, scanMetadata: false })
+    return file
+  }
+  assert.equal((await c.scan({ kind: 'games', platforms: ['nes', 'snes'] })).job.status, 'completed')
+  assert.equal(repaired.id, game.id); assert.notEqual(repaired.storage_key, game.storage_key)
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_file_status').get().n, 0)
+  assert.equal((await c.app.inject({ url: `/api/games/${game.id}` })).statusCode, 200)
 })

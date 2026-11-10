@@ -47,6 +47,29 @@ test('empty current catalogs preserve account/save backup behavior and include e
   assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
 })
 
+test('schema-19 catalog backup verifies before migration and adds availability without changing publications or accounts', async t => {
+  const c = await setup(t)
+  await c.publish()
+  const games = c.db.prepare('SELECT * FROM games').all(), users = c.db.prepare('SELECT * FROM users').all()
+  c.close()
+  const target = join(c.root, 'backup19'), restored = join(c.root, 'restored19')
+  const manifest = await createDataBackup(c.config, target)
+  const path = join(target, 'maindulu.sqlite'), snapshot = new DatabaseSync(path)
+  snapshot.exec('DROP TABLE catalog_file_status; DELETE FROM schema_migrations WHERE version = 20; PRAGMA user_version = 19;')
+  snapshot.close()
+  const bytes = await readFile(path)
+  manifest.schemaVersion = 19
+  Object.assign(manifest.files.find(file => file.path === 'maindulu.sqlite'), { size: bytes.length, checksum: createHash('sha256').update(bytes).digest('hex') })
+  await writeFile(join(target, 'manifest.json'), JSON.stringify(manifest))
+  await verifyDataBackup(c.config, target); await restoreDataBackup(c.config, target, restored)
+  c.db = await openDatabase(restored)
+  assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_file_status').get().n, 0)
+  assert.deepEqual(c.db.prepare('SELECT * FROM games').all(), games)
+  assert.deepEqual(c.db.prepare('SELECT * FROM users').all(), users)
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 20').get().n, 1)
+})
+
 test('M5 backup normalizes provider gate only in snapshot and still accepts schema-12 backups before migration', async t => {
   const c = await setup(t)
   await c.publish()
@@ -61,7 +84,7 @@ test('M5 backup normalizes provider gate only in snapshot and still accepts sche
   const path = join(target, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
   assert.deepEqual({ ...legacy.prepare('SELECT * FROM metadata_provider_state').get() }, { id: 1, lease_token: null, lease_expires_at: null, next_at: 0, paused_reason: null })
-  legacy.exec('ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state; ALTER TABLE metadata_jobs DROP COLUMN request_method; ALTER TABLE metadata_jobs DROP COLUMN request_json; DELETE FROM schema_migrations WHERE version > 12; PRAGMA user_version = 12;')
+  legacy.exec('DROP TABLE catalog_file_status; ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state; ALTER TABLE metadata_jobs DROP COLUMN request_method; ALTER TABLE metadata_jobs DROP COLUMN request_json; DELETE FROM schema_migrations WHERE version > 12; PRAGMA user_version = 12;')
   legacy.close()
   const bytes = await readFile(path)
   manifest.schemaVersion = 12
@@ -109,7 +132,7 @@ test('schema-14 backups verify before migration, then migrate and accept serial 
   const manifest = await createDataBackup(c.config, target)
   const path = join(target, 'maindulu.sqlite')
   const db = new DatabaseSync(path)
-  db.exec(`ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; CREATE TABLE game_metadata_v14 (
+  db.exec(`DROP TABLE catalog_file_status; ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; CREATE TABLE game_metadata_v14 (
     game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
     release_date TEXT CHECK(release_date IS NULL OR length(release_date) BETWEEN 1 AND 32),
     release_precision TEXT CHECK(release_precision IS NULL OR release_precision IN ('year', 'month', 'day')),
@@ -159,7 +182,7 @@ async function historicalMetadataBackup(c, version, name) {
   const manifest = await createDataBackup(c.config, target)
   const path = join(target, 'maindulu.sqlite')
   const db = new DatabaseSync(path)
-  db.exec('ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  db.exec('DROP TABLE catalog_file_status; ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   if (version === 9) {
     db.exec('DROP TABLE game_metadata_field_sources; DROP TABLE game_metadata; DROP TABLE metadata_jobs; DROP TABLE provider_cache; DROP TABLE catalog_revision;')
     for (const table of ['game_metadata_field_sources', 'game_metadata', 'metadata_jobs', 'provider_cache']) delete manifest.counts[table]
@@ -298,7 +321,7 @@ test('schema-7 backups verify and restore without source migration; application 
   // Reconstruct the real milestone-1 shape: no catalog tables/migration/counts.
   const path = join(source, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
-  legacy.exec('DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  legacy.exec('DROP TABLE catalog_file_status; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   legacy.close()
   const original = await readFile(path)
@@ -332,7 +355,7 @@ test('schema-7 backups verify and restore without source migration; application 
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM games').get().n, 0)
   assert.deepEqual(await readFile(path), original)
   const sourceDb = new DatabaseSync(join(c.config.dataDir, 'maindulu.sqlite'))
-  sourceDb.exec('DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  sourceDb.exec('DROP TABLE catalog_file_status; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   sourceDb.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DROP TABLE games; DROP TABLE bios; DELETE FROM schema_migrations WHERE version >= 8; PRAGMA user_version = 7;')
   sourceDb.close()
   await assert.rejects(createDataBackup(c.config, join(c.root, 'legacy-source-refused')), /Versi skema backup/)
@@ -370,7 +393,7 @@ test('schema-8 empty backups verify/restore without migration or ignoring new co
   const manifest = await createDataBackup(c.config, source)
   const path = join(source, 'maindulu.sqlite')
   const legacy = new DatabaseSync(path)
-  legacy.exec('DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  legacy.exec('DROP TABLE catalog_file_status; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   legacy.exec('DROP TABLE catalog_cleanup; DROP TABLE catalog_uploads; DROP TABLE catalog_capacity; DROP TABLE IF EXISTS game_metadata_field_sources; DROP TABLE IF EXISTS game_metadata; DROP TABLE IF EXISTS metadata_jobs; DROP TABLE IF EXISTS provider_cache; DROP TABLE IF EXISTS catalog_revision; DELETE FROM schema_migrations WHERE version >= 9; PRAGMA user_version = 8;')
   legacy.close()
   const original = await readFile(path)

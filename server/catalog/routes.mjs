@@ -3,7 +3,7 @@ import { createCatalogRepository, CatalogError } from './repository.mjs'
 import { catalogLimits } from './storage.mjs'
 import { createCatalogMaintenance, enqueueCleanup, activeReference } from './maintenance.mjs'
 import { metadataFields, fileName, validateCover, listQuery, validId, consoleExtensions } from './validation.mjs'
-import { catalogDto, adminDto, queryCatalog } from './queries.mjs'
+import { catalogDto, adminDto, queryCatalog, fileStatus } from './queries.mjs'
 import { registerCatalogAssets } from './assets.mjs'
 import { createMetadataWorker } from '../metadata/worker.mjs'
 import { CatalogHttpError, invalidCatalog } from './errors.mjs'
@@ -214,14 +214,14 @@ export function registerCatalog(app, config, security, storage, metadataDependen
     for (const kind of ['games', 'bios']) {
       api.get(`/api/${kind}`, async request => {
         return transaction(db, () => {
-          const { rows, ...page } = queryCatalog(db, kind, listQuery(request.query))
+          const { rows, ...page } = queryCatalog(db, kind, listQuery(request.query), { availableOnly: true })
           return { items: rows.map(row => catalogDto(kind, row)), ...page, revision: db.prepare('SELECT revision FROM catalog_revision WHERE id = 1').get().revision }
         })
       })
       api.get(`/api/${kind}/:id`, async request => {
         if (!validId(request.params.id)) throw notFound()
         const row = repository.get(kind, request.params.id)
-        if (!row) throw notFound()
+        if (!row || fileStatus(db, kind, row) !== 'available') throw notFound()
         return { item: dto(kind, row) }
       })
       api.get(`/api/admin/${kind}`, { onRequest: async request => { security.protectAdmin(request) } }, async request => {

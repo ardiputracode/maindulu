@@ -1,4 +1,4 @@
-import { catalogDto } from './queries.mjs'
+import { catalogDto, fileStatus } from './queries.mjs'
 import { validId, fileName } from './validation.mjs'
 import { CatalogHttpError } from './errors.mjs'
 
@@ -54,7 +54,7 @@ export function registerCatalogAssets(app, repository, storage) {
   function rowFor(kind, id) {
     if (!validId(id)) throw missing()
     const row = repository.get(kind, id)
-    if (!row) throw missing()
+    if (!row || fileStatus(app.database, kind, row) !== 'available') throw missing()
     return row
   }
   async function serve(request, reply, kind, cover = false) {
@@ -72,7 +72,7 @@ export function registerCatalogAssets(app, repository, storage) {
       if ((await file.stat()).size !== size) throw new Error('Size mismatch')
       // Delete or cover replacement may have committed while opening the file.
       const current = repository.get(kind, row.id)
-      if (!current || (cover ? current.cover_storage_key : current.storage_key) !== key) throw missing()
+      if (!current || fileStatus(app.database, kind, current) !== 'available' || (cover ? current.cover_storage_key : current.storage_key) !== key) throw missing()
       // Storage keys are immutable; reuse the upload hash, not a runtime rehash.
       if (!cover && !/^[a-f0-9]{64}(?![\s\S])/.test(row.sha256)) throw new Error('Invalid asset hash')
       const etag = cover ? null : `"${row.sha256}"`

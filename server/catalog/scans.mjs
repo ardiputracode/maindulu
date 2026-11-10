@@ -9,9 +9,10 @@ import { fileName, validId } from './validation.mjs'
 import { CatalogHttpError, invalidCatalog } from './errors.mjs'
 import { getScreenScraperConfigStatus } from '../metadata/screenscraper.mjs'
 import { createLimiter } from '../auth/limits.mjs'
+import { reconcileAvailability } from './availability.mjs'
 
 const active = "status IN ('queued','running')"
-const statuses = ['added', 'already_registered', 'duplicate', 'conflict', 'restore_required', 'busy', 'invalid', 'unsafe', 'not_ready', 'failed', 'unsupported_multifile']
+const statuses = ['added', 'already_registered', 'duplicate', 'conflict', 'restore_required', 'busy', 'invalid', 'unsafe', 'not_ready', 'failed', 'unsupported_multifile', 'missing', 'damaged', 'restored']
 const stop = message => Object.assign(new Error(message), { scanStop: true })
 const outcome = (status, message, existingId) => ({ status, message, existingId })
 
@@ -52,7 +53,7 @@ export function registerCatalogScans(api, config, security, storage) {
       if (!row) throw stop('Kepemilikan scan hilang.')
       const added = result.status === 'added', skipped = ['already_registered', 'duplicate'].includes(result.status)
       db.prepare(`UPDATE catalog_scans SET processed = processed + 1, added = added + ?, skipped = skipped + ?, problems = problems + ?, metadata_queued = metadata_queued + ?, truncated = ? WHERE id = ?`)
-        .run(+added, +skipped, +(!added && !skipped), +(added && metadata), +(row.processed >= 10000 || !!row.truncated), id)
+        .run(+added, +skipped, +(!added && !skipped && result.status !== 'restored'), +(added && metadata), +(row.processed >= 10000 || !!row.truncated), id)
       if (row.processed < 10000) db.prepare('INSERT INTO catalog_scan_results VALUES (?, ?, ?, ?, ?, ?)').run(id, row.processed + 1, path.slice(0, 512), result.status, result.message, result.existingId ?? null)
     }
     return inTransaction ? work() : transaction(db, work)
@@ -78,6 +79,10 @@ export function registerCatalogScans(api, config, security, storage) {
       record(id, token, currentPath, outcome(reattached ? 'already_registered' : 'added', reattached ? 'Berkas identik disambungkan kembali; ID, metadata, dan save dipertahankan.' : 'Terdaftar otomatis; berkas tetap di tempatnya.', row.id), !reattached && kind === 'games' && scope.scanMetadata, true)
     } })
     let discovered = 0
+    const kinds = scope.kind === 'both' ? ['games', 'bios'] : [scope.kind]
+    const entries = new Map()
+    const observations = []
+    const verified = new Map()
     async function candidate(kind, platform, name) {
       check()
       const consoleId = platformConsole(platform)
@@ -94,8 +99,12 @@ export function registerCatalogScans(api, config, security, storage) {
         const row = db.prepare(`SELECT * FROM ${kind} WHERE storage_key = ?`).get(mapped.storage_key)
         if (!row || row.deleted_at !== null) return outcome('restore_required', 'Gunakan pemulihan ID lama melalui upload eksplisit.', row?.id)
         if (mapped.file_name !== name) return outcome('conflict', 'Nama berbenturan menurut identitas case/Unicode.', row.id)
-        if (row.sha256 !== file.sha256 || row.size !== file.size) return outcome('conflict', 'Byte aset terdaftar berubah. Metadata dan ID tidak diubah.', row.id)
+        if (row.sha256 !== file.sha256 || row.size !== file.size) {
+          verified.set(mapped.storage_key, { status: 'damaged', file })
+          return outcome('conflict', 'Byte aset terdaftar berubah. Metadata dan ID tidak diubah.', row.id)
+        }
         storage.refreshAdoption(file, mapped.storage_key)
+        verified.set(mapped.storage_key, { status: 'available', file })
         return outcome('already_registered', 'Sudah terdaftar; hash byte konsisten.', row.id)
       }
       const row = await repo.adopt(kind, job.actor, { consoleId, fileName: name, [kind === 'games' ? 'title' : 'name']: kind === 'games' ? '' : name.slice(0, 200), description: '', [kind === 'games' ? 'license' : 'distributionRights']: '' }, file, { scanMetadata: scope.scanMetadata })
@@ -103,6 +112,8 @@ export function registerCatalogScans(api, config, security, storage) {
     }
     try {
       check()
+      for (const kind of kinds) entries.set(kind, storage.scanEntries(kind, scope.platforms))
+      if ([...entries.values()].reduce((sum, rows) => sum + rows.length, 0) > 100000) throw new Error('Batas 100.000 entri terdaftar tercapai; persempit pilihan platform.')
       db.prepare("UPDATE catalog_scans SET status = 'running' WHERE id = ? AND token = ?").run(id, token)
       try {
         const bytes = await storage.physicalUsage(check)
@@ -114,7 +125,7 @@ export function registerCatalogScans(api, config, security, storage) {
         db.prepare('UPDATE catalog_scans SET usage_warning = ? WHERE id = ?').run('Pemakaian disk tidak dapat dihitung dengan aman; periksa permission, symlink/hard link, dan kapasitas volume. Scan tidak menyembunyikan atau membersihkan file operator.', id)
       }
       await safeDirectory(config.dataDir)
-      for (const kind of scope.kind === 'both' ? ['games', 'bios'] : [scope.kind]) {
+      for (const kind of kinds) {
         const base = storage.scanRoot(kind)
         await safeDirectory(base)
         for (const platform of scope.platforms) {
@@ -122,9 +133,9 @@ export function registerCatalogScans(api, config, security, storage) {
           let directory
           try { await safeDirectory(join(base, platform)); directory = await opendir(join(base, platform)) }
           catch (error) {
-            if (error.code === 'ENOENT') continue
+            if (error.code === 'ENOENT' && !entries.get(kind).some(row => row.platform === platform)) continue
             db.prepare('UPDATE catalog_scans SET discovered = discovered + 1 WHERE id = ?').run(id)
-            record(id, token, `${kind === 'games' ? 'roms' : 'bios'}/${platform}`, outcome('unsafe', 'Folder tidak aman/tidak dapat dibaca; tidak diikuti.'))
+            record(id, token, `${kind === 'games' ? 'roms' : 'bios'}/${platform}`, outcome('unsafe', 'Folder hilang/tidak aman/tidak dapat dibaca; status file lama tidak diubah. Periksa mount/permission lalu scan ulang.'))
             continue
           }
           for await (const entry of directory) {
@@ -142,10 +153,29 @@ export function registerCatalogScans(api, config, security, storage) {
             }
             if (result.status !== 'added') record(id, token, currentPath, result)
           }
+          // Only successfully enumerated folders can produce missing entries.
+          // Failed/too-new individual files retain their previous status.
+          await safeDirectory(base)
+          await safeDirectory(join(base, platform))
+          for (const row of entries.get(kind).filter(row => row.platform === platform)) {
+            check()
+            const value = verified.get(row.storage_key)
+            if (value) observations.push({ kind, row, ...value })
+            else {
+              try {
+                const status = storage.scanFileState(kind, platform, row.file_name, row.size)
+                if (status !== 'present') observations.push({ kind, row, status })
+              } catch { /* Unreadable parent/path is not proof of a missing file. */ }
+            }
+          }
         }
       }
-      check()
-      db.prepare("UPDATE catalog_scans SET status = 'completed', finished_at = ? WHERE id = ? AND token = ? AND status = 'running' AND lease_until > ?").run(Date.now(), id, token, Date.now())
+      transaction(db, () => {
+        check()
+        reconcileAvailability(db, storage, observations, check, (path, result) => record(id, token, path, result, false, true))
+        check()
+        db.prepare("UPDATE catalog_scans SET status = 'completed', finished_at = ? WHERE id = ? AND token = ? AND status = 'running' AND lease_until > ?").run(Date.now(), id, token, Date.now())
+      })
     } catch (error) {
       const row = db.prepare('SELECT cancel FROM catalog_scans WHERE id = ?').get(id)
       const status = row?.cancel ? 'cancelled' : closing || error.scanStop ? 'interrupted' : 'failed'

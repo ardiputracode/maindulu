@@ -6,7 +6,7 @@ import { DatabaseSync, backup } from 'node:sqlite'
 import { canonicalPath, isWithin } from './config.mjs'
 import { acquireDataLock } from './data-lock.mjs'
 import { schemaVersion } from './database.mjs'
-import { fileName as validateCatalogFileName } from './catalog/validation.mjs'
+import { fileName as validateCatalogFileName, validId } from './catalog/validation.mjs'
 import { storageKeyPattern } from './catalog/storage.mjs'
 import { platformSlugs, safeStorageName, storageNameIdentity } from './catalog/paths.mjs'
 
@@ -85,7 +85,7 @@ async function copy(source, target) {
 function inspectDatabase(db, { legacy = false, catalogMetadata = false, allowOperational = false } = {}) {
   db.exec('PRAGMA trusted_schema = OFF; PRAGMA query_only = ON;')
   const version = db.prepare('PRAGMA user_version').get().user_version
-  if (version !== schemaVersion && !(legacy && [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].includes(version))) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
+  if (version !== schemaVersion && !(legacy && [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].includes(version))) fail('Versi skema backup tidak cocok. Gunakan versi aplikasi yang sesuai; jangan paksa migrasi/downgrade.')
   if (db.prepare('PRAGMA integrity_check').all().some(row => row.integrity_check !== 'ok') || db.prepare('PRAGMA foreign_key_check').all().length) fail('Integritas SQLite backup gagal.')
   if (version === 7) {
     if (db.prepare("SELECT name FROM sqlite_master WHERE name IN ('games', 'bios', 'catalog_cleanup', 'catalog_uploads', 'catalog_capacity')").all().length) fail('Katalog backup skema 7 tidak cocok; tabel katalog tidak boleh ada pada skema ini.')
@@ -125,6 +125,13 @@ function inspectDatabase(db, { legacy = false, catalogMetadata = false, allowOpe
     }
   } else if (db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'catalog_external_files'").get()) fail('Tabel sumber eksternal tidak sesuai versi skema backup.')
   const installationId = db.prepare("SELECT value FROM app_metadata WHERE key = 'installation_id'").get()?.value
+  if (version >= 20) {
+    for (const row of db.prepare('SELECT * FROM catalog_file_status').iterate()) {
+      if (!allowOperational) fail('Backup metadata tidak boleh membawa status ketersediaan berkas operasional.')
+      if (!['games', 'bios'].includes(row.folder) || !validId(row.entry_id) || !storageKeyPattern.test(row.storage_key)
+        || !['missing', 'damaged', 'unsafe'].includes(row.status)) fail('Status ketersediaan katalog tidak valid.')
+    }
+  } else if (db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'catalog_file_status'").get()) fail('Status ketersediaan tidak sesuai versi skema backup.')
   if (version >= 16) {
     if (!allowOperational && db.prepare('SELECT 1 FROM catalog_scans UNION ALL SELECT 1 FROM catalog_scan_results LIMIT 1').get()) fail('Backup tidak boleh membawa job/hasil/lease scan folder.')
   } else if (db.prepare("SELECT 1 FROM sqlite_master WHERE name IN ('catalog_scans', 'catalog_scan_results')").get()) fail('Tabel scan tidak sesuai versi skema backup.')
@@ -176,7 +183,7 @@ async function verify(folder) {
   const actual = await tree(folder)
   if ((await safeEntry(join(folder, 'manifest.json'))).size > 64 * 1024 * 1024) fail('Manifest backup terlalu besar.')
   const manifest = JSON.parse(await readFile(join(folder, 'manifest.json'), 'utf8'))
-  if (manifest?.format !== 'maindulu-data-backup' || ![1, 2].includes(manifest.formatVersion) || ![7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
+  if (manifest?.format !== 'maindulu-data-backup' || ![1, 2].includes(manifest.formatVersion) || ![7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, schemaVersion].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || manifest.files.length > 500000 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt))) fail('Format/versi manifest backup tidak didukung.')
   const catalogMetadata = manifest.formatVersion === 2
   if (catalogMetadata && (manifest.schemaVersion < 9 || manifest.catalogAssets !== 'excluded')) fail('Format/versi manifest backup metadata harus menyatakan bahwa ROM/BIOS/cover tidak disertakan.')
   const files = new Map()
@@ -235,7 +242,7 @@ export async function createDataBackup(config, input) {
     // Make the snapshot self-contained, with no WAL/SHM dependency.
     const snapshot = new DatabaseSync(join(stage, databaseName))
     try {
-      snapshot.exec('PRAGMA journal_mode = DELETE; BEGIN IMMEDIATE; DELETE FROM catalog_external_files; DELETE FROM catalog_scan_results; DELETE FROM catalog_scans; DELETE FROM catalog_uploads; DELETE FROM catalog_cleanup; DELETE FROM catalog_asset_files; UPDATE catalog_capacity SET generation = 0 WHERE id = 1; DELETE FROM metadata_jobs; DELETE FROM provider_cache; COMMIT;')
+      snapshot.exec('PRAGMA journal_mode = DELETE; BEGIN IMMEDIATE; DELETE FROM catalog_file_status; DELETE FROM catalog_external_files; DELETE FROM catalog_scan_results; DELETE FROM catalog_scans; DELETE FROM catalog_uploads; DELETE FROM catalog_cleanup; DELETE FROM catalog_asset_files; UPDATE catalog_capacity SET generation = 0 WHERE id = 1; DELETE FROM metadata_jobs; DELETE FROM provider_cache; COMMIT;')
       snapshot.exec('UPDATE metadata_provider_state SET lease_token = NULL, lease_expires_at = NULL, next_at = 0, paused_reason = NULL;')
       info = inspectDatabase(snapshot, { catalogMetadata: true })
     } finally { snapshot.close() }

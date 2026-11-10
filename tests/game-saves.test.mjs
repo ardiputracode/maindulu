@@ -233,7 +233,7 @@ test('missing active SRAM after a successful restore cannot erase or acknowledge
 
 test('migration from an M5 version-4 database preserves existing state ownership and bytes', async t => {
   const c = await setup(t)
-  c.app.database.exec('DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
+  c.app.database.exec('DROP TABLE catalog_file_status; DROP TABLE catalog_external_files; DROP TABLE catalog_scan_results; DROP TABLE catalog_scans; DROP TABLE catalog_asset_files; DROP TABLE metadata_provider_state;')
   const a = await register(c.app)
   const state = Buffer.alloc(700); state.write('RASTATE')
   const r = await c.app.inject({ method: 'PUT', url: '/api/saves/', headers: { ...a.headers, 'content-type': 'application/octet-stream', 'x-save-metadata': encodeURIComponent(JSON.stringify({ gameId: 'old', consoleId: 'nes', core: 'fceumm', title: 'Old state', slot: 1, expectedRevision: 0, checksum: checksum(state), metadata })) }, payload: state })

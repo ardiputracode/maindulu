@@ -181,7 +181,7 @@ test('schema 18 migrates once, clears only disabled pause; schema-18 backup veri
   const config = c.app.appConfig
   await c.app.close()
   const path = join(config.dataDir, 'maindulu.sqlite'), old = new DatabaseSync(path)
-  old.exec("ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DELETE FROM schema_migrations WHERE version = 19; PRAGMA user_version = 18; UPDATE metadata_provider_state SET paused_reason = 'disabled'")
+  old.exec("DROP TABLE catalog_file_status; ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DELETE FROM schema_migrations WHERE version >= 19; PRAGMA user_version = 18; UPDATE metadata_provider_state SET paused_reason = 'disabled'")
   old.close()
   const target = join(c.root, 'backup18'), restored = join(c.root, 'restore18')
   // Upgrade source first, then reconstruct an actual v18 snapshot for restore.
@@ -192,7 +192,7 @@ test('schema 18 migrates once, clears only disabled pause; schema-18 backup veri
   assert.equal(reopened.prepare('SELECT paused_reason FROM metadata_provider_state').get().paused_reason, 'forbidden'); reopened.close()
   const manifest = await createDataBackup(config, target)
   const snapshot = new DatabaseSync(join(target, 'maindulu.sqlite'))
-  snapshot.exec('ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DELETE FROM schema_migrations WHERE version = 19; PRAGMA user_version = 18;'); snapshot.close()
+  snapshot.exec('DROP TABLE catalog_file_status; ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DELETE FROM schema_migrations WHERE version >= 19; PRAGMA user_version = 18;'); snapshot.close()
   const bytes = await readFile(join(target, 'maindulu.sqlite'))
   manifest.schemaVersion = 18
   Object.assign(manifest.files.find(f => f.path === 'maindulu.sqlite'), { size: bytes.length, checksum: createHash('sha256').update(bytes).digest('hex') })
@@ -200,7 +200,7 @@ test('schema 18 migrates once, clears only disabled pause; schema-18 backup veri
   await verifyDataBackup(config, target); await restoreDataBackup(config, target, restored)
   const db = await openDatabase(restored)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 19)
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 20)
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM metadata_jobs').get().n, 0)
     assert.equal(db.prepare('SELECT next_at FROM metadata_provider_state').get().next_at, 0)
   } finally { db.close() }

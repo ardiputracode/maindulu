@@ -132,6 +132,7 @@ test('external changes never receive stale ETags; same bytes can refresh and mis
   const invalid = await c.app.inject({ url, headers: { 'if-none-match': `"${game.sha256}"` } })
   assert.equal(invalid.statusCode, 503); assert.equal(invalid.headers.etag, undefined)
   assert.equal((await c.scan()).results[0].status, 'conflict')
+  assert.equal((await c.app.inject({ url: '/api/admin/games', headers: c.headers })).json().items[0].fileStatus, 'damaged')
   await writeFile(path, 'original')
   assert.equal((await c.scan()).job.skipped, 1)
   assert.equal((await c.app.inject({ url })).body, 'original')
@@ -147,6 +148,36 @@ test('external changes never receive stale ETags; same bytes can refresh and mis
   await unlink(join(c.roms, 'nes/renamed.nes'))
   await c.scan()
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM games WHERE deleted_at IS NULL').get().n, 1)
+})
+
+for (const writable of [false, true]) test(`${writable ? 'shared' : 'readonly'} scan reconciles ROM/BIOS availability without modifying sources or internal uploads`, async t => {
+  const c = await setup(t, { writable })
+  const rom = await c.put('games', 'nes', 'availability.nes', 'original ROM')
+  const bios = await c.put('bios', 'nes', 'availability.bin', 'original BIOS')
+  await c.scan()
+  const game = c.db.prepare('SELECT * FROM games').get()
+  const firmware = c.db.prepare('SELECT * FROM bios').get()
+  const jobs = c.db.prepare('SELECT * FROM metadata_jobs').all()
+  if (!writable) {
+    const stage = await c.storage.stage('games', Readable.from([Buffer.from('internal upload')]))
+    await c.app.catalog.repository.publish('games', c.actor, { title: 'Internal', consoleId: 'nes', fileName: 'internal.nes' }, stage, { scanMetadata: false })
+    await unlink(join(c.app.appConfig.dataDir, 'roms/nes/internal.nes'))
+  }
+  await unlink(rom); await unlink(bios)
+  const missing = await c.scan()
+  assert.equal(missing.results.filter(row => row.status === 'missing').length, 2)
+  assert.equal((await c.app.inject({ url: '/api/games' })).json().total, writable ? 0 : 1)
+  assert.equal((await c.app.inject({ url: '/api/bios' })).json().total, 0)
+  assert.equal((await c.app.inject({ url: `/api/games/${game.id}` })).statusCode, 404)
+  await writeFile(rom, 'original ROM'); await writeFile(bios, 'original BIOS')
+  const restored = await c.scan()
+  assert.equal(restored.results.filter(row => row.status === 'restored').length, 2)
+  assert.equal((await c.app.inject({ url: `/api/games/${game.id}` })).json().item.id, game.id)
+  assert.equal((await c.app.inject({ url: `/api/bios/${firmware.id}` })).json().item.id, firmware.id)
+  assert.equal((await c.app.inject({ url: `/games/${game.id}/rom/availability.nes` })).body, 'original ROM')
+  assert.equal(await readFile(rom, 'utf8'), 'original ROM')
+  assert.deepEqual(c.db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ?').all(game.id), jobs)
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM catalog_cleanup').get().n, 0)
 })
 
 test('external backup excludes source paths/files; rescan after restore reconnects exact bytes to old IDs', async t => {
@@ -198,7 +229,7 @@ test('schema-16 catalogs migrate without changing existing games or account/sess
   const config = c.app.appConfig
   await c.app.close(); c.app = null
   const old = new DatabaseSync(join(config.dataDir, 'maindulu.sqlite'))
-  old.exec('ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DELETE FROM schema_migrations WHERE version > 16; PRAGMA user_version = 16;')
+  old.exec('DROP TABLE catalog_file_status; ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DELETE FROM schema_migrations WHERE version > 16; PRAGMA user_version = 16;')
   old.close()
   await c.start()
   assert.equal(c.db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
@@ -216,7 +247,7 @@ test('schema-16 metadata backups still verify and restore before migration', asy
   const target = join(c.root, 'backup16')
   const manifest = await createDataBackup(config, target)
   const path = join(target, 'maindulu.sqlite'), snapshot = new DatabaseSync(path)
-  snapshot.exec('ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DELETE FROM schema_migrations WHERE version > 16; PRAGMA user_version = 16;')
+  snapshot.exec('DROP TABLE catalog_file_status; ALTER TABLE metadata_jobs DROP COLUMN cancel_requested; DROP TABLE catalog_external_files; DELETE FROM schema_migrations WHERE version > 16; PRAGMA user_version = 16;')
   snapshot.close()
   const bytes = await readFile(path)
   manifest.schemaVersion = 16; delete manifest.counts.catalog_external_files
@@ -396,7 +427,7 @@ function schema17(db) {
   ) STRICT;
   INSERT INTO external_v17 SELECT storage_key, folder, source_root, platform, file_name, name_identity, size, sha256, mtime_ms, ctime_ms FROM catalog_external_files;
   DROP TABLE catalog_external_files; ALTER TABLE external_v17 RENAME TO catalog_external_files;
-  DELETE FROM schema_migrations WHERE version > 17; PRAGMA user_version = 17;`)
+  DROP TABLE catalog_file_status; DELETE FROM schema_migrations WHERE version > 17; PRAGMA user_version = 17;`)
 }
 
 test('schema-17 readonly mappings migrate without touching sources and writable mode explicitly enables deletion', async t => {

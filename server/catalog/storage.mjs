@@ -253,6 +253,30 @@ export async function createCatalogStorage(config, db) {
     },
     capacityRoots(kind) { return shared(kind) ? [root, externalRoots[kind]] : [root] },
     scanRoot(kind) { return externalRoots[kind] ?? join(root, kind === 'games' ? 'roms' : 'bios') },
+    scanEntries(kind, platforms = platformSlugs) {
+      // Never reconcile a different mount, internal upload or retired token
+      // merely because it shares the selected console/platform.
+      const external = !!externalRoots[kind]
+      const table = external ? 'catalog_external_files' : 'catalog_asset_files'
+      return db.prepare(`SELECT c.*, m.platform, m.file_name FROM ${kind} c JOIN ${table} m ON m.storage_key = c.storage_key
+        WHERE c.deleted_at IS NULL AND m.folder = ? AND m.state = 'ready' ${external ? 'AND m.source_root = ?' : ''}
+        AND m.platform IN (${platforms.map(() => '?').join(',')}) LIMIT 100001`)
+        .all(kind, ...(external ? [externalRoots[kind]] : []), ...platforms)
+    },
+    scanFileState(kind, platform, name, expectedSize) {
+      if (!platformSlugs.includes(platform) || !safeStorageName(name)) throw unsafe()
+      const base = this.scanRoot(kind)
+      // Synchronous final fence: a lost/unmounted parent is NOT a missing ROM.
+      for (const directory of [root, base, join(base, platform)]) {
+        const stat = lstatSync(directory)
+        if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(directory) !== resolve(directory)) throw unsafe()
+      }
+      let stat
+      try { stat = lstatSync(join(base, platform, name)) }
+      catch (error) { if (error.code === 'ENOENT') return 'missing'; throw error }
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) return 'unsafe'
+      return expectedSize !== undefined && stat.size !== expectedSize ? 'damaged' : 'present'
+    },
     scanMapping(kind, platform, name) {
       return externalRoots[kind]
         ? db.prepare("SELECT * FROM catalog_external_files WHERE folder = ? AND source_root = ? AND platform = ? AND name_identity = ? AND state != 'retired'").get(kind, externalRoots[kind], platform, storageNameIdentity(name))
@@ -296,7 +320,7 @@ export async function createCatalogStorage(config, db) {
       try {
         const stat = await file.stat()
         if (!stat.size || stat.size > catalogLimits[kind]) throw Object.assign(new Error('Berkas kosong atau melebihi batas ukuran.'), { scanStatus: 'invalid' })
-        if (Date.now() - Math.max(stat.mtimeMs, stat.ctimeMs) < minAge) throw Object.assign(new Error('Berkas terlalu baru; ulangi scan setelah transfer selesai.'), { scanStatus: 'not_ready' })
+        if (minAge > 0 && Date.now() - Math.max(stat.mtimeMs, stat.ctimeMs) < minAge) throw Object.assign(new Error('Berkas terlalu baru; ulangi scan setelah transfer selesai.'), { scanStatus: 'not_ready' })
         const actual = await fingerprintFile(file, check)
         const value = Object.freeze({ kind, key: randomUUID() + '.bin', ...actual })
         adopted.set(value, { path, stat, platform, fileName, sourceRoot })

@@ -381,6 +381,19 @@ const migrations = [
     sql: `ALTER TABLE metadata_jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0;
       UPDATE metadata_provider_state SET paused_reason = NULL WHERE paused_reason = 'disabled';`,
   },
+  {
+    version: 20,
+    name: 'catalog-file-availability',
+    // Absence means available. Keep availability separate from admin tombstones
+    // and bind every observation to the immutable publication key.
+    sql: `CREATE TABLE catalog_file_status (
+      folder TEXT NOT NULL CHECK(folder IN ('games', 'bios')),
+      entry_id TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('missing', 'damaged', 'unsafe')),
+      PRIMARY KEY(folder, entry_id)
+    ) STRICT;`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

@@ -13,9 +13,15 @@ export function catalogDto(kind, row) {
     : { ...common, name: row.name, distributionRights: row.distribution_rights, url: `/bios/${row.id}/${encodeURIComponent(row.original_name)}` }
 }
 
-export function queryCatalog(db, kind, v) {
+export function fileStatus(db, kind, row) {
+  return db.prepare('SELECT status FROM catalog_file_status WHERE folder = ? AND entry_id = ? AND storage_key = ?')
+    .get(kind, row.id, row.storage_key)?.status ?? 'available'
+}
+
+export function queryCatalog(db, kind, v, { availableOnly = false } = {}) {
   const name = kind === 'games' ? 'title' : 'name'
   const conditions = [], values = []
+  if (availableOnly) conditions.push(`NOT EXISTS (SELECT 1 FROM catalog_file_status s WHERE s.folder = '${kind}' AND s.entry_id = ${kind}.id AND s.storage_key = ${kind}.storage_key)`)
   if (v.status !== 'all') conditions.push(v.status === 'deleted' ? 'deleted_at IS NOT NULL' : 'deleted_at IS NULL')
   if (v.consoleId) { conditions.push('console_id = ?'); values.push(v.consoleId) }
   // instr, rather than LIKE, treats %, _ and user input literally.
@@ -41,9 +47,13 @@ export async function adminDto(db, storage, kind, row) {
     } catch (error) { return error.code === 'ENOENT' ? 'missing' : 'unsafe' }
     finally { await file?.close() }
   }
+  const actual = await state(kind, row.storage_key, row.size)
+  const recorded = fileStatus(db, kind, row)
   return { ...catalogDto(kind, row), deletedAt: row.deleted_at,
     storageMode: storage.storageMode(kind, row.storage_key),
-    fileStatus: await state(kind, row.storage_key, row.size),
+    // External open() also rejects changed timestamps. Prefer the scan's known
+    // checksum failure over that generic unsafe error, but show a fresh absence.
+    fileStatus: actual === 'missing' || recorded === 'available' ? actual : recorded,
     ...(kind === 'games' ? { coverStatus: await state('covers', row.cover_storage_key, row.cover_size) } : {}),
     cleanupPending: !!db.prepare('SELECT 1 FROM catalog_cleanup WHERE (folder = ? AND storage_key = ?) OR (folder = ? AND storage_key = ?) LIMIT 1')
       .get(kind, row.storage_key, 'covers', row.cover_storage_key ?? '') }
