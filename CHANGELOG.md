@@ -7,7 +7,7 @@ Perubahan penting per rilis didokumentasikan di sini. Format mengikuti
 Selama pengembangan, tulis eksil baru di bagian **[Belum dirilis]**;
 saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
-## [Belum dirilis]
+## 0.7.0 — 2026-11-11
 
 ### Ditambahkan
 
@@ -58,6 +58,7 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ### Diperbaiki
 
+- ROM/BIOS dari sumber eksternal tidak lagi ditolak (503) setelah host reboot hanya karena `ctime` berubah saat remount. Validasi aset eksternal kini memakai ukuran + `mtime`; `ctime` disimpan sebagai diagnostik tanpa mempengaruhi ketersediaan. Integritas byte tetap diverifikasi SHA-256 saat scan dan oleh player saat unduh. Tanpa migrasi skema; scan ulang tidak lagi diperlukan setelah reboot.
 - Assertion regresi Library/progres/autosave memakai kontrak `saveIdentity` (`core-SHA256`) yang sudah ada, bukan ID katalog; runtime identitas save tidak diubah. Pencatat tes cache membaca header akhir `writeHead` agar metadata HEAD/304 yang dikirim langsung oleh Fastify tercatat bersama byte body server.
 - Race gate data lock Windows saat penghapusan file masih pending mengembalikan `EPERM`, bukan `EEXIST`. Retry khusus Windows tetap terbatas pada jendela lama dan hanya masuk setelah exclusive create berhasil; permission failure permanen, namespace asing, lease aktif dan maintenance tetap fail-closed. Tes injeksi dan 20 pengulangan publikasi katalog lintas proses lulus. Tidak mengubah skema, engine, format save, atau identitas game.
 - Regresi browser save: aktifkan tab yang sedang diuji, kurangi input CPU redundan dengan snapshot konflik tetap berbeda, tutup engine tab yang tidak diperlukan, dan gunakan handler DOM nyata pada toolbar native yang auto-hide sambil tetap menunggu persistence IndexedDB. Tidak menaikkan timeout/menambah retry atau mengubah runtime player/save untuk meluluskan tes.

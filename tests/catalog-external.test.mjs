@@ -198,6 +198,49 @@ test('external backup excludes source paths/files; rescan after restore reconnec
   assert.equal(await readFile(path, 'utf8'), 'external backup')
 })
 
+test('external ROM survives ctime shift after simulated remount; GET/HEAD/304/admin work without rescan', async t => {
+  const c = await setup(t)
+  const rom = await c.put('games', 'nes', 'remount.nes', 'remount content')
+  await c.scan()
+  const game = c.db.prepare('SELECT * FROM games').get()
+  const url = `/games/${game.id}/rom/remount.nes`
+  // Verify baseline works before tampering.
+  assert.equal((await c.app.inject({ url })).body, 'remount content')
+  assert.equal((await c.app.inject({ method: 'HEAD', url })).statusCode, 200)
+  const etag = (await c.app.inject({ url })).headers.etag
+  assert.equal((await c.app.inject({ url, headers: { 'if-none-match': etag } })).statusCode, 304)
+  // Simulate remount: shift ctime_ms in database while mtime stays the same.
+  const row = c.db.prepare('SELECT * FROM catalog_external_files WHERE storage_key = ?').get(game.storage_key)
+  assert.ok(row.ctime_ms > 0)
+  c.db.prepare("UPDATE catalog_external_files SET ctime_ms = ? WHERE storage_key = ?").run(row.ctime_ms + 60000, game.storage_key)
+  // After ctime shift: asset still serves without rescan.
+  assert.equal((await c.app.inject({ url })).body, 'remount content')
+  assert.equal((await c.app.inject({ method: 'HEAD', url })).statusCode, 200)
+  assert.equal((await c.app.inject({ url, headers: { 'if-none-match': etag } })).statusCode, 304)
+  const admin = (await c.app.inject({ url: '/api/admin/games', headers: c.headers }))
+  assert.equal(admin.json().items[0].fileStatus, 'available')
+  // Only ctime_ms changed; size/mtime/sha256 untouched.
+  const updated = c.db.prepare('SELECT * FROM catalog_external_files WHERE storage_key = ?').get(game.storage_key)
+  assert.equal(updated.size, row.size)
+  assert.equal(updated.mtime_ms, row.mtime_ms)
+  assert.ok(updated.ctime_ms > row.ctime_ms)
+})
+
+test('external ROM survives ctime shift in shared mode; deletion still works', async t => {
+  const c = await setup(t, { writable: true })
+  const rom = await c.put('games', 'nes', 'shared-remount.nes', 'shared remount')
+  await c.scan()
+  const game = c.db.prepare('SELECT * FROM games').get()
+  // Shift ctime_ms to simulate post-boot mount.
+  const row = c.db.prepare('SELECT * FROM catalog_external_files WHERE storage_key = ?').get(game.storage_key)
+  c.db.prepare("UPDATE catalog_external_files SET ctime_ms = ? WHERE storage_key = ?").run(row.ctime_ms + 120000, game.storage_key)
+  // Deletion via admin API should succeed despite ctime shift.
+  const del = await c.app.inject({ method: 'DELETE', url: `/api/admin/games/${game.id}`, headers: c.headers, payload: {} })
+  assert.equal(del.statusCode, 200, del.body)
+  await c.app.catalog.maintenance.cleanup()
+  await assert.rejects(readFile(rom), { code: 'ENOENT' })
+})
+
 test('external roots reject unsafe/overlapping paths and do not create missing sources', async t => {
   const c = await setup(t)
   for (const path of ['', 'relative', c.root, join(c.root, 'data'), join(c.root, 'dist/roms'), c.bios]) {

@@ -35,7 +35,7 @@ Image berjalan sebagai user `node`. Verifikasi UID/GID runtime (`docker compose 
 3. Tunggu **setidaknya 10 detik setelah perubahan terakhir** (mtime dan ctime), lalu jalankan scan.
 4. **Jangan overwrite file yang sudah dikelola aplikasi lewat WinSCP.** Untuk isi berbeda, pilih basename lain. Jangan mengubah atau menghapus file saat scan/publikasi berlangsung.
 
-Usia minimum dan kestabilan sebelum/sesudah hashing bukan bukti transfer selesai: transfer yang berhenti sementara dapat tampak stabil. Rename final adalah pengamanan operasional utama. Scanner tidak dapat mencegah operator mengganti byte setelah publikasi.
+Usia minimum dan kestabilan sebelum/sesudah hashing bukan bukti transfer selesai: transfer yang berhenti sementara dapat tampak stabil. Rename final adalah pengamanan operasional utama. Scanner tidak dapat mencegah operator mengganti byte setelah publikasi. Usia minimum transfer tetap memakai `max(mtime, ctime)` untuk memastikan file benar-benar selesai ditulis; ini hanya relevan saat scan dalam hitungan detik setelah boot dan tidak memengaruhi pemutaran game yang sudah terdaftar.
 
 ## Menjalankan scan
 

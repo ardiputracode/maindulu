@@ -121,7 +121,7 @@ export async function createCatalogStorage(config, db) {
         file = await openRegular(path)
         const before = await file.stat()
         // Never delete a RomM replacement, even if it has the same filename.
-        if (before.size !== external.size || before.mtimeMs !== external.mtime_ms || before.ctimeMs !== external.ctime_ms) throw unsafe()
+        if (before.size !== external.size || before.mtimeMs !== external.mtime_ms) throw unsafe()
         const actual = await fingerprintFile(file)
         if (actual.sha256 !== external.sha256 || actual.size !== external.size) throw unsafe()
         const current = await lstat(path)
@@ -481,7 +481,7 @@ export async function createCatalogStorage(config, db) {
         const file = await openRegular(await pathFor(kind, key))
         try {
           const stat = await file.stat()
-          if (stat.size !== external.size || stat.mtimeMs !== external.mtime_ms || stat.ctimeMs !== external.ctime_ms) throw new Error('Sumber eksternal berubah; jalankan scan ulang sebelum dimainkan.')
+          if (stat.size !== external.size || stat.mtimeMs !== external.mtime_ms) throw new Error('Sumber eksternal berubah; jalankan scan ulang sebelum dimainkan.')
           return file
         } catch (error) { await file.close(); throw error }
       }
