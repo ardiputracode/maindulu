@@ -84,7 +84,7 @@ async function move(page: Page, frame: FrameLocator) {
 // toolbar, pauses the game, and closing resumes only previously running games.
 const overlay = (page: Page) => page.getByRole('dialog', { name: 'Save state server', exact: true })
 const slotRow = (page: Page, label: string) => overlay(page).locator('article').filter({ hasText: label })
-const saveSlot = async (page: Page, slotNumber: number) => { await slotRow(page, `Slot ${slotNumber}`).getByRole('button', { name: 'Ganti', exact: true }).click() }
+const saveSlot = async (page: Page, slotNumber: number) => { await slotRow(page, `Slot ${slotNumber}`).getByRole('button', { name: 'Timpa Save', exact: true }).click() }
 const loadSlot = async (page: Page, slotNumber: number) => { await slotRow(page, `Slot ${slotNumber}`).getByRole('button', { name: 'Muat', exact: true }).click() }
 const paused = (frame: FrameLocator) => frame.locator('body').evaluate(() => (window as unknown as Engine).EJS_emulator.paused)
 async function openOverlay(page: Page, frame: FrameLocator) {
@@ -378,7 +378,7 @@ test('M5: failed initial listing never enables a blank overwrite; failed uploads
   await page.getByRole('button', { name: 'Main sekarang', exact: true }).click()
   const frame = await startPlayer(page)
   await openOverlay(page, frame)
-  const replace = slotRow(page, 'Slot 1').getByRole('button', { name: 'Ganti', exact: true })
+  const replace = slotRow(page, 'Slot 1').getByRole('button', { name: 'Timpa Save', exact: true })
   await expect(replace).toBeDisabled()
   await expect(overlay(page).getByRole('alert')).toContainText('Gagal sinkron')
   await page.unroute('**/api/saves/')

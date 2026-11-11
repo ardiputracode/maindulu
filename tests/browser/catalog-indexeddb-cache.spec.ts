@@ -245,7 +245,7 @@ test('M3 account URL-era SRAM/state restore through prepared input; incompatible
   await expect(region).toContainText('dikonfirmasi server')
   const old = await snapshot(frame)
   let overlay = await states(page, frame)
-  await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
+  await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Timpa Save', exact: true }).click()
   await expect(overlay).toContainText('Tersimpan di server')
   await overlay.getByRole('button', { name: 'Tutup dialog', exact: true }).click()
   // Real legacy URL boot creates the pre-feature server fixture; no new build
@@ -471,7 +471,7 @@ test('M4 clear via settings in another tab leaves live NES, SRAM, state, account
   await page.getByRole('region', { name: 'Sinkronisasi progres game' }).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
   await expect(page.getByRole('region', { name: 'Sinkronisasi progres game' })).toContainText('dikonfirmasi server')
   const overlay = await states(page, frame)
-  await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
+  await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Timpa Save', exact: true }).click()
   await expect(overlay).toContainText('Tersimpan di server')
   await overlay.getByRole('button', { name: 'Tutup dialog', exact: true }).click()
   const db = app.getDecorator<DatabaseSync>('database')

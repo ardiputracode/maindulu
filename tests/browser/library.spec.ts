@@ -350,7 +350,7 @@ test('complete admin login/upload → guest play → ordinary account progress/s
     const saveId = saveIdentity(game, 'fceumm')
     await expect.poll(() => site.app.database.prepare('SELECT checksum FROM game_saves WHERE game_id = ? AND user_id = ?').get(saveId, user.id)?.checksum).toBe(checksum)
     const overlay = await states(player, engine)
-    await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
+    await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Timpa Save', exact: true }).click()
     await expect(overlay).toContainText('Tersimpan di server')
     await player.close()
 
@@ -408,7 +408,7 @@ test('uploaded game state and CPU-written progress survive metadata edits, serve
   // Catalog/history IDs and the existing content-based save identity differ.
   await expect.poll(() => site.app.database.prepare('SELECT game_id FROM game_saves').get()?.game_id).toBe(saveIdentity(game, 'fceumm'))
   const overlay = await states(page, frame)
-  await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
+  await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Timpa Save', exact: true }).click()
   await expect(overlay).toContainText('Tersimpan di server')
   expect((await page.request.patch(site.address + '/api/admin/games/' + game.id, { headers: site.headers, data: { title: 'Battery berganti judul', description: 'Metadata baru', license: 'Original fixture' } })).status()).toBe(200)
   await page.close()
@@ -451,7 +451,7 @@ test('metadata-only backup restores accounts/saves but no ROM/BIOS; admin explic
   const snapshot = encodeGameSave({ layout: 'nes-sram-v1', files: [{ key: 'sram', bytes: new Uint8Array(await battery(frame)) }] })
   await expect.poll(() => site.app.database.prepare('SELECT checksum FROM game_saves WHERE game_id = ?').get(saveIdentity(game, 'fceumm'))?.checksum).toBe(createHash('sha256').update(snapshot).digest('hex'))
   const saved = await states(page, frame)
-  await saved.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
+  await saved.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Timpa Save', exact: true }).click()
   await expect(saved).toContainText('Tersimpan di server')
   await page.close()
   await site.restoreMetadata()

@@ -127,7 +127,7 @@ test('M8: offline backup restores SRAM and state on a clean data folder, revokes
   await progress(page).getByRole('button', { name: 'Sinkronkan progres sekarang' }).click()
   await expect(progress(page)).toContainText('dikonfirmasi server')
   const overlay = await openStates(page, frame)
-  await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
+  await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Timpa Save', exact: true }).click()
   await expect(overlay).toContainText('Tersimpan di server')
   const saved = backend!.app.database.prepare('SELECT * FROM saves WHERE slot = 1').get()!
   const owner = backend!.app.database.prepare('SELECT id FROM users WHERE username = ?').get(name)!.id

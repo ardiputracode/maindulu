@@ -126,7 +126,7 @@ test('personal logout keeps the door open; door logout revokes the personal sess
   const player = await launchDemo(page)
   await player.getByRole('button', { name: 'Save state server', exact: true }).dispatchEvent('click')
   const overlay = page.getByRole('dialog', { name: 'Save state server', exact: true })
-  await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Ganti', exact: true }).click()
+  await overlay.locator('article').filter({ hasText: 'Slot 1' }).getByRole('button', { name: 'Timpa Save', exact: true }).click()
   await expect(overlay).toContainText('Tersimpan di server')
   await overlay.getByRole('button', { name: 'Tutup dialog', exact: true }).click()
   await page.getByRole('button', { name: 'Kembali', exact: true }).click()

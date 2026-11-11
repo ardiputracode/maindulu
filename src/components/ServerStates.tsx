@@ -71,7 +71,7 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
     if (!metadata || !ready) return
     if (pendingState && !window.confirm('Ganti snapshot yang belum tersimpan dengan kondisi terbaru? Unduh cadangan terlebih dahulu bila diperlukan.')) return
     const target = slotInfo(slot)
-    if (slot !== AUTOSAVE_SLOT && target && !target.deleted && !window.confirm(`Ganti save server slot ${slot}? Unduh versi lama melalui Kelola simpanan bila ingin mempertahankannya.`)) return
+    if (slot !== AUTOSAVE_SLOT && target && !target.deleted && !window.confirm(`Timpa save server slot ${slot}? Unduh versi lama melalui Kelola simpanan bila ingin mempertahankannya.`)) return
     const bytes = await rpc('export-state')
     if (!bytes || !live.current || changed.current) return
     const checksum = await hashRom(new Blob([new Uint8Array(bytes)]))
@@ -157,7 +157,7 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
             </div>
             <span className="slot-actions">
               <button className="button secondary small" disabled={busy || conflict || !ready || !info || info.deleted} onClick={() => void run(() => load(slot))}>Muat</button>
-              <button className="button secondary small" disabled={busy || conflict || !ready || !metadata} onClick={() => void run(() => capture(slot))}>Ganti</button>
+              <button className="button secondary small" disabled={busy || conflict || !ready || !metadata} onClick={() => void run(() => capture(slot))}>Timpa Save</button>
             </span>
           </article>)}
         </div>
@@ -173,7 +173,7 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
             </span>
           </article>
         </div>
-        <p className="autosave-hint">Slot Autosave ditimpa otomatis saat autosave aktif; tiga slot manual hanya berubah saat kamu menekan Ganti.</p>
+        <p className="autosave-hint">Slot Autosave ditimpa otomatis saat autosave aktif; tiga slot manual hanya berubah saat kamu menekan Timpa Save.</p>
       </div>
       {pendingState && <div className="save-pending"><p>State {pendingSlotName(pendingState.slot)} belum dikonfirmasi server ({formatBytes(pendingState.bytes.length)}). {library.list && `Ruang tersisa ${formatBytes(Math.max(0, library.list.usage.quotaBytes - library.list.usage.usedBytes))}; penggantian slot hanya dihitung selisih ukurannya.`} Menutup tab dapat menghilangkan snapshot ini.</p><div className="account-actions"><button className="button secondary small" disabled={busy} onClick={() => downloadState(pendingState.bytes, `${saveId}-${pendingSlotName(pendingState.slot).replace(' ', '-')}-cadangan`)}>Unduh cadangan state terbaru</button><button className="button secondary small" disabled={!ready || busy} onClick={() => void run(() => upload(pendingState))}>Coba simpan lagi</button><button className="button secondary small" disabled={busy} onClick={() => { if (window.confirm('Abaikan snapshot yang belum tersimpan? Pastikan cadangan sudah diunduh.')) setPendingState(null) }}>Abaikan state tertunda</button></div></div>}
        <div className="account-actions">
