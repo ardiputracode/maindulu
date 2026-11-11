@@ -4,7 +4,9 @@ Status: M5 selesai untuk save state server manual dan autosave opsional pada NES
 
 Catatan M7: [konflik, impor browser/file, dan cadangan server](milestone-7-konflik-impor-save.md) kini ditambahkan; skema terbaru versi 6 dan kuota juga menghitung cadangan tanpa penghapusan otomatis. Pernyataan fitur belum tersedia serta hasil pengujian di bawah merupakan kondisi historis M5.
 
-Catatan lanjutan: [M6 — Progres Game](milestone-6-progres-game.md) menambahkan sinkronisasi SRAM NES, jalur memcard PS1 percobaan, migrasi versi 5, serta kuota gabungan. Keterangan memcard sementara/belum tersinkron di bawah mencatat kondisi penutupan M5. Pada sesi akun terbaru, tombol Import Save File ditunda sampai alur impor M7; ekspor native tetap ada.
+Catatan lanjutan: [M6 - Progres Game](milestone-6-progres-game.md) menambahkan sinkronisasi SRAM NES, jalur memcard PS1 percobaan, migrasi versi 5, serta kuota gabungan. Keterangan memcard sementara/belum tersinkron di bawah mencatat kondisi penutupan M5. Pada sesi akun terbaru, tombol Import Save File ditunda sampai alur impor M7; ekspor native tetap ada.
+
+Catatan skema 21: [Simpan & keluar](rencana-simpan-dan-keluar-game.md) menambahkan slot server khusus **100** di samping tiga slot manual dan Autosave 99. Slot 100 hanya ditulis oleh tombol **Simpan & keluar** dan dapat dimuat dari kartu terpisah di overlay; impor manual ke 99/100 ditolak. Uraian slot di bawah yang hanya menyebut 1-3/99 mencatat kondisi historis M5.
 
 M5 menambahkan save/load state manual dari engine nyata ke penyimpanan server privat, tanpa upload ROM/BIOS. **Save dalam game/memcard otomatis tetap M6.** Dukungan server yang dibuktikan otomatis saat ini adalah **NES / fceumm varian legacy**, yaitu pilihan default loader yang teramati pada suite ini. Core/varian lain dapat dicoba dengan peringatan, tetapi tidak dinyatakan terverifikasi hanya karena `supportsStates()` tersedia atau pernah lulus ekspor/impor manual M1.
 
@@ -98,13 +100,13 @@ Semua endpoint `/api/saves` memerlukan sesi login. Header `X-Save-User` merupaka
 
 PUT/POST menggunakan CSRF serta pemeriksaan origin/Fetch Metadata M3. Host meminta CSRF dan memeriksa kembali identitas akun sebelum mutasi. Semua respons memakai no-store. Tidak ada CORS lintas origin. ID save berupa UUID server; path blob dibangkitkan server dan tidak pernah berasal dari game ID/judul/path klien.
 
-Validasi mencakup pasangan console/core, ID game bounded ASCII, identitas ROM lokal `local-<console>-<sha256>`, slot 1–3 atau slot khusus 99 (Autosave), metadata bounded, ukuran, SHA-256 seluruh payload, dan header state RetroArch `RASTATE`. State merupakan data core opaque: pemeriksaan ini bukan parser menyeluruh format setiap core atau jaminan deserialisasi. API tidak menerima endpoint upload ROM/BIOS.
+Validasi mencakup pasangan console/core, ID game bounded ASCII, identitas ROM lokal `local-<console>-<sha256>`, slot 1-3, slot khusus 99 (Autosave), atau slot khusus 100 (Simpan & keluar), metadata bounded, ukuran, SHA-256 seluruh payload, dan header state RetroArch `RASTATE`. State merupakan data core opaque: pemeriksaan ini bukan parser menyeluruh format setiap core atau jaminan deserialisasi. API tidak menerima endpoint upload ROM/BIOS.
 
 Error terstruktur antara lain `QUOTA_EXCEEDED`, `REVISION_CONFLICT`, `ACCOUNT_CHANGED`, `SAVE_NOT_FOUND`, `SAVE_DAMAGED`, dan `INVALID_SAVE`. Batas ukuran memakai 413; konflik/kuota memakai 409. Maksimal dua upload diproses per proses; limiter akun 120 request save/menit dan 30 upload/menit, termasuk percobaan gagal. Pembatasan ini tidak terdistribusi dan mengikuti batas single-server lokal proyek.
 
 ## Penyimpanan dan Konsistensi
 
-Migrasi SQLite **versi 3** menambahkan tabel `saves`; **versi 4** me-rebuild tabel yang sama agar slot khusus 99 (Autosave) diizinkan di CHECK constraint, tanpa mengganti ID akun/sesi yang sudah ada dan dengan memindahkan data save lama apa adanya. Aplikasi M3/M4 lama akan menolak versi database ini; buat backup konsisten sebelum memperbarui, jangan menurunkan versi/hapus database untuk memaksa aplikasi lama berjalan.
+Migrasi SQLite **versi 3** menambahkan tabel `saves`; **versi 4** me-rebuild tabel yang sama agar slot khusus 99 (Autosave) diizinkan di CHECK constraint; **versi 21** me-rebuild sekali lagi untuk slot khusus 100 (Simpan & keluar), tanpa mengganti ID akun/sesi yang sudah ada dan dengan memindahkan data save lama apa adanya. Aplikasi M3/M4 lama akan menolak versi database ini; buat backup konsisten sebelum memperbarui, jangan menurunkan versi/hapus database untuk memaksa aplikasi lama berjalan.
 
 Byte disimpan pada `<dataDir>/saves/<uuid>.bin`, di luar aset publik/build. Setiap upload memakai berkas baru yang immutable: tulis `.tmp`, flush/fsync, rename menjadi `.bin`, lalu commit metadata dalam transaksi `BEGIN IMMEDIATE` dengan pemeriksaan sesi, revisi, dan kuota. Versi lama baru dibersihkan sesudah commit. Kegagalan metadata membersihkan berkas baru dan mempertahankan referensi lama.
 

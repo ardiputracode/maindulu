@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { readFile, writeFile, readdir } from 'node:fs/promises'
+import { DatabaseSync } from 'node:sqlite'
 import { createApp } from './helpers/gated-backend.mjs'
 import { readConfig } from './helpers/gated-backend.mjs'
 import { resetAccountByAdmin } from '../server/auth/mutations.mjs'
@@ -57,6 +58,55 @@ test('server state round-trip persists file/checksum/metadata across restart and
   c.app = await createApp({ root: c.root, env: {} })
   assert.deepEqual((await get(c.app, owner, save.id)).rawPayload, state())
   assert.ok(readSaveList((await list(c.app, owner)).json()))
+})
+
+test('v20 to v21 rebuild preserves revisions and tombstones, then enables the dedicated Save & exit slot', async t => {
+  const c = await setup(t)
+  const owner = await register(c.app)
+  const manual = (await put(c.app, owner, state(700, 1), { slot: 1 })).json().save
+  const autosave = (await put(c.app, owner, state(700, 3), { slot: 99 })).json().save
+  const deleted = (await put(c.app, owner, state(700, 4), { slot: 2 })).json().save
+  assert.equal((await remove(c.app, owner, deleted)).statusCode, 200)
+  const before = c.app.database.prepare('SELECT * FROM saves ORDER BY slot').all()
+
+  // A real v20 database has no slot-100 row: rewind the table and migration log.
+  await c.app.close()
+  const snapshot = new DatabaseSync(join(c.root, 'data', 'maindulu.sqlite'))
+  snapshot.exec(`CREATE TABLE saves_v20 (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    game_id TEXT NOT NULL, console_id TEXT NOT NULL, core TEXT NOT NULL,
+    slot INTEGER NOT NULL CHECK(slot = 99 OR slot BETWEEN 1 AND 3),
+    title TEXT NOT NULL, metadata TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    size INTEGER NOT NULL CHECK(size >= 0), checksum TEXT NOT NULL,
+    blob_key TEXT, updated_at INTEGER NOT NULL,
+    UNIQUE(user_id, game_id, console_id, core, slot)
+  ) STRICT;
+  INSERT INTO saves_v20 SELECT id, user_id, game_id, console_id, core, slot, title, metadata,
+    revision, size, checksum, blob_key, updated_at FROM saves;
+  DROP TABLE saves;
+  ALTER TABLE saves_v20 RENAME TO saves;
+  CREATE INDEX saves_owner ON saves(user_id);
+  DELETE FROM schema_migrations WHERE version >= 21;
+  PRAGMA user_version = 20;`)
+  snapshot.close()
+  c.app = await createApp({ root: c.root, env: {} })
+
+  assert.equal(c.app.database.prepare('PRAGMA user_version').get().user_version, 21)
+  assert.equal(c.app.database.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 21').get().n, 1)
+  assert.deepEqual(c.app.database.prepare('SELECT * FROM saves ORDER BY slot').all(), before)
+  assert.deepEqual((await get(c.app, owner, manual.id)).rawPayload, state(700, 1))
+  assert.deepEqual((await get(c.app, owner, autosave.id)).rawPayload, state(700, 3))
+  const tombstone = (await list(c.app, owner)).json().saves.find(s => s.slot === 2)
+  assert.equal(tombstone.deleted, true)
+  assert.equal(tombstone.revision, deleted.revision + 1)
+
+  const exit = await put(c.app, owner, state(700, 2), { slot: 100, title: 'Keluar' })
+  assert.equal(exit.statusCode, 201, exit.body)
+  assert.equal(exit.json().save.slot, 100)
+  assert.deepEqual((await get(c.app, owner, exit.json().save.id)).rawPayload, state(700, 2))
+  assert.deepEqual((await list(c.app, owner)).json().saves.find(s => s.slot === 1), { ...manual, deleted: false })
 })
 
 test('two accounts cannot list/read/delete another owner; identity header never selects an owner', async t => {
@@ -191,6 +241,7 @@ test('save contracts reject malformed responses and compare every compatibility 
   assert.ok(readSaveList(valid))
   const autosaveSample = { id: '0123abcd-0000-4000-8000-000000000000', gameId: 'jalan-pulang', consoleId: 'nes', core: 'fceumm', title: 'Jalan Pulang', revision: 3, size: 5000, checksum: 'a'.repeat(64), updatedAt: Date.now(), deleted: false, metadata }
   assert.equal(readServerSave({ ...autosaveSample, slot: 99 })?.slot, 99)
+  assert.equal(readServerSave({ ...autosaveSample, slot: 100 })?.slot, 100)
   assert.equal(readServerSave({ ...autosaveSample, slot: 4 }), null)
   for (const v of [null, {}, { ...valid, usage: { ...valid.usage, slots: 9 } }, { ...valid, saves: [{}] }]) assert.equal(readSaveList(v), null)
 })

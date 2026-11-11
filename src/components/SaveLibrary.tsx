@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import Dialog from './Dialog'
-import { downloadState, formatBytes } from '../lib/saves'
+import { downloadState, formatBytes, saveSlotLabel } from '../lib/saves'
 import type { SaveClient, SaveList, ServerSave } from '../lib/saves'
 import { hashRom } from '../lib/identity'
 import { useSaveLibrary } from '../lib/useSaveLibrary'
@@ -18,14 +18,14 @@ export function SaveManager({ client, list, onRefresh, onClose }: { client: Save
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   async function act(save: ServerSave, remove: boolean) {
-    if (remove && !window.confirm(`Hapus ${save.title}, slot ${save.slot}? Unduh cadangan dahulu bila diperlukan. Penghapusan tidak dapat dibatalkan.`)) return
+    if (remove && !window.confirm(`Hapus ${save.title}, ${saveSlotLabel(save.slot)}? Unduh cadangan dahulu bila diperlukan. Penghapusan tidak dapat dibatalkan.`)) return
     setBusy(true); setError('')
     try {
       if (remove) { await client.remove(save); await onRefresh() }
       else {
         const bytes = await client.get(save)
         if (await hashRom(new Blob([new Uint8Array(bytes)])) !== save.checksum) throw new Error('Checksum cadangan tidak sesuai.')
-        downloadState(bytes, `${save.gameId}-slot-${save.slot}`)
+        downloadState(bytes, `${save.gameId}-${saveSlotLabel(save.slot).replaceAll(' ', '-')}`)
       }
     } catch (e) { setError(e instanceof Error ? e.message : 'Operasi save gagal.') }
     finally { setBusy(false) }
@@ -35,14 +35,14 @@ export function SaveManager({ client, list, onRefresh, onClose }: { client: Save
     <SaveQuota list={list} />
     <p>Semua save state akun ini, lintas game. Save dalam game/memcard dan cadangan konflik/impor dikelola terpisah melalui dialog akun; semuanya memakai kuota akun yang sama.</p>
     {error && <p className="notice" role="alert">{error}</p>}
-    <div className="save-list">{saves.length ? saves.map(save => <article className="save-item" key={save.id} aria-label={`${save.title}, ${save.gameId}, slot ${save.slot}`}>
-      <strong>{save.title} — slot {save.slot}</strong>
+    <div className="save-list">{saves.length ? saves.map(save => <article className="save-item" key={save.id} aria-label={`${save.title}, ${save.gameId}, ${saveSlotLabel(save.slot)}`}>
+      <strong>{save.title} — {saveSlotLabel(save.slot)}</strong>
       <p>Identitas game: {save.gameId}</p>
       <p>{save.consoleId} / {save.core} · {formatBytes(save.size)} · revisi {save.revision}</p>
       <p>Engine {save.metadata.engineVersion} · {save.metadata.variant} · build core {save.metadata.coreBuild.slice(0, 12)}</p>
       {save.metadata.provenance && <p>Impor {save.metadata.provenance.source}: build sumber tidak diketahui; dikonfirmasi untuk build tujuan.</p>}
       <time dateTime={new Date(save.updatedAt).toISOString()}>{new Date(save.updatedAt).toLocaleString('id-ID')}</time>
-      <div className="account-actions"><button className="button secondary small" disabled={busy} onClick={() => void act(save, false)}>Unduh cadangan {save.title} slot {save.slot}</button><button className="button secondary small" disabled={busy} onClick={() => void act(save, true)}>Hapus {save.title} slot {save.slot}</button></div>
+      <div className="account-actions"><button className="button secondary small" disabled={busy} onClick={() => void act(save, false)}>Unduh cadangan {save.title} {saveSlotLabel(save.slot)}</button><button className="button secondary small" disabled={busy} onClick={() => void act(save, true)}>Hapus {save.title} {saveSlotLabel(save.slot)}</button></div>
     </article>) : <p>Belum ada save state di server.</p>}</div>
     <button className="button secondary" disabled={busy} onClick={() => void onRefresh()}>Muat ulang daftar</button>
   </Dialog>

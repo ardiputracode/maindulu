@@ -91,12 +91,48 @@ test('mobile player offers viewport mode when element fullscreen is unavailable'
   await expect(page.locator('.player-shell')).not.toHaveClass(/is-pseudo-fullscreen/)
 })
 
-test('desktop guest retains native emulator fullscreen', async ({ page }) => {
+test('desktop guest fullscreen uses the host shell so React save dialogs stay visible', async ({ page }) => {
   const player = await launchDemo(page)
   await player.getByRole('button', { name: 'Enter Fullscreen' }).click({ force: true })
-  await expect.poll(() => player.locator('.ejs_parent').evaluate(element => document.fullscreenElement === element)).toBe(true)
+  await expect.poll(() => page.locator('.player-shell').evaluate(element => document.fullscreenElement === element)).toBe(true)
   await expect(page.locator('.player-shell')).not.toHaveClass(/is-pseudo-fullscreen/)
   await page.keyboard.press('Escape')
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBe(null)
+})
+
+test('guest Simpan & keluar stores a dedicated browser snapshot and loads it explicitly', async ({ page }) => {
+  test.setTimeout(120_000)
+  const player = await launchDemo(page)
+  const box = await player.locator('#game').boundingBox()
+  await player.locator('#game').hover({ position: { x: 20, y: box!.height - 12 } })
+  await player.getByRole('button', { name: 'Simpan & keluar', exact: true }).dispatchEvent('click')
+  const dialog = page.getByRole('dialog', { name: 'Simpan & keluar', exact: true })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Simpan & keluar', exact: true }).click()
+  // Confirmed commit returns to the home page once, without a second confirmation.
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Dulu pulang sekolah.', { timeout: 30000 })
+
+  const again = await launchDemo(page)
+  const againBox = await again.locator('#game').boundingBox()
+  await again.locator('#game').hover({ position: { x: 20, y: againBox!.height - 12 } })
+  const load = again.getByRole('button', { name: 'Muat simpanan terakhir', exact: true })
+  await expect(load).toBeEnabled({ timeout: 15000 })
+  page.once('dialog', d => d.accept())
+  await load.dispatchEvent('click')
+  await expect(page.getByText('Perintah muat dikirim ke core. Periksa posisi permainan; engine tidak memberikan konfirmasi deserialisasi.')).toBeVisible({ timeout: 15000 })
+
+  const stored = await again.locator('body').evaluate(async () => {
+    const e = (window as unknown as { EJS_emulator: { getBaseFileName: () => string; storage: { states: { get: (key: string) => Promise<unknown> } } } }).EJS_emulator
+    const size = async (suffix: string) => {
+      try {
+        const value = await e.storage.states.get(e.getBaseFileName() + suffix)
+        return value instanceof Uint8Array ? value.length : 0
+      } catch { return 0 }
+    }
+    return { exit: await size('.maindulu-exit.v1.state'), native: await size('.state') }
+  })
+  expect(stored.exit).toBeGreaterThan(1000)
+  expect(stored.native).toBe(0)
 })
 
 test('cold-cache server game runs without any external request and records real play', async ({ page, context, baseURL }) => {

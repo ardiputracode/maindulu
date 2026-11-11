@@ -7,6 +7,9 @@ import { protectRequest } from './auth/security.mjs'
 import { archive, decisionReceipt, parseOperation, parseProvenance, readSaveBlob, recordDecision, referenced, usedBytes } from './save-backups.mjs'
 
 const cores = { nes: 'fceumm', snes: 'snes9x', gb: 'gambatte', gba: 'mgba', megadrive: 'genesis_plus_gx', psx: 'pcsx_rearmed' }
+const AUTOSAVE_SLOT = 99
+const EXIT_SLOT = 100
+const validSlot = slot => Number.isInteger(slot) && (slot === AUTOSAVE_SLOT || slot === EXIT_SLOT || slot >= 1 && slot <= 3)
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
 const blobName = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.(?:bin|tmp)$/
 const digest = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -24,10 +27,12 @@ function parseMetadata(header) {
   if (typeof header !== 'string' || header.length > 4096) throw invalid()
   let v
   try { v = JSON.parse(decodeURIComponent(header)) } catch { throw invalid() }
-  if (!v || typeof v !== 'object' || typeof v.gameId !== 'string' || !/^[a-zA-Z0-9_-]{1,160}$/.test(v.gameId) || typeof v.consoleId !== 'string' || !Object.hasOwn(cores, v.consoleId) || cores[v.consoleId] !== v.core || !Number.isInteger(v.slot) || (v.slot !== 99 && (v.slot < 1 || v.slot > 3)) || !Number.isSafeInteger(v.expectedRevision) || v.expectedRevision < 0 || typeof v.title !== 'string' || v.title.length < 1 || v.title.length > 200 || /[\x00-\x1f]/.test(v.title)) throw invalid()
+  if (!v || typeof v !== 'object' || typeof v.gameId !== 'string' || !/^[a-zA-Z0-9_-]{1,160}$/.test(v.gameId) || typeof v.consoleId !== 'string' || !Object.hasOwn(cores, v.consoleId) || cores[v.consoleId] !== v.core || !validSlot(v.slot) || !Number.isSafeInteger(v.expectedRevision) || v.expectedRevision < 0 || typeof v.title !== 'string' || v.title.length < 1 || v.title.length > 200 || /[\x00-\x1f]/.test(v.title)) throw invalid()
   if (v.gameId.startsWith('local-') && !new RegExp(`^local-${v.consoleId}-[a-f0-9]{64}$`).test(v.gameId)) throw invalid()
   const m = v.metadata
-  if (v.operation?.reason === 'import' && v.slot === 99) throw invalid()
+  // Autosave and Save & exit slots are written only by their own flows; manual
+  // import must not replace them.
+  if (v.operation?.reason === 'import' && (v.slot === AUTOSAVE_SLOT || v.slot === EXIT_SLOT)) throw invalid()
   if (!m || m.formatVersion !== 1 || typeof m.engineVersion !== 'string' || m.engineVersion.length > 30 || !/^\d+\.\d+\.\d+$/.test(m.engineVersion) || typeof m.coreBuild !== 'string' || !/^[a-f0-9]{64}$/.test(m.coreBuild) || typeof m.runtimeBuild !== 'string' || !/^[a-f0-9]{64}$/.test(m.runtimeBuild) || !['normal', 'legacy'].includes(m.variant) || typeof v.checksum !== 'string' || !/^[a-f0-9]{64}$/.test(v.checksum)) throw invalid()
   return { gameId: v.gameId, consoleId: v.consoleId, core: v.core, slot: v.slot, title: v.title, expectedRevision: v.expectedRevision, checksum: v.checksum,
     operation: parseOperation(v.operation),

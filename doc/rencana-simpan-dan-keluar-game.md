@@ -1,6 +1,6 @@
 # Rencana — Tombol Keluar Game dan Simpan & Keluar
 
-Status: rencana implementasi; belum ada perubahan runtime atau pengujian fitur.
+Status: **selesai diimplementasikan** (2026-11-11). Runtime, migrasi skema 21, dokumentasi, dan regresi terarah sudah diperbarui; hasil aktual ada di bagian [Hasil implementasi](#hasil-implementasi).
 
 ## Tujuan dan keputusan UX
 
@@ -132,14 +132,14 @@ File utama: `src/App.tsx`, `src/components/Player.tsx`, `public/player/player.js
 
 ## Tahapan implementasi
 
-- [ ] 1. Konfirmasi kontrak toolbar/store dari source vendor serta petakan test/helper yang dapat dipakai ulang.
-- [ ] 2. Tetapkan kontrak slot baru, migrasi database, validasi API/parser, label pengelola, transfer, dan backup; ekstrak pipeline state server serta lock bersama tanpa mengubah slot manual/Autosave.
-- [ ] 3. Tambahkan protokol intent, capability, pause tamu, RPC save browser ke key khusus dengan acknowledgement, serta kontrol/RPC Muat simpanan terakhir.
-- [ ] 4. Tambahkan state machine host, penanganan snapshot retry/hasil parsial, dan integrasi final sync akun.
-- [ ] 5. Integrasikan izin navigasi sekali pakai, guard operasi sibuk, dan fullscreen host untuk tamu.
-- [ ] 6. Pasang tombol di sebelah fullscreen, dialog/status/aksesibilitas, serta bantuan cara memuat kembali.
-- [ ] 7. Tambahkan regresi real-engine dan jalankan verifikasi terarah, lalu suite relevan.
-- [ ] 8. Perbarui dokumentasi penggunaan, termasuk slot Simpan & keluar terpisah, migrasi/kuota, cara muat tamu, dan fullscreen tamu; catat core/varian yang benar-benar diuji.
+- [x] 1. Konfirmasi kontrak toolbar/store dari source vendor serta petakan test/helper yang dapat dipakai ulang.
+- [x] 2. Tetapkan kontrak slot baru, migrasi database, validasi API/parser, label pengelola, transfer, dan backup; ekstrak pipeline state server serta lock bersama tanpa mengubah slot manual/Autosave.
+- [x] 3. Tambahkan protokol intent, capability, pause tamu, RPC save browser ke key khusus dengan acknowledgement, serta kontrol/RPC Muat simpanan terakhir.
+- [x] 4. Tambahkan state machine host, penanganan snapshot retry/hasil parsial, dan integrasi final sync akun.
+- [x] 5. Integrasikan izin navigasi sekali pakai, guard operasi sibuk, dan fullscreen host untuk tamu.
+- [x] 6. Pasang tombol di sebelah fullscreen, dialog/status/aksesibilitas, serta bantuan cara memuat kembali.
+- [x] 7. Tambahkan regresi real-engine dan jalankan verifikasi terarah, lalu suite relevan.
+- [x] 8. Perbarui dokumentasi penggunaan, termasuk slot Simpan & keluar terpisah, migrasi/kuota, cara muat tamu, dan fullscreen tamu; catat core/varian yang benar-benar diuji.
 
 ## Rencana pengujian
 
@@ -169,7 +169,7 @@ Gunakan `tests/browser/app.spec.ts`, `tests/browser/server-saves.spec.ts`, `test
 - Jalankan `npm test` dan `npm run build`.
 - Jalankan suite browser terarah pada konfigurasi dev serta backend. Build ulang sebelum konfigurasi backend/production sesuai workflow repo.
 - Jalankan regresi LAN/fallback dan produksi yang relevan bila fullscreen/protokol tamu berubah.
-- Catat hasil aktual, core/varian, dan tes yang dilewati. Dokumen ini tidak menyatakan perintah tersebut sudah dijalankan.
+- Catat hasil aktual, core/varian, dan tes yang dilewati. Hasil aktual ada di [Hasil implementasi](#hasil-implementasi).
 
 ## Kriteria selesai
 
@@ -180,3 +180,22 @@ Gunakan `tests/browser/app.spec.ts`, `tests/browser/server-saves.spec.ts`, `test
 - Migrasi dan kontrak API/backup mendukung slot baru tanpa kehilangan data lama atau menghindari kuota/ownership/revisi. Tidak ada fallback akun ke browser, konfirmasi ganda setelah save sukses, atau jalur bypass guard yang tersisa.
 - Autosave, final sync, konflik M7, mode pause, dan navigasi alternatif tidak berlomba melepas player atau mengganti snapshot tanpa persetujuan.
 - Dokumentasi menjelaskan tempat penyimpanan, snapshot yang diganti, cara memuat, serta batas dukungan core dan ketahanan data browser.
+
+## Hasil implementasi
+
+Diimplementasikan pada 2026-11-11 dengan kontrak berikut:
+
+- **Slot akun:** slot server **100** (`EXIT_SLOT`). Migrasi database **v21** membangun ulang tabel `saves` dengan `CHECK(slot = 99 OR slot = 100 OR slot BETWEEN 1 AND 3)` sambil mempertahankan baris, revisi, tombstone, metadata, dan index. Impor manual ke slot 99/100 tetap ditolak; backup skema 20 tetap dapat diverifikasi dan dipulihkan lalu dimigrasikan.
+- **Slot tamu:** key IndexedDB khusus `getBaseFileName() + '.maindulu-exit.v1.state'`. Key native `.state` tidak disentuh. Penulisan diverifikasi dengan membaca kembali byte yang sama; `EJS_STORAGE.put` dibatasi timeout agar kegagalan storage tidak menggantung.
+- **Serialisasi:** `src/lib/operation-lock.ts` dan `src/lib/state-pipeline.ts` dipakai bersama oleh save manual, Autosave, dan Simpan & keluar. Player memegang lock selama alur exit; ServerStates tidak mengambil lock kedua.
+- **Alur host:** `src/components/Player.tsx` memakai state machine `confirm → capturing → saving → syncing → done` dengan cabang `error`/`partial`. Byte snapshot disimpan untuk retry dan unduhan cadangan; commit akun yang timeout diperiksa ulang lewat `checkExitCommit` tanpa upload kedua. Final sync progres hanya berjalan setelah state terkonfirmasi.
+- **Navigasi:** `src/App.tsx` memberi izin navigasi sekali pakai yang terikat session ID dan tujuan `/`; guard sibuk menolak navigasi alternatif selama operasi. Konfirmasi generik dan sync kedua tidak berjalan setelah save sukses.
+- **Toolbar:** tombol **Keluar game**, **Simpan & keluar**, dan (khusus tamu) **Muat simpanan terakhir** diposisikan tepat sebelum kontrol fullscreen secara idempoten. Capability menonaktifkan tombol saat game belum mulai, core tidak mendukung state, atau operasi sedang berjalan.
+- **Fullscreen:** sesi tamu kini memakai fullscreen `.player-shell` milik host, sehingga dialog konfirmasi/error/cadangan React tetap terlihat. Fallback pseudo-fullscreen dan Escape dipertahankan.
+
+Verifikasi aktual:
+
+- `npm test`: **647 tes lulus**, 0 gagal.
+- `npm run build`: lulus (hanya peringatan ukuran chunk Vite).
+- Browser backend terarah: 2 tes tamu di `tests/browser/app.spec.ts` (fullscreen host dan siklus Simpan & keluar → muat eksplisit) serta 1 tes akun di `tests/browser/server-saves.spec.ts` (slot 100 saja, kembali ke beranda sekali, muat ulang eksplisit) lulus.
+- Cakupan real-engine yang diuji: **NES/fceumm varian legacy** pada demo Jalan Pulang. PS1 dan core lain tidak diklaim terverifikasi untuk alur ini.

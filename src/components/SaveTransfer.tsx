@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Dialog from './Dialog'
-import { downloadState, formatBytes, SaveError } from '../lib/saves'
+import { downloadState, formatBytes, SaveError, saveSlotLabel } from '../lib/saves'
 import type { StateMetadata } from '../lib/saves'
 import { downloadGameSave } from '../lib/game-saves'
 import { encodeGameSave, gameSaveLayout } from '../lib/game-save-format'
@@ -23,6 +23,9 @@ export default function SaveTransfer({ owner, ownerName, enabled, request, targe
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [slot, setSlot] = useState(request.slot ?? 1)
+  // Conflict decisions keep their original slot, including the dedicated
+  // Autosave/Save & exit slots; manual import only offers slots 1-3.
+  const fixedSlot = request.mode === 'conflict' && request.slot != null
   // A network failure must retry the SAME immutable operation, not refresh its
   // revision or create a different choice whose first outcome is still unknown.
   const [attempt, setAttempt] = useState<{ operation: Operation; revision: number } | null>(null)
@@ -91,7 +94,7 @@ export default function SaveTransfer({ owner, ownerName, enabled, request, targe
       {!enabled && <p className="notice" role="status">Status akun belum dapat dipastikan. Kandidat dan ID retry tetap ditahan di tab ini; unduh kandidat bila diperlukan. Penulisan dihentikan sampai akun yang sama terkonfirmasi.</p>}
       {request.mode === 'import' && <>
         <p>Save browser/file tidak membuktikan game atau versi core asal. Metadata build di sini adalah <strong>tujuan yang kamu konfirmasi</strong>, bukan klaim versi sumber. Gunakan ROM/region/revisi yang sama; sumber tetap utuh.</p>
-        {request.kind === 'state' && <label>Slot tujuan<select disabled={!enabled || busy || !!attempt} value={slot} onChange={e => { setSlot(Number(e.target.value)); setServer(null); setConfirmed(false) }}>{[1, 2, 3].map(n => <option key={n} value={n}>Slot {n}</option>)}</select></label>}
+        {request.kind === 'state' && (fixedSlot ? <p>Slot tujuan: <strong>{saveSlotLabel(slot)}</strong>. Keputusan konflik tetap pada slot ini.</p> : <label>Slot tujuan<select disabled={!enabled || busy || !!attempt} value={slot} onChange={e => { setSlot(Number(e.target.value)); setServer(null); setConfirmed(false) }}>{[1, 2, 3].map(n => <option key={n} value={n}>Slot {n}</option>)}</select></label>)}
         <label>File save<input type="file" accept={request.kind === 'state' ? '.state' : '.srm'} disabled={!enabled || busy || !!attempt} onChange={e => {
           const file = e.target.files?.[0]
           e.target.value = ''

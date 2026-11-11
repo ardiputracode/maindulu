@@ -124,6 +124,7 @@ test('session File adapter shares the HEAD/GET buffer, releases it, and must be 
 test('engine bundle fingerprint still matches builds.json; no engine regeneration for native File spike', async () => {
   const builds = JSON.parse(await readFile(new URL('../public/player/builds.json', import.meta.url), 'utf8'))
   const bundled = await readFile(new URL('../public/vendor/emulatorjs/4.2.3/data/emulator.min.js', import.meta.url), 'utf8')
-  const code = bundled.slice(bundled.indexOf('\n') + 1)
+  // builds.json records the LF fingerprint; a CRLF checkout must not fail the gate.
+  const code = bundled.slice(bundled.indexOf('\n') + 1).replace(/\r\n/g, '\n')
   assert.equal(createHash('sha256').update(code).digest('hex'), builds.runtimeBuild)
 })

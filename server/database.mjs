@@ -394,6 +394,29 @@ const migrations = [
       PRIMARY KEY(folder, entry_id)
     ) STRICT;`,
   },
+  {
+    version: 21,
+    name: 'save-and-exit-state-slot',
+    // Slot 100 is written only by the Save & exit flow. SQLite cannot alter a
+    // CHECK constraint, so rebuild the table and keep rows, revisions, indexes
+    // and tombstones exactly as they were.
+    sql: `CREATE TABLE saves_v21 (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      game_id TEXT NOT NULL, console_id TEXT NOT NULL, core TEXT NOT NULL,
+      slot INTEGER NOT NULL CHECK(slot = 99 OR slot = 100 OR slot BETWEEN 1 AND 3),
+      title TEXT NOT NULL, metadata TEXT NOT NULL,
+      revision INTEGER NOT NULL CHECK(revision > 0),
+      size INTEGER NOT NULL CHECK(size >= 0), checksum TEXT NOT NULL,
+      blob_key TEXT, updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, game_id, console_id, core, slot)
+    ) STRICT;
+    INSERT INTO saves_v21 (id, user_id, game_id, console_id, core, slot, title, metadata, revision, size, checksum, blob_key, updated_at)
+      SELECT id, user_id, game_id, console_id, core, slot, title, metadata, revision, size, checksum, blob_key, updated_at FROM saves;
+    DROP TABLE saves;
+    ALTER TABLE saves_v21 RENAME TO saves;
+    CREATE INDEX saves_owner ON saves(user_id);`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

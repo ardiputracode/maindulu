@@ -101,6 +101,10 @@
 .server-state-help { color: #96ad9e; font-size: 12px; }
 .server-state-help summary { cursor: pointer; color: #bdd6c4; padding: 6px 0; }
 .server-state-help p { margin-top: 8px; }
+.exit-dialog { width: 560px; }
+.exit-flow .exit-status { display: flex; align-items: center; gap: 10px; padding: 14px; border: 1px solid #34523d; border-radius: 10px; background: #13231a; color: #d3e7d8; }
+.exit-flow .exit-status svg { flex-shrink: 0; }
+.exit-flow .account-actions { padding-top: 4px; }
 .server-save-manager { position: relative; z-index: 71; }
 .server-status { padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.65; }
 .server-status--error { background: #4a1d1d; border: 1px solid #7a3b3b; color: #f5c2c2; }

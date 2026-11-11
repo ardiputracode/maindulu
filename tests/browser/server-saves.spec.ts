@@ -232,6 +232,37 @@ test('M7: absent browser storage is reported without creating guest databases', 
   await closeOverlay(page, frame)
 })
 
+test('M7: Save & exit writes only the dedicated slot, returns home once, and reloads explicitly', async ({ page }) => {
+  test.setTimeout(180_000)
+  const name = username()
+  await register(page, name)
+  const frame = await launch(page, name)
+  const position = await move(page, frame)
+  // Wait for the confirmed server list so the exit pipeline can resolve revisions.
+  await openOverlay(page, frame)
+  await expect(slotRow(page, 'Slot 1')).toBeVisible()
+  await closeOverlay(page, frame)
+
+  await frame.getByRole('button', { name: 'Simpan & keluar', exact: true }).dispatchEvent('click')
+  const exit = page.getByRole('dialog', { name: 'Simpan & keluar', exact: true })
+  await expect(exit).toBeVisible()
+  await exit.getByRole('button', { name: 'Simpan & keluar', exact: true }).click()
+  // A confirmed commit navigates home exactly once; no generic exit confirmation.
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Dulu pulang sekolah.', { timeout: 60000 })
+
+  const again = await launch(page, name)
+  await openOverlay(page, again)
+  const exitSlot = slotRow(page, 'Simpan & keluar')
+  await expect(exitSlot).toContainText('revisi 1')
+  await expect(slotRow(page, 'Slot 1')).toContainText('Kosong')
+  await expect(overlay(page).locator('.autosave-slot')).toContainText('Kosong')
+  page.once('dialog', d => d.accept())
+  await exitSlot.getByRole('button', { name: 'Muat', exact: true }).click()
+  await expect(overlay(page)).toContainText('Perintah muat dikirim ke core')
+  await closeOverlay(page, again)
+  await expect.poll(() => x(again)).toBe(position)
+})
+
 test('M5: save overlay stacks its sections, fits small screens, and keeps keyboard focus inside', async ({ page }, info) => {
   const name = username()
   await register(page, name)

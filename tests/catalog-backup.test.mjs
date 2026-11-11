@@ -55,7 +55,27 @@ test('schema-19 catalog backup verifies before migration and adds availability w
   const target = join(c.root, 'backup19'), restored = join(c.root, 'restored19')
   const manifest = await createDataBackup(c.config, target)
   const path = join(target, 'maindulu.sqlite'), snapshot = new DatabaseSync(path)
-  snapshot.exec('DROP TABLE catalog_file_status; DELETE FROM schema_migrations WHERE version = 20; PRAGMA user_version = 19;')
+  // Reconstruct an actual schema-19 database: drop the v20 availability table and
+  // rebuild saves with its pre-slot-100 CHECK before rewinding the migration log.
+  snapshot.exec(`DROP TABLE catalog_file_status;
+    CREATE TABLE saves_v19 (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      game_id TEXT NOT NULL, console_id TEXT NOT NULL, core TEXT NOT NULL,
+      slot INTEGER NOT NULL CHECK(slot = 99 OR slot BETWEEN 1 AND 3),
+      title TEXT NOT NULL, metadata TEXT NOT NULL,
+      revision INTEGER NOT NULL CHECK(revision > 0),
+      size INTEGER NOT NULL CHECK(size >= 0), checksum TEXT NOT NULL,
+      blob_key TEXT, updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, game_id, console_id, core, slot)
+    ) STRICT;
+    INSERT INTO saves_v19 SELECT id, user_id, game_id, console_id, core, slot, title, metadata,
+      revision, size, checksum, blob_key, updated_at FROM saves;
+    DROP TABLE saves;
+    ALTER TABLE saves_v19 RENAME TO saves;
+    CREATE INDEX saves_owner ON saves(user_id);
+    DELETE FROM schema_migrations WHERE version >= 20;
+    PRAGMA user_version = 19;`)
   snapshot.close()
   const bytes = await readFile(path)
   manifest.schemaVersion = 19
@@ -68,6 +88,10 @@ test('schema-19 catalog backup verifies before migration and adds availability w
   assert.deepEqual(c.db.prepare('SELECT * FROM games').all(), games)
   assert.deepEqual(c.db.prepare('SELECT * FROM users').all(), users)
   assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 20').get().n, 1)
+  assert.equal(c.db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 21').get().n, 1)
+  // Migration v21 must accept the dedicated Save & exit slot.
+  c.db.prepare('INSERT INTO saves VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), c.actor, 'exit-game', 'nes', 'fceumm', 100, 'exit', '{}', 1, 0, 'a'.repeat(64), null, 3)
+  assert.equal(c.db.prepare("SELECT slot FROM saves WHERE game_id = 'exit-game'").get().slot, 100)
 })
 
 test('M5 backup normalizes provider gate only in snapshot and still accepts schema-12 backups before migration', async t => {

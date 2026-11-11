@@ -4,6 +4,17 @@ export type ImportProvenance = { source: 'browser' | 'file'; sourceBuild: 'unkno
 export type StateMetadata = { formatVersion: number; engineVersion: string; coreBuild: string; runtimeBuild: string; variant: 'normal' | 'legacy'; provenance?: ImportProvenance }
 export type ServerSave = { id: string; gameId: string; consoleId: string; core: string; slot: number; title: string; revision: number; size: number; checksum: string; updatedAt: number; deleted: boolean; metadata: StateMetadata }
 export type SaveUsage = { usedBytes: number; quotaBytes: number; maxStateBytes: number; slots: number }
+// Dedicated snapshots shared by the bridge, host and backend. Manual slots stay
+// 1-3; 99 is Autosave and 100 is written only by the Save & exit flow.
+export const AUTOSAVE_SLOT = 99
+export const EXIT_SLOT = 100
+export const MANUAL_SLOTS = [1, 2, 3] as const
+export function isSaveSlot(value: unknown): value is number {
+  return value === AUTOSAVE_SLOT || value === EXIT_SLOT || value === 1 || value === 2 || value === 3
+}
+export function saveSlotLabel(slot: number) {
+  return slot === EXIT_SLOT ? 'Simpan & keluar' : slot === AUTOSAVE_SLOT ? 'Autosave' : `slot ${slot}`
+}
 export type SaveList = { saves: ServerSave[]; usage: SaveUsage }
 export class SaveError extends Error {
   status: number
@@ -25,7 +36,7 @@ export function readServerSave(value: unknown): ServerSave | null {
   if (!value || typeof value !== 'object') return null
   const v = value as ServerSave
   const metadata = readStateMetadata(v.metadata)
-  if (!metadata || typeof v.id !== 'string' || !/^[a-f0-9-]{36}$/.test(v.id) || typeof v.gameId !== 'string' || !/^[a-zA-Z0-9_-]{1,160}$/.test(v.gameId) || typeof v.consoleId !== 'string' || typeof v.core !== 'string' || typeof v.title !== 'string' || v.title.length > 200 || !Number.isSafeInteger(v.revision) || v.revision < 1 || !Number.isInteger(v.slot) || (v.slot !== 99 && (v.slot < 1 || v.slot > 3)) || !Number.isSafeInteger(v.size) || v.size < 0 || !hex(v.checksum) || !Number.isSafeInteger(v.updatedAt) || typeof v.deleted !== 'boolean') return null
+  if (!metadata || typeof v.id !== 'string' || !/^[a-f0-9-]{36}$/.test(v.id) || typeof v.gameId !== 'string' || !/^[a-zA-Z0-9_-]{1,160}$/.test(v.gameId) || typeof v.consoleId !== 'string' || typeof v.core !== 'string' || typeof v.title !== 'string' || v.title.length > 200 || !Number.isSafeInteger(v.revision) || v.revision < 1 || !isSaveSlot(v.slot) || !Number.isSafeInteger(v.size) || v.size < 0 || !hex(v.checksum) || !Number.isSafeInteger(v.updatedAt) || typeof v.deleted !== 'boolean') return null
   return { id: v.id, gameId: v.gameId, consoleId: v.consoleId, core: v.core, title: v.title, slot: v.slot, revision: v.revision, size: v.size, checksum: v.checksum, updatedAt: v.updatedAt, deleted: v.deleted, metadata }
 }
 export function readSaveList(value: unknown): SaveList | null {

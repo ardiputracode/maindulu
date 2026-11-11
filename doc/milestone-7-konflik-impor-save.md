@@ -9,7 +9,7 @@ Keputusan persiapan yang disetujui pengguna dirangkum di bawah. Panduan ini menj
 ## Keputusan
 
 - Impor dari **browser ini dan file `.srm` / `.state`**, hanya atas tindakan pengguna.
-- Konflik save state M5 (termasuk Autosave 99) dan progres game M6 diselesaikan secara eksplisit; tidak ada merge biner atau last-write-wins.
+- Konflik save state M5 (termasuk Autosave 99 dan slot Simpan & keluar 100) dan progres game M6 diselesaikan secara eksplisit; tidak ada merge biner atau last-write-wins.
 - Cadangan konflik/impor disimpan di server, **tidak dihapus otomatis**, dan dihitung dalam kuota gabungan akun.
 - Jika kuota tidak cukup untuk cadangan + versi baru, operasi ditolak tanpa mengganti save aktif.
 - Memilih SRAM/memcard server atau mengimpor progres membuka ulang player, memasang progres sebelum boot, dan tetap meminta klik **Mulai bermain**.
@@ -65,7 +65,7 @@ Konflik Autosave 99 juga dapat ditinjau, dan snapshot pending menahan autosave b
 ### Save state `.state` / browser
 
 1. Buka **Save state server → Impor state**.
-2. Pilih slot manual **1–3**, lalu file **`.state`** atau **Baca save browser ini**. Impor tidak menargetkan Autosave 99.
+2. Pilih slot manual **1-3**, lalu file **`.state`** atau **Baca save browser ini**. Impor tidak menargetkan Autosave 99 atau slot **Simpan & keluar** 100; keduanya hanya ditulis oleh alurnya sendiri.
 3. Tinjau server dan konfirmasi. Impor menyimpan snapshot ke slot, **tidak otomatis memuatnya**.
 4. Pilih **Muat** pada slot tujuan dan periksa progres. Engine tidak menyediakan konfirmasi deserialisasi yang andal; respons RPC bukan bukti gameplay berhasil pulih.
 

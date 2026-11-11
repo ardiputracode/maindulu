@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Check, ChevronDown, Heart, Info, Keyboard, LoaderCircle, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, Download, Heart, Info, Keyboard, LoaderCircle, LogOut, Save, ShieldCheck } from 'lucide-react'
 import type { ConsoleInfo, Game, Settings } from '../lib/domain'
 import { saveIdentity } from '../lib/domain'
 import type { AccountState } from '../lib/account'
 import type { StateMetadata } from '../lib/saves'
-import { readStateMetadata } from '../lib/saves'
+import { AUTOSAVE_SLOT, EXIT_SLOT, downloadState, readStateMetadata } from '../lib/saves'
 import { createSessionId } from '../lib/identity'
 import ServerStates from './ServerStates'
-import type { AutosaveStatus } from './ServerStates'
+import type { AutosaveStatus, ServerStatesHandle } from './ServerStates'
+import Dialog from './Dialog'
+import { OperationLock } from '../lib/operation-lock'
+import { findSlotSave } from '../lib/state-pipeline'
+import type { StateTarget } from '../lib/state-pipeline'
 import { decodeGameSave, encodeGameSave, gameSaveLayout } from '../lib/game-save-format'
 import { downloadGameSave, GameSaveClient, GameSaveSync } from '../lib/game-saves'
 import type { ProgressView } from '../lib/game-saves'
@@ -22,11 +26,27 @@ import { assetPreparationStatus, assetPersistenceNotice } from '../lib/asset-cac
 
 export type LaunchSession = { id: string; game: Game; consoleInfo: ConsoleInfo; rom?: File; bios?: File; biosUrl?: string; biosSha256?: string; serverRom?: AssetDescriptor; serverBios?: AssetDescriptor; storageOwner?: string | null; gameSaves?: boolean; saveId?: string }
 
-export default function Player({ session, settings, favorite, onFavorite, onStart, onExit, onWidescreen, account, registerExitGuard, onRestart }: {
+type ExitMode = 'account' | 'guest'
+type ExitPhase = 'confirm' | 'capturing' | 'saving' | 'syncing' | 'error' | 'partial' | 'done'
+type ExitRetry = 'all' | 'state' | 'progress'
+type ExitFlow = {
+  phase: ExitPhase
+  mode: ExitMode
+  message: string
+  error: string
+  bytes: Uint8Array | null
+  captured: boolean
+  stateSaved: boolean
+  progressSaved: boolean
+  retry: ExitRetry | null
+}
+
+export default function Player({ session, settings, favorite, onFavorite, onStart, onExit, onSavedExit, onWidescreen, account, registerExitGuard, registerBusyGuard, onRestart }: {
   session: LaunchSession; settings: Settings; favorite: boolean;
-  onFavorite: () => void; onStart: () => void; onExit: () => void; onWidescreen: (widescreen: boolean) => void;
+  onFavorite: () => void; onStart: () => void; onExit: () => void; onSavedExit: () => void; onWidescreen: (widescreen: boolean) => void;
   account: AccountState; onRestart: () => void;
   registerExitGuard: (guard: (() => Promise<boolean>) | null) => void;
+  registerBusyGuard: (guard: (() => boolean) | null) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const shell = useRef<HTMLDivElement>(null)
@@ -52,19 +72,44 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
   const [preparingTransfer, setPreparingTransfer] = useState(false)
   const [browserKeys, setBrowserKeys] = useState<{ state: string; progress: string | null }>({ state: '', progress: null })
   const [stateResolution, setStateResolution] = useState(0)
-  const modalOpen = saveOverlay || !!transfer || preparingTransfer
+  const [supportsStates, setSupportsStates] = useState(false)
+  const [guestExitAvailable, setGuestExitAvailable] = useState(false)
+  const [guestLoad, setGuestLoad] = useState<{ busy: boolean; message: string } | null>(null)
+  const [exitFlow, setExitFlow] = useState<ExitFlow | null>(null)
+  const exitFlowRef = useRef<ExitFlow | null>(null)
+  const exitBusy = useRef(false)
+  const guestLoadBusy = useRef(false)
+  const [exitBusyState, setExitBusyState] = useState(false)
+  const stateLock = useRef<OperationLock | null>(null)
+  if (!stateLock.current) stateLock.current = new OperationLock()
+  const serverHandle = useRef<ServerStatesHandle | null>(null)
+  const savedExitCallback = useRef(onSavedExit)
+  savedExitCallback.current = onSavedExit
+  const plainExitCallback = useRef(onExit)
+  plainExitCallback.current = onExit
+  const modalOpen = saveOverlay || !!transfer || preparingTransfer || !!exitFlow
   const [gameRunning, setGameRunning] = useState(false)
   const [saveNotice, setSaveNotice] = useState<{ kind: 'saving' | 'success' | 'error'; message: string } | null>(null)
   const owner = session.storageOwner
   const ownerName = useRef(account.user && account.user.id === owner ? account.user.username : '')
   const layout = gameSaveLayout(session.consoleInfo.core)
+  const saveId = session.saveId ?? saveIdentity(session.game, session.consoleInfo.core)
+  const stateTarget: StateTarget = { gameId: saveId, consoleId: session.consoleInfo.id, core: session.consoleInfo.core, title: session.game.title }
+  const exitSlotSave = findSlotSave(serverHandle.current?.list ?? null, stateTarget, EXIT_SLOT)
   const progressAvailable = !!owner && session.gameSaves === true && !!layout
   const progressSync = useRef<GameSaveSync | null>(null)
   const [progress, setProgress] = useState<ProgressView>({ status: 'loading', message: 'Menyiapkan progres akun…', pending: false })
+  const progressRef = useRef(progress)
+  progressRef.current = progress
   const [progressRetry, setProgressRetry] = useState(0)
   const enabled = !!owner && !terminated && account.status === 'authenticated' && account.user?.id === owner
   const active = useRef(enabled)
   active.current = enabled
+  const sessionAlive = useRef(true)
+  const supportsStatesRef = useRef(supportsStates)
+  supportsStatesRef.current = supportsStates
+  const metadataRef = useRef(metadata)
+  metadataRef.current = metadata
   const notifyAutosave = useCallback((status: AutosaveStatus) => {
     if (!active.current) return
     setSaveNotice(status === 'saving' ? { kind: 'saving', message: 'Autosave…' } : status === 'saved'
@@ -77,14 +122,20 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     const timer = setTimeout(() => setSaveNotice(null), saveNotice.kind === 'error' ? 6000 : 3000)
     return () => clearTimeout(timer)
   }, [saveNotice, enabled])
-  const requests = useRef(new Map<string, { type: 'export-state' | 'import-state' | 'export-progress'; resolve: (bytes: Uint8Array | null) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>())
   useEffect(() => {
-    if (owner && (account.status === 'anonymous' || account.status === 'authenticated' && account.user?.id !== owner)) setTerminated(true)
+    if (!guestLoad || guestLoad.busy) return
+    const timer = setTimeout(() => setGuestLoad(null), 8000)
+    return () => clearTimeout(timer)
+  }, [guestLoad])
+  type RpcType = 'export-state' | 'import-state' | 'export-progress' | 'guest-export-state' | 'guest-commit-state' | 'guest-load-state'
+  const requests = useRef(new Map<string, { type: RpcType; resolve: (bytes: Uint8Array | null) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>())
+  useEffect(() => {
+    if (owner && (account.status === 'anonymous' || account.status === 'authenticated' && account.user?.id !== owner)) { sessionAlive.current = false; setTerminated(true) }
     if (owner && account.status === 'authenticated' && account.user?.id !== owner) progressSync.current?.close(true)
     else if (owner && account.status === 'anonymous') progressSync.current?.close(false)
   }, [owner, account.status, account.user?.id])
-  const rpc = useCallback((type: 'export-state' | 'import-state' | 'export-progress', bytes?: Uint8Array) => new Promise<Uint8Array | null>((resolve, reject) => {
-    if (!active.current || !frame.current?.contentWindow) { reject(new Error('Player akun dihentikan. Buka ulang permainan setelah login.')); return }
+  const rpc = useCallback((type: RpcType, bytes?: Uint8Array) => new Promise<Uint8Array | null>((resolve, reject) => {
+    if (!sessionAlive.current || !frame.current?.contentWindow) { reject(new Error(owner ? 'Player akun dihentikan. Buka ulang permainan setelah login.' : 'Player sudah ditutup. Buka ulang permainan.')); return }
     const requestId = createSessionId()
     const timer = setTimeout(() => { requests.current.delete(requestId); reject(new Error('Operasi state terlalu lama. Unduh cadangan sebelum keluar bila tersedia.')) }, 15000)
     requests.current.set(requestId, { type, resolve, reject, timer })
@@ -137,6 +188,12 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     })
     return () => registerExitGuard(null)
   }, [progressAvailable, registerExitGuard, session.id, modalOpen, transfer, preparingTransfer])
+  // Alternative navigation (sidebar, browser Back, new game) must not detach
+  // the iframe while capture/upload/navigation is still in flight.
+  useEffect(() => {
+    registerBusyGuard(() => exitBusy.current)
+    return () => registerBusyGuard(null)
+  }, [registerBusyGuard])
 
   useEffect(() => {
     if (terminated) return
@@ -146,6 +203,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     let sync: GameSaveSync | null = null
     let timeout: ReturnType<typeof setTimeout> | undefined
     liveRef.current = true
+    sessionAlive.current = true
     setError('')
     setAssetNotice('')
     setAssetProgress(null)
@@ -227,11 +285,25 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
       // The "Save state server" button lives inside the emulator toolbar; the
       // bridge forwards its click so the overlay can attach above the player.
       if (event.data.type === 'state-server') { clearTimeout(timeout); setStatus(''); setSaveOverlay(true) }
+      // Toolbar intent is validated here: origin, source window, channel and
+      // session ID were already checked above. The bridge cannot navigate.
+      if (event.data.type === 'exit-request') {
+        if (exitBusy.current) return
+        if (event.data.mode === 'exit') { plainExitCallback.current() }
+        else if (event.data.mode === 'save-and-exit') { requestSaveExit() }
+        return
+      }
+      if (event.data.type === 'guest-load-request') { void loadGuestState(); return }
+      if (event.data.type === 'exit-capability') {
+        if (typeof event.data.supportsStates === 'boolean') setSupportsStates(event.data.supportsStates)
+        if (!owner) setGuestExitAvailable(event.data.guestAvailable === true)
+      }
       // Engine patch reports play/pause transitions; drives autosave gating.
       if (event.data.type === 'session-running' && typeof event.data.running === 'boolean') setGameRunning(event.data.running)
       if (event.data.type === 'started') {
         clearTimeout(timeout); setStatus('')
         setGameRunning(true)
+        setSupportsStates(event.data.supportsStates === true)
         if (session.storageOwner) {
           const keys = event.data.browserKeys
           if (keys && typeof keys.state === 'string' && keys.state.length < 512 && (keys.progress === null || typeof keys.progress === 'string' && keys.progress.length < 512)) setBrowserKeys(keys)
@@ -249,11 +321,11 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
         const request = requests.current.get(event.data.requestId)
         if (!request) return
         clearTimeout(request.timer); requests.current.delete(event.data.requestId)
-        if (!active.current) request.reject(new Error('Sesi player berubah; hasil state diabaikan.'))
+        if (!sessionAlive.current) request.reject(new Error('Sesi player berubah; hasil state diabaikan.'))
         else if (typeof event.data.error === 'string') request.reject(new Error(event.data.error))
-        else if (request.type === 'export-state' && event.data.bytes instanceof Uint8Array && event.data.bytes.length >= 32 && event.data.bytes.length <= 64 * 1024 * 1024) request.resolve(event.data.bytes as Uint8Array)
+        else if ((request.type === 'export-state' || request.type === 'guest-export-state') && event.data.bytes instanceof Uint8Array && event.data.bytes.length >= 32 && event.data.bytes.length <= 64 * 1024 * 1024) request.resolve(event.data.bytes as Uint8Array)
         else if (request.type === 'export-progress' && (event.data.bytes === null || event.data.bytes instanceof Uint8Array && event.data.bytes.length > 0 && event.data.bytes.length <= 8 * 1024 * 1024)) request.resolve(event.data.bytes)
-        else if (request.type === 'import-state' && event.data.applied === true) request.resolve(null)
+        else if ((request.type === 'import-state' || request.type === 'guest-commit-state' || request.type === 'guest-load-state') && event.data.applied === true) request.resolve(null)
         else request.reject(new Error('Respons state player tidak valid.'))
       }
       if (event.data.type === 'loaded') { clearTimeout(timeout); setStatus('Engine siap. Klik “Mulai bermain” di layar.'); syncFullscreen() }
@@ -286,7 +358,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
       // switch already clears it in the ownership effect above.
       sync?.close(!owner || active.current)
       if (!owner || active.current) progressSync.current = null
-      clearTimeout(timeout); window.removeEventListener('message', receive); window.removeEventListener('beforeunload', warn); document.removeEventListener('fullscreenchange', syncFullscreen); document.removeEventListener('keydown', escapePseudoFullscreen); liveRef.current = false
+      clearTimeout(timeout); window.removeEventListener('message', receive); window.removeEventListener('beforeunload', warn); document.removeEventListener('fullscreenchange', syncFullscreen); document.removeEventListener('keydown', escapePseudoFullscreen); liveRef.current = false; sessionAlive.current = false
       for (const request of requests.current.values()) { clearTimeout(request.timer); request.reject(new Error('Sesi player ditutup.')) }
       requests.current.clear()
     }
@@ -294,6 +366,155 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, progressRetry, terminated])
 
+  function setExit(next: ExitFlow | null) {
+    exitFlowRef.current = next
+    setExitFlow(next)
+  }
+  function patchExit(patch: Partial<ExitFlow>) {
+    const current = exitFlowRef.current
+    if (!current) return
+    setExit({ ...current, ...patch })
+  }
+  function notifyExitBusy(busy: boolean) {
+    frame.current?.contentWindow?.postMessage({ channel: 'maindulu:host', type: 'exit-state', sessionId: session.id, busy }, location.origin)
+  }
+  function requestSaveExit() {
+    if (exitBusy.current || exitFlowRef.current) return
+    if (guestLoadBusy.current) { setStateError('Muat simpanan masih berjalan. Tunggu hingga selesai sebelum Simpan & keluar.'); return }
+    if (!started.current) { setStateError('Mulai game terlebih dahulu sebelum Simpan & keluar.'); return }
+    if (!supportsStatesRef.current) { setStateError('Core ini tidak mendukung save state. Gunakan Keluar game tanpa save baru atau ekspor cadangan dari menu emulator.'); return }
+    if (owner && (!active.current || !metadataRef.current)) { setStateError('Sesi akun atau metadata core belum siap. Buka ulang game setelah login; simpanan akun tidak dialihkan ke browser.'); return }
+    setExit({ phase: 'confirm', mode: owner ? 'account' : 'guest', message: '', error: '', bytes: null, captured: false, stateSaved: false, progressSaved: false, retry: null })
+  }
+  function closeExit() {
+    if (exitBusy.current) return
+    setExit(null)
+  }
+  function emergencyExit() {
+    if (exitBusy.current) return
+    const flow = exitFlowRef.current
+    if (!flow) return
+    const message = flow.stateSaved
+      ? 'State sudah tersimpan, tetapi progres belum tersinkron. Keluar sekarang tanpa progres tersinkron?'
+      : 'Keluar tanpa membuat state baru? Simpanan lama tidak dihapus, tetapi posisi terakhir bisa hilang.'
+    if (!window.confirm(message)) return
+    setExit(null)
+    savedExitCallback.current()
+  }
+  async function captureExitState() {
+    const bytes = await rpc(owner ? 'export-state' : 'guest-export-state')
+    if (!bytes) throw new Error('State tidak tersedia. Kembali ke game dan coba lagi sebelum keluar.')
+    return bytes
+  }
+  async function loadGuestState() {
+    if (owner || exitBusy.current || guestLoadBusy.current) return
+    if (!started.current || !supportsStatesRef.current) { setStateError('Simpanan browser hanya dapat dimuat setelah game dan core mendukung save state.'); return }
+    if (!window.confirm('Muat simpanan Simpan & keluar dari browser ini? Kondisi permainan saat ini akan diganti. Slot native, Autosave server, dan slot manual tidak berubah.')) return
+    guestLoadBusy.current = true
+    setGuestLoad({ busy: true, message: 'Memuat simpanan Simpan & keluar dari browser…' })
+    frame.current?.contentWindow?.postMessage({ channel: 'maindulu:host', type: 'pause-session', sessionId: session.id }, location.origin)
+    try {
+      await rpc('guest-load-state')
+      if (sessionAlive.current) setGuestLoad({ busy: false, message: 'Perintah muat dikirim ke core. Periksa posisi permainan; engine tidak memberikan konfirmasi deserialisasi.' })
+    } catch (e) {
+      if (sessionAlive.current) setGuestLoad({ busy: false, message: e instanceof Error ? e.message : 'Muat simpanan browser gagal.' })
+    } finally {
+      guestLoadBusy.current = false
+      frame.current?.contentWindow?.postMessage({ channel: 'maindulu:host', type: 'resume-session', sessionId: session.id }, location.origin)
+    }
+  }
+  async function runSaveExit(retry: ExitRetry = 'all') {
+    const initial = exitFlowRef.current
+    if (!initial || exitBusy.current || !sessionAlive.current) return
+    if (owner && !active.current) { patchExit({ phase: 'error', error: 'Sesi akun berubah. State tidak diteruskan ke akun lain.', retry: 'all' }); return }
+    exitBusy.current = true
+    setExitBusyState(true)
+    notifyExitBusy(true)
+    const token = await stateLock.current!.acquireWithin(15000)
+    if (!token) {
+      exitBusy.current = false
+      setExitBusyState(false)
+      notifyExitBusy(false)
+      patchExit({ phase: 'error', error: 'Operasi save lain masih berjalan. Tunggu sebentar, lalu coba lagi tanpa menutup tab.', retry: 'state' })
+      return
+    }
+    let navigate = false
+    try {
+      if (retry !== 'progress') {
+        if (owner) {
+          const handle = serverHandle.current
+          if (!handle) throw new Error('Panel save server belum siap. Kembali ke game dan coba lagi.')
+          if (handle.conflict) throw new Error('Ada konflik simpanan. Tinjau konflik di Save state server sebelum Simpan & keluar.')
+          if (handle.pending && handle.pending.slot !== EXIT_SLOT) throw new Error(`Ada snapshot ${handle.pending.slot === AUTOSAVE_SLOT ? 'Autosave' : 'state'} tertunda. Buka Save state server untuk menyimpan ulang, mengunduh cadangan, atau mengabaikannya sebelum Simpan & keluar.`)
+        }
+        const flow = exitFlowRef.current
+        if (!flow) return
+        let bytes = flow.bytes
+        if (!flow.captured || !bytes) {
+          patchExit({ phase: 'capturing', message: owner ? 'Mengambil state terakhir dari core…' : 'Mengambil state terakhir dari browser…', error: '', retry: null })
+          bytes = await captureExitState()
+          if (!sessionAlive.current) throw new Error('Sesi player ditutup sebelum state tersimpan.')
+          patchExit({ bytes, captured: true })
+        }
+        if (!exitFlowRef.current?.stateSaved) {
+          patchExit({ phase: 'saving', message: owner ? 'Menyimpan state ke server…' : 'Menyimpan state di browser ini…', error: '', retry: 'state' })
+          if (owner) {
+            const handle = serverHandle.current
+            if (!handle) throw new Error('Panel save server belum siap. Kembali ke game dan coba lagi.')
+            try { await handle.saveExit(bytes!) }
+            catch (error) {
+              // A timeout can leave the commit outcome unknown. Resolve it
+              // against the confirmed list before reporting failure.
+              const committed = await handle.checkExitCommit(bytes!).catch(() => null)
+              if (!committed) throw error
+            }
+          } else {
+            await rpc('guest-commit-state', bytes!)
+          }
+          if (!sessionAlive.current) throw new Error('Sesi player ditutup sebelum penyimpanan dikonfirmasi.')
+          patchExit({ stateSaved: true, retry: null })
+        }
+      }
+      // Final account progress sync is a companion to the state snapshot, not
+      // a replacement. It runs only after the state commit is confirmed.
+      if (owner && progressAvailable && !exitFlowRef.current?.progressSaved) {
+        patchExit({ phase: 'syncing', message: 'Menyinkronkan progres terakhir…', error: '', retry: 'progress' })
+        const sync = progressSync.current
+        if (!sync) throw new Error('Sinkronisasi progres tidak siap. Kembali ke game dan periksa panel progres.')
+        await sync.hold()
+        sync.release()
+        const saved = await sync.sync(true)
+        if (!saved) {
+          const conflict = progressRef.current.status === 'conflict'
+          patchExit({
+            phase: 'partial',
+            message: '',
+            error: conflict
+              ? 'State tersimpan, tetapi progres belum tersinkron karena konflik revisi. Tinjau konflik progres sebelum keluar.'
+              : 'State tersimpan, tetapi progres belum tersinkron. Coba lagi atau unduh cadangan sebelum keluar.',
+            retry: 'progress'
+          })
+          return
+        }
+        patchExit({ progressSaved: true, retry: null })
+      }
+      if (!sessionAlive.current) throw new Error('Sesi player ditutup sebelum navigasi.')
+      if (owner && !active.current) throw new Error('Sesi akun berubah. State/progres tidak diteruskan ke akun lain.')
+      patchExit({ phase: 'done', message: owner ? 'State dan progres tersimpan. Kembali ke beranda…' : 'State tersimpan di browser ini. Kembali ke beranda…', error: '', retry: null })
+      navigate = true
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Simpan & keluar gagal.'
+      const flow = exitFlowRef.current
+      if (flow?.stateSaved) patchExit({ phase: 'partial', error: `State tersimpan, tetapi langkah berikut gagal: ${message}`, retry: 'progress' })
+      else patchExit({ phase: 'error', error: message, retry: flow?.captured ? 'state' : 'all' })
+    } finally {
+      stateLock.current?.release(token)
+      exitBusy.current = false
+      setExitBusyState(false)
+      notifyExitBusy(false)
+      if (navigate) savedExitCallback.current()
+    }
+  }
   function exit() { onExit() }
   async function openTransfer(request: TransferRequest) {
     if (!enabled || transfer || preparingTransfer) return
@@ -330,6 +551,42 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
           } else setStateResolution(n => n + 1)
           closeTransfer()
         }} />, shell.current ?? document.body)}
+      {exitFlow && createPortal(<Dialog title="Simpan & keluar" eyebrow="KELUAR GAME" onClose={closeExit} busy={exitBusyState || !['confirm', 'error', 'partial'].includes(exitFlow.phase)} className="exit-dialog" backdropClassName="server-overlay">
+        <div className="server-state-content exit-flow">
+          {exitFlow.phase === 'confirm' && <>
+            <p className="server-state-intro"><strong>{session.game.title}</strong><span>{exitFlow.mode === 'account' ? 'State terakhir disimpan ke slot Simpan & keluar di server akun.' : 'State terakhir disimpan di browser ini pada slot Simpan & keluar khusus.'}</span></p>
+            <p>{exitFlow.mode === 'account'
+              ? <>Snapshot <strong>Simpan &amp; keluar</strong> terbaru untuk game/core ini akan diganti{exitSlotSave && !exitSlotSave.deleted ? ' (snapshot lama tetap dapat diunduh lewat Kelola simpanan sebelum diganti)' : ''}. Slot manual 1–3, Autosave, dan save dalam game tidak disentuh.</>
+              : <>State native <code>.state</code> dan simpanan akun tidak disentuh. Simpanan browser dapat hilang bila data situs dibersihkan; fitur ini bukan jaminan lintas perangkat.</>}</p>
+            <p className="notice">Setelah state tersimpan, player ditutup dan kamu kembali ke beranda. {exitFlow.mode === 'account' ? 'Untuk melanjutkan: buka game yang sama, mulai core, lalu Save state server → Muat pada Simpan & keluar.' : 'Untuk melanjutkan: buka game yang sama, mulai core, lalu tekan “Muat simpanan terakhir” di toolbar.'}</p>
+            <div className="account-actions">
+              <button className="button primary" onClick={() => void runSaveExit('all')}><Save size={16} />Simpan &amp; keluar</button>
+              <button className="button secondary" onClick={closeExit}><ArrowLeft size={16} />Kembali ke game</button>
+            </div>
+          </>}
+          {['capturing', 'saving', 'syncing', 'done'].includes(exitFlow.phase) && <p className="exit-status" role="status" aria-live="polite"><LoaderCircle size={18} className="spin" />{exitFlow.message || 'Menyiapkan Simpan & keluar…'}</p>}
+          {exitFlow.phase === 'error' && <>
+            <p className="server-status server-status--error" role="alert">{exitFlow.error}</p>
+            <p className="notice">Player tetap terbuka. Snapshot state yang sudah diambil disimpan untuk retry; unduh cadangan bila perlu sebelum menutup tab.</p>
+            <div className="account-actions">
+              <button className="button primary" disabled={exitBusyState} onClick={() => void runSaveExit(exitFlow.retry ?? 'state')}>Coba lagi</button>
+              {exitFlow.bytes && <button className="button secondary" disabled={exitBusyState} onClick={() => downloadState(exitFlow.bytes!, `${saveId}-simpan-keluar-cadangan`)}><Download size={16} />Unduh cadangan state</button>}
+              <button className="button secondary" disabled={exitBusyState} onClick={closeExit}><ArrowLeft size={16} />Kembali ke game</button>
+              <button className="text-link" disabled={exitBusyState} onClick={emergencyExit}><LogOut size={15} />Keluar tanpa save baru</button>
+            </div>
+          </>}
+          {exitFlow.phase === 'partial' && <>
+            <p className="server-status server-status--error" role="alert">{exitFlow.error}</p>
+            <p className="notice">State sudah tersimpan dan tidak perlu diunggah ulang. Retry hanya mengulang sinkronisasi progres yang gagal.</p>
+            <div className="account-actions">
+              <button className="button primary" disabled={exitBusyState || progressRef.current.status === 'conflict'} onClick={() => void runSaveExit('progress')}>Coba sinkronkan progres</button>
+              {exitFlow.bytes && <button className="button secondary" disabled={exitBusyState} onClick={() => downloadState(exitFlow.bytes!, `${saveId}-simpan-keluar-cadangan`)}><Download size={16} />Unduh cadangan state</button>}
+              <button className="button secondary" disabled={exitBusyState} onClick={closeExit}><ArrowLeft size={16} />Kembali ke game</button>
+              <button className="text-link" disabled={exitBusyState} onClick={emergencyExit}><LogOut size={15} />Keluar tanpa progres tersinkron</button>
+            </div>
+          </>}
+        </div>
+      </Dialog>, shell.current ?? document.body)}
     </div>
     {status && <p className="player-status" role="status"><LoaderCircle size={15} className="spin" />{status}</p>}
     {assetProgress && !error && !terminated && <div className="player-asset-progress" role="region" aria-label="Persiapan aset ROM/BIOS">
@@ -357,7 +614,9 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
       {session.consoleInfo.core === 'fceumm' && metadata?.variant === 'normal' && <p className="notice">Sinkronisasi NES varian normal belum diuji terpisah. Bukti otomatis M6 saat ini menggunakan varian legacy; unduh cadangan progres.</p>}
     </section>}
     {owner && !progressAvailable && <p className="notice">Sinkronisasi save dalam game belum tersedia untuk core/backend ini. Save akun sementara di memori; ekspor cadangan atau simpan state sebelum keluar.</p>}
-    {owner && <ServerStates session={session} owner={owner} enabled={enabled} accountChanged={account.status === 'authenticated' && account.user?.id !== owner} metadata={metadata} rpc={rpc} show={saveOverlay && !transfer && !preparingTransfer} onToggle={() => setSaveOverlay(!saveOverlay)} gameActive={gameRunning && !modalOpen} overlayContainer={shell.current} onAutosaveStatus={notifyAutosave} onTransfer={request => void openTransfer(request)} resolution={stateResolution} progressAvailable={progressAvailable} progressConflict={progress.status === 'conflict'} />}
+    {owner && <ServerStates session={session} owner={owner} enabled={enabled} accountChanged={account.status === 'authenticated' && account.user?.id !== owner} metadata={metadata} rpc={rpc} show={saveOverlay && !transfer && !preparingTransfer && !exitFlow} onToggle={() => setSaveOverlay(!saveOverlay)} gameActive={gameRunning && !modalOpen} overlayContainer={shell.current} onAutosaveStatus={notifyAutosave} onTransfer={request => void openTransfer(request)} resolution={stateResolution} progressAvailable={progressAvailable} progressConflict={progress.status === 'conflict'} lock={stateLock.current!} handleRef={serverHandle} />}
+    {!owner && supportsStates && <p className="player-asset-notice" role="status">Simpan &amp; keluar tamu menyimpan state di browser ini {guestExitAvailable ? 'dan snapshot terakhir tersedia' : 'saat kamu menekan tombolnya'}. Gunakan “Muat simpanan terakhir” di toolbar emulator untuk melanjutkan.</p>}
+    {guestLoad && <p className="player-asset-notice" role="status" aria-live="polite">{guestLoad.busy && <LoaderCircle size={14} className="spin" />} {guestLoad.message}</p>}
     {!owner && account.status === 'authenticated' && <p className="notice">Sesi ini main sebagai tamu. Simpanan ada di browser. Mau simpanan ikut ke server? Masuk akun, lalu buka ulang game. Simpanan browser tidak otomatis diimpor.</p>}
     <button className="controls-toggle" aria-expanded={controls} onClick={() => setControls(!controls)}><Keyboard size={18} />Panduan kontrol & simpan progres<ChevronDown size={17} className={controls ? 'rotated' : ''} /></button>
     {controls && <div className="controls-panel"><p>Klik layar emulator agar input keyboard masuk ke permainan. Buka menu emulator untuk melihat atau memetakan kontrol sesuai console, atau menyalakan <strong>Layar lebar</strong> (Settings → Graphics Settings) bila ingin gambar stretched mengisi layar.</p><div className="key-grid"><span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> Arah</span><span><kbd>Z</kbd><kbd>X</kbd> Tombol NES A/B</span><span><kbd>Enter</kbd> Start</span><span><kbd>Shift</kbd> Select</span></div><p><strong>Progres:</strong> save dalam game dan save state berbeda. Gunakan menu emulator untuk save/load serta ekspor cadangan. Riwayat maindulu hanya mencatat game yang dimainkan. Data browser dapat hilang saat penyimpanan situs dibersihkan.</p><p>Gamepad mengikuti dukungan browser; kontrol sentuh tersedia pada perangkat mobile. Core dan pemetaan tombol bisa berbeda.</p></div>}

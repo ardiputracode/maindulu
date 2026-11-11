@@ -127,7 +127,7 @@ for (const kind of ['state', 'progress']) {
     assert.equal((await c.app.inject({ method: 'POST', url: '/api/save-backups/' + id + '/delete', headers: { ...c.headers, 'x-csrf-token': 'wrong' }, payload: { checksum: digest(c.bytes(1)) } })).statusCode, 403)
     assert.equal((await c.put(3, 2, { id: '../bad', action: 'replace', reason: 'import' })).statusCode, 400)
     assert.equal((await c.put(3, 2, { id: [randomUUID()], action: 'replace', reason: 'import' })).statusCode, 400)
-    if (kind === 'state') assert.equal((await c.put(3, 0, c.op('replace', 'import'), { slot: 99 })).statusCode, 400)
+    if (kind === 'state') for (const slot of [99, 100]) assert.equal((await c.put(3, 0, c.op('replace', 'import'), { slot })).statusCode, 400)
     const m = { ...metadata, ...(kind === 'progress' ? { layout: 'nes-sram-v1' } : {}), provenance: { source: 'file', sourceBuild: 'unknown', confirmedForTarget: true } }
     assert.equal((await c.put(3, 2, c.op('replace', 'import'), { metadata: m })).json().save.metadata.provenance.sourceBuild, 'unknown')
     assert.equal((await c.put(4, 3, c.op(), { metadata: { ...m, provenance: { source: 'file', sourceBuild: 'verified' } } })).statusCode, 400)

@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
 import { readFile, writeFile } from 'node:fs/promises'
 import { createApp } from './helpers/gated-backend.mjs'
-import { openDatabase } from '../server/database.mjs'
+import { openDatabase, schemaVersion } from '../server/database.mjs'
 import { createDataBackup, restoreDataBackup, verifyDataBackup } from '../server/data-backup.mjs'
 import { csrfToken, hashToken } from '../server/auth/crypto.mjs'
 import { ScreenScraperError } from '../server/metadata/screenscraper.mjs'
@@ -200,7 +200,7 @@ test('schema 18 migrates once, clears only disabled pause; schema-18 backup veri
   await verifyDataBackup(config, target); await restoreDataBackup(config, target, restored)
   const db = await openDatabase(restored)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 20)
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, schemaVersion)
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM metadata_jobs').get().n, 0)
     assert.equal(db.prepare('SELECT next_at FROM metadata_provider_state').get().next_at, 0)
   } finally { db.close() }

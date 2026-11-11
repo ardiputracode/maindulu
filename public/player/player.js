@@ -31,6 +31,10 @@
   // was actually playing (user-paused games stay paused).
   let overlayState = null
   let gameRunning = false
+  let supportsStates = false
+  let exitBusy = false
+  let guestStateAvailable = false
+  let guestStateSize = 0
   let builds = null
   let progressEnabled = false
   let progressPath = null
@@ -72,6 +76,89 @@
   // actionable restore failure instead of replacing it with that fallout.
   const fail = message => { releaseAssets(); if (!disposed) send('error', { message: progressBootError || message }) }
   const localUrl = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') && !/[\u0000-\u0020]/.test(value)
+
+  // Guest Save & exit uses its own versioned IndexedDB key. The native
+  // `.state` key stays untouched so the engine's own Save/Load buttons keep
+  // working independently.
+  const guestExitSuffix = '.maindulu-exit.v1.state'
+  function guestStateKey() {
+    const base = window.EJS_emulator?.getBaseFileName?.()
+    if (typeof base !== 'string' || !base || base.length > 240) throw new Error('Identitas simpanan browser belum siap. Mulai game terlebih dahulu.')
+    return base + guestExitSuffix
+  }
+  function validStateBytes(bytes) {
+    return bytes instanceof Uint8Array && bytes.length >= 32 && bytes.length <= maxStateBytes && new TextDecoder().decode(bytes.subarray(0, 7)) === 'RASTATE'
+  }
+  function sameBytes(a, b) {
+    if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array) || a.length !== b.length) return false
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+    return true
+  }
+  async function readGuestState() {
+    const store = window.EJS_emulator?.storage?.states
+    if (!store || typeof store.get !== 'function') throw new Error('Penyimpanan state browser tidak tersedia.')
+    const value = await store.get(guestStateKey())
+    if (value === undefined || value === null) return null
+    if (!validStateBytes(value)) throw new Error('Simpanan Simpan & keluar di browser tidak valid. State tidak dimuat.')
+    return value
+  }
+  async function writeGuestState(bytes) {
+    if (!window.indexedDB) throw new Error('Penyimpanan browser tidak tersedia. State tidak tersimpan.')
+    const store = window.EJS_emulator?.storage?.states
+    if (!store || typeof store.put !== 'function') throw new Error('Penyimpanan state browser tidak tersedia. State tidak tersimpan.')
+    const key = guestStateKey()
+    let timer
+    try {
+      // EJS_STORAGE.put can resolve late when IndexedDB never opens; bound the
+      // wait so the host can report a real failure instead of hanging.
+      await Promise.race([store.put(key, bytes), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Penyimpanan browser tidak merespons. State belum tersimpan.')), 10000) })])
+    } finally { clearTimeout(timer) }
+    const read = await readGuestState()
+    if (!read || !sameBytes(read, bytes)) throw new Error('Verifikasi simpanan browser gagal. State belum tersimpan.')
+  }
+  function menuButton(label) {
+    const menu = window.EJS_emulator?.elements?.menu
+    return menu ? [...menu.querySelectorAll('button.ejs_menu_button')].find(button => button.textContent.trim() === label) : null
+  }
+  function updateExitButtons() {
+    const exitButton = menuButton('Keluar game')
+    if (exitButton) exitButton.disabled = exitBusy
+    const saveExit = menuButton('Simpan & keluar')
+    if (saveExit) {
+      saveExit.disabled = exitBusy || !gameStarted || !supportsStates
+      saveExit.title = !gameStarted ? 'Mulai game terlebih dahulu.' : !supportsStates ? 'Core ini tidak mendukung save state.' : exitBusy ? 'Operasi simpan sedang berjalan.' : 'Simpan state lalu keluar ke beranda.'
+    }
+    const loadGuest = menuButton('Muat simpanan terakhir')
+    if (loadGuest) {
+      loadGuest.disabled = exitBusy || !gameStarted || !supportsStates || !guestStateAvailable
+      loadGuest.title = !guestStateAvailable ? 'Belum ada simpanan Simpan & keluar di browser ini.' : 'Muat state Simpan & keluar dari browser ini.'
+    }
+  }
+  // Custom buttons are appended before the toolbar spacer, but the fullscreen
+  // pair is created later. Move our nodes immediately before the visible
+  // fullscreen control; moving an existing node is idempotent.
+  function positionExitButtons() {
+    const enter = window.EJS_emulator?.elements?.bottomBar?.fullscreen?.[0]
+    const parent = enter?.parentElement
+    if (!parent) return
+    for (const label of ['Muat simpanan terakhir', 'Keluar game', 'Simpan & keluar']) {
+      const button = menuButton(label)
+      if (button && button.parentElement === parent && button.nextElementSibling !== enter) parent.insertBefore(button, enter)
+    }
+  }
+  async function refreshGuestStatus() {
+    if (memorySaves || !gameStarted) { guestStateAvailable = false; guestStateSize = 0; updateExitButtons(); return }
+    try {
+      const bytes = await readGuestState()
+      guestStateAvailable = !!bytes
+      guestStateSize = bytes?.length ?? 0
+    } catch {
+      guestStateAvailable = false
+      guestStateSize = 0
+    }
+    updateExitButtons()
+    send('exit-capability', { supportsStates, guest: true, guestAvailable: guestStateAvailable, guestSize: guestStateSize })
+  }
 
   function hideNativeStateSettings() {
     // EmulatorJS 4.2.3 uses this literal group title (not localized). Hide only
@@ -156,28 +243,77 @@
   }
 
   // No cookies, tokens or account IDs cross this bridge. HTTP belongs to React.
-  window.addEventListener('message', event => {
+  window.addEventListener('message', async event => {
     if (event.origin !== location.origin || event.source !== parent || event.data?.channel !== 'maindulu:host' || event.data.sessionId !== sessionId || !configured) return
     const { type, requestId } = event.data
     if (type === 'fullscreen-state' && hostFullscreen && typeof event.data.fullscreen === 'boolean') {
       syncHostFullscreen(event.data.fullscreen)
       return
     }
-    if (!memorySaves) return
-    if (!gameStarted) return
-    // Save-state overlay pause: pause only if started, and remember whether the
-    // game was running so closing the overlay (resume-session) restores exactly
-    // that condition. While the overlay wants a pause, state RPCs must not
-    // resume the game after exporting/importing.
+    // The host disables toolbar controls while a save/exit operation owns the
+    // session. Validation still happens on the host regardless of button state.
+    if (type === 'exit-state') {
+      exitBusy = event.data.busy === true
+      updateExitButtons()
+      return
+    }
+    // Pause/resume bookkeeping is shared by account and guest sessions. Only
+    // the game's actual running state decides whether resume is allowed.
     if (type === 'pause-session') {
+      if (!gameStarted) return
       const e = window.EJS_emulator
       if (e?.gameManager && e.started && !overlayState) { overlayState = { resume: !e.paused }; e.pause() }
       return
     }
     if (type === 'resume-session') {
+      if (!gameStarted) return
       const resume = overlayState?.resume === true
       overlayState = null
       if (resume) window.EJS_emulator?.play?.()
+      return
+    }
+    if (!gameStarted) return
+    if (!memorySaves) {
+      // Guest browser-state RPCs are rejected outright for account sessions,
+      // and account state RPCs never fall back to the guest store.
+      if (!['guest-export-state', 'guest-commit-state', 'guest-load-state', 'guest-state-status'].includes(type) || typeof requestId !== 'string' || !/^[a-f0-9-]{36}$/.test(requestId)) return
+      try {
+        const e = window.EJS_emulator
+        if (!e?.gameManager?.supportsStates()) throw new Error('Core tidak mendukung save state.')
+        if (type === 'guest-state-status') {
+          const bytes = await readGuestState()
+          guestStateAvailable = !!bytes
+          guestStateSize = bytes?.length ?? 0
+          updateExitButtons()
+          send('state-result', { requestId, available: guestStateAvailable, size: guestStateSize })
+          return
+        }
+        if (type === 'guest-export-state') {
+          const paused = e.paused
+          e.pause()
+          try {
+            const bytes = e.gameManager.getState()
+            if (!validStateBytes(bytes)) throw new Error('Ukuran state tidak valid atau melebihi batas player.')
+            send('state-result', { requestId, bytes })
+          } finally { if (!paused && !overlayState) e.play() }
+          return
+        }
+        if (type === 'guest-commit-state') {
+          const bytes = event.data.bytes
+          if (!validStateBytes(bytes)) throw new Error('Format state tidak valid.')
+          await writeGuestState(bytes)
+          await refreshGuestStatus()
+          send('state-result', { requestId, applied: true })
+          return
+        }
+        const bytes = await readGuestState()
+        if (!bytes) throw new Error('Belum ada simpanan Simpan & keluar di browser ini.')
+        if (!validStateBytes(bytes)) throw new Error('Format state tidak valid.')
+        e.gameManager.loadState(bytes)
+        // Loading is not proof of successful deserialization; the host tells
+        // the user to verify the restored position.
+        send('state-result', { requestId, applied: true })
+      } catch (error) { send('state-result', { requestId, error: error instanceof Error ? error.message : 'Operasi state gagal.' }) }
       return
     }
     if (!['export-state', 'import-state', 'export-progress'].includes(type) || typeof requestId !== 'string' || !/^[a-f0-9-]{36}$/.test(requestId)) return
@@ -277,10 +413,10 @@
       window.EJS_CacheLimit = 0
       window.EJS_defaultOptions = { 'save-state-location': 'browser', ejs_threads: 'disabled', mainduluWidescreen: config.widescreen === true ? 'enabled' : 'disabled' }
       window.EJS_hideSettings = memorySaves ? ['ejs_threads', 'save-state-location', 'save-state-slot'] : ['ejs_threads']
-      // Bottom toolbar: account sessions get a "Save state server" button between
-      // "Import Save File" and the spacer. The engine adds every `custom: true`
-      // entry to the bar, so the overlay button never touches game-level
-      // Save State buttons (hidden above for memory sessions).
+      // Bottom toolbar. Custom entries are appended before the spacer, then
+      // positionExitButtons() moves them next to the fullscreen control. The
+      // guest load control only exists for guest sessions; account sessions
+      // keep their server-state button and never see the browser store action.
       window.EJS_Buttons = {
         netplay: false,
         gamepad: true,
@@ -298,14 +434,39 @@
             displayName: 'Save state server',
             callback: () => send('state-server')
           }
-        } : {})
+        } : {
+          mainduluGuestLoad: {
+            visible: true,
+            custom: true,
+            icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14.59V7h-2v9.59l-3.3-3.3-1.4 1.42L12 20.41l5.7-5.7-1.4-1.42z"/></svg>',
+            displayName: 'Muat simpanan terakhir',
+            callback: () => send('guest-load-request')
+          }
+        }),
+        mainduluExit: {
+          visible: true,
+          custom: true,
+          icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M10 17v-2h4V9h-4V7l-5 5 5 5zm9-14H5a2 2 0 0 0-2 2v4h2V5h14v14H5v-4H3v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>',
+          displayName: 'Keluar game',
+          callback: () => send('exit-request', { mode: 'exit' })
+        },
+        mainduluSaveExit: {
+          visible: true,
+          custom: true,
+          icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7l-4-4zm-5 16a3 3 0 1 1 3-3 3 3 0 0 1-3 3zm3-10H7V5h8z"/></svg>',
+          displayName: 'Simpan & keluar',
+          callback: () => send('exit-request', { mode: 'save-and-exit' })
+        }
       }
       window.EJS_ready = () => {
         hideNativeStateSettings()
         // Account dialogs live in React. Browsers without element fullscreen
         // (notably iPhone) also need the host's viewport-filling fallback.
         const emulator = window.EJS_emulator
-        hostFullscreen = memorySaves || !emulator.elements.parent.requestFullscreen || !document.fullscreenEnabled
+        // Always fullscreen the host `.player-shell`: React confirmations,
+        // errors and backup controls must remain visible above the game for
+        // guests as well as accounts.
+        hostFullscreen = true
         if (hostFullscreen) {
           emulator.toggleFullscreen = fullscreen => {
             // Escape can arrive before the async host acknowledgment. Track the
@@ -324,6 +485,11 @@
           })
           startButton.addEventListener('click', () => send('starting'), { once: true })
         }
+        positionExitButtons()
+        updateExitButtons()
+        // The toolbar is fully built now; re-run after the engine's own layout
+        // pass so adjacency survives start/rebuild without duplicating nodes.
+        setTimeout(() => { positionExitButtons(); updateExitButtons() }, 0)
         send('loaded')
         const original = window.EJS_emulator.startGameError.bind(window.EJS_emulator)
         window.EJS_emulator.startGameError = message => { fail(progressBootError || String(message)); return original(message) }
@@ -334,7 +500,10 @@
         hideNativeStateSettings()
         gameStarted = true
         gameRunning = true
+        supportsStates = window.EJS_emulator.gameManager.supportsStates() === true
         applyWidescreen()
+        positionExitButtons()
+        updateExitButtons()
         send('session-running', { running: true })
         const metadata = buildMetadata()
         let progressReady = false
@@ -346,7 +515,11 @@
             progressReady = true
           } catch (error) { send('progress-error', { message: error instanceof Error ? error.message : 'Layout progres tidak didukung.' }) }
         }
-        send('started', { metadata, progressReady, supportsStates: window.EJS_emulator.gameManager.supportsStates(), browserKeys: memorySaves ? { state: window.EJS_emulator.getBaseFileName() + '.state', progress: ['fceumm', 'pcsx_rearmed'].includes(config.core) ? window.EJS_emulator.gameManager.getSaveFilePath() : null } : null })
+        send('started', { metadata, progressReady, supportsStates, browserKeys: memorySaves ? { state: window.EJS_emulator.getBaseFileName() + '.state', progress: ['fceumm', 'pcsx_rearmed'].includes(config.core) ? window.EJS_emulator.gameManager.getSaveFilePath() : null } : null })
+        // Let the host reflect capability immediately; guest availability is
+        // read back from the dedicated browser key asynchronously.
+        send('exit-capability', { supportsStates, guest: !memorySaves, guestAvailable: false, guestSize: 0 })
+        if (!memorySaves) void refreshGuestStatus()
       }
       // Toggle from the engine menu (Settings → Graphics → Layar lebar).
       window.EJS_onWidescreen = value => {

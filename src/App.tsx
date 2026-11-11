@@ -84,23 +84,39 @@ function Workspace({ backend, gate }: { backend: ReturnType<typeof useBackendSta
   const location = useLocation()
   const navigate = useNavigate()
   const exitGuard = useRef<(() => Promise<boolean>) | null>(null)
+  const busyGuard = useRef<(() => boolean) | null>(null)
   const checkingExit = useRef(false)
+  // A one-shot permission bound to the launched session. Save & exit (and an
+  // explicit emergency exit) consume it so the generic confirmation and a
+  // second progress sync do not run after the player already finished.
+  const navigationPermit = useRef<string | null>(null)
   const registerExitGuard = useCallback((guard: (() => Promise<boolean>) | null) => { exitGuard.current = guard }, [])
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => gameStarted && !!session && currentLocation.pathname === '/main' && nextLocation.pathname !== '/main')
+  const registerBusyGuard = useCallback((guard: (() => boolean) | null) => { busyGuard.current = guard }, [])
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
+    if (!(gameStarted && !!session && currentLocation.pathname === '/main' && nextLocation.pathname !== '/main')) return false
+    return !(navigationPermit.current === session.id && nextLocation.pathname === '/')
+  })
 
   useEffect(() => {
     if (blocker.state !== 'blocked' || checkingExit.current) return
+    if (busyGuard.current?.()) {
+      blocker.reset()
+      setToast('Simpan & keluar sedang berjalan. Tunggu hingga selesai; player tidak ditutup di tengah operasi.')
+      return
+    }
     checkingExit.current = true
     void (async () => {
       try {
-        if (!window.confirm('Keluar dari permainan? Save state dan progres dalam game berbeda. Pastikan snapshot state yang belum terkonfirmasi sudah dicadangkan.')) { blocker.reset(); return }
+        if (!window.confirm('Keluar dari permainan? “Keluar game” tidak membuat state baru; simpanan lama tidak dihapus. Save state dan progres dalam game berbeda, jadi pastikan snapshot yang belum terkonfirmasi sudah dicadangkan.')) { blocker.reset(); return }
         if (exitGuard.current && !await exitGuard.current()) { blocker.reset(); return }
         blocker.proceed()
       } catch { blocker.reset(); setToast('Progres belum dapat diperiksa. Cadangkan sebelum keluar.') }
       finally { checkingExit.current = false }
     })()
   }, [blocker])
-  useEffect(() => { if (location.pathname !== '/main') { setSession(null); setGameStarted(false) } }, [location.pathname])
+  useEffect(() => {
+    if (location.pathname !== '/main') { setSession(null); setGameStarted(false); navigationPermit.current = null }
+  }, [location.pathname])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -152,19 +168,26 @@ function Workspace({ backend, gate }: { backend: ReturnType<typeof useBackendSta
   }, [drawer, mobile])
 
   function open(selection: SetupSelection = {}) {
+    if (busyGuard.current?.()) { setToast('Simpan & keluar sedang berjalan. Tunggu hingga selesai sebelum membuka permainan lain.'); return }
     if (session && gameStarted && !window.confirm('Buka permainan lain? Sesi sekarang akan berakhir saat game baru dimulai. Cadangkan save terlebih dahulu.')) return
     setSelection(selection)
   }
   function favorite(game: Game) { const exists = favorites.some(g => g.id === game.id); setFavorites(previous => toggleFavorite(previous, game)); setToast(exists ? 'Game dihapus dari Favoritku.' : 'Satu kenangan masuk Favoritku.') }
   async function launch(next: LaunchSession) {
-
+    if (busyGuard.current?.()) { setToast('Simpan & keluar sedang berjalan. Tunggu hingga selesai sebelum membuka permainan lain.'); return false }
     if (session && gameStarted && exitGuard.current && !await exitGuard.current()) return false
     if ((account.state.status === 'checking' || account.state.status === 'unavailable') && !window.confirm('Sesi akun belum bisa dipastikan. Lanjut sebagai tamu? Simpanan tetap di browser, belum ikut ke server.')) return false
     setSelection(null); setGameStarted(false); setSession({ ...next, storageOwner: account.state.status === 'authenticated' && backend.state.status === 'online' && backend.state.health.capabilities.serverSaves ? account.state.user!.id : null, gameSaves: backend.state.status === 'online' && backend.state.health.capabilities.gameSaves === true }); navigate('/main')
     return true
   }
   function leave() { navigate('/') }
+  function savedExit() {
+    if (!session) return
+    navigationPermit.current = session.id
+    navigate('/')
+  }
   async function closeDoor() {
+    if (busyGuard.current?.()) { setToast('Simpan & keluar sedang berjalan. Tunggu hingga selesai sebelum menutup pintu.'); return }
     if (session && !window.confirm('Keluar dari ruang main? Pastikan simpananmu sudah aman sebelum menutup pintu.')) return
     if (exitGuard.current && !await exitGuard.current()) return
     setLeaving(true)
@@ -208,7 +231,7 @@ function Workspace({ backend, gate }: { backend: ReturnType<typeof useBackendSta
           <Route path="/cara-bermain" element={<Guide onOpen={() => open()} />} />
           <Route path="/pengaturan" element={<><PageHeading eyebrow="BIAR MAKIN NYAMAN" title="Atur jeda mainmu." description="Sedikit pengaturan. Lebih banyak waktu untuk bermain." /><div className="settings-panel"><div className="setting-row"><div className="setting-symbol"><Volume2 size={22} /></div><div className="setting-description"><h2>Volume awal</h2><p>Volume saat permainan baru dimulai. Suara selama bermain bisa diatur di menu emulator.</p><div className="volume-control"><Volume2 size={16} /><input type="range" min="0" max="100" value={settings.volume} aria-label="Volume awal" onChange={e => setSettings(s => ({ ...s, volume: Number(e.target.value) }))} style={{ '--volume': `${settings.volume}%` } as React.CSSProperties} /><output>{settings.volume}%</output></div></div></div><div className="setting-row"><div className="setting-symbol"><Clock3 size={22} /></div><div className="setting-description"><h2>Simpan riwayat bermain</h2><p>Ingat permainan yang pernah kamu buka, hanya di browser ini. Mematikannya tidak menghapus riwayat lama atau save game.</p></div><button className={`toggle ${settings.history ? 'on' : ''}`} role="switch" aria-checked={settings.history} aria-label="Simpan riwayat bermain" onClick={() => setSettings(s => ({ ...s, history: !s.history }))}><span /></button></div><div className="settings-saved"><Check size={15} />Tersimpan otomatis di perangkat ini.<button className="text-link muted" onClick={() => { setSettings({ ...DEFAULT_SETTINGS }); setToast('Pengaturan dikembalikan ke awal.') }}>Kembalikan default</button></div></div>
             <AssetCacheSettings /><div className="privacy-card"><ShieldCheck size={24} /><div><h2>Ruang mainmu, tetap milikmu.</h2><p>{gate.enabled ? 'Ruang ini dijaga pintu masuk. Setelah masuk, kamu main sebagai tamu: katalog, ROM/BIOS server, dan simpanan di browser. Mau simpanan ikut ke server? Buat akun main.' : 'Build statis tanpa gerbang: katalog dan file server terbuka. Jangan gunakan mode ini untuk akses privat.'} ROM/BIOS milikmu tidak pernah diunggah.</p>{gate.enabled && <button className="button secondary small" disabled={leaving} onClick={() => void closeDoor()}>{leaving ? 'Menutup pintu…' : 'Keluar ruang main'}</button>}</div></div><p className="page-footnote">maindulu v{__APP_VERSION__} · engine EmulatorJS 4.2.3 lokal, tanpa CDN.</p></>} />
-          <Route path="/main" element={session ? <Player key={session.id} session={session} settings={settings} favorite={favorites.some(g => g.id === session.game.id)} onFavorite={() => favorite(session.game)} onStart={() => { setGameStarted(true); setHistory(previous => recordHistory(previous, session.game, settings.history)) }} onRestart={() => { setGameStarted(false); setSession({ ...session, id: createSessionId() }) }} onExit={leave} onWidescreen={next => setSettings(s => ({ ...s, widescreen: next }))} account={account.state} registerExitGuard={registerExitGuard} /> : <EmptyState title="Ruang mainnya masih kosong." text="Sesi file lokal tidak bertahan setelah refresh. Pilih kembali game dan BIOS untuk mulai bermain." action="Pilih permainan" onClick={() => navigate('/console')} />} />
+          <Route path="/main" element={session ? <Player key={session.id} session={session} settings={settings} favorite={favorites.some(g => g.id === session.game.id)} onFavorite={() => favorite(session.game)} onStart={() => { setGameStarted(true); setHistory(previous => recordHistory(previous, session.game, settings.history)) }} onRestart={() => { setGameStarted(false); setSession({ ...session, id: createSessionId() }) }} onExit={leave} onSavedExit={savedExit} onWidescreen={next => setSettings(s => ({ ...s, widescreen: next }))} account={account.state} registerExitGuard={registerExitGuard} registerBusyGuard={registerBusyGuard} /> : <EmptyState title="Ruang mainnya masih kosong." text="Sesi file lokal tidak bertahan setelah refresh. Pilih kembali game dan BIOS untuk mulai bermain." action="Pilih permainan" onClick={() => navigate('/console')} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>}
         {!loading && !catalogError && location.pathname === '/pengaturan' && <BackendStatus state={backend.state} onRetry={backend.retry} />}
