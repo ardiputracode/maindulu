@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { createGate } from './auth/gate.mjs'
 import { hashPassword, hashRecoveryCode, recoveryCode } from './auth/crypto.mjs'
 
-const pages = ['/', '/index.html', '/console', '/library', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/main', '/admin', '/admin/games', '/admin/bios', '/admin/scan', '/admin/metadata']
+const pages = ['/', '/index.html', '/console', '/library', '/riwayat', '/favorit', '/cara-bermain', '/pengaturan', '/tentang', '/main', '/admin', '/admin/games', '/admin/bios', '/admin/scan', '/admin/metadata']
 const assetDirectories = new Set(['assets', 'vendor', 'player', 'catalog', 'games', 'bios', 'covers'])
 const backendMarker = '<meta name="maindulu-backend" content="enabled" />'
 

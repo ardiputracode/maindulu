@@ -4,6 +4,48 @@ import { launchDemo } from './helpers/player'
 
 const appVersion = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version as string
 
+test('Tentang navigation, credits, local licenses, and direct refresh', async ({ page }) => {
+  await page.goto('/')
+  const about = page.getByRole('link', { name: 'Tentang', exact: true })
+  await about.click()
+  await expect(page).toHaveURL(/\/tentang$/)
+  await expect(about).toHaveAttribute('aria-current', 'page')
+  await expect(page).toHaveTitle('Tentang — maindulu')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Kenangan besar, berkat banyak tangan.')
+  for (const name of ['Kenalan dengan RomM', 'EmulatorJS', 'Kunjungi ScreenScraper', 'Lihat rom-converto']) {
+    await expect(page.getByRole('link', { name, exact: true })).toBeVisible()
+  }
+  await expect(page.locator('.about-page')).toContainText('Byte ROM dan BIOS tidak dikirim ke ScreenScraper.')
+  await expect(page.locator('.about-page .page-footnote')).toContainText(`maindulu v${appVersion}`)
+  for (const href of ['/assets/rom-converto-LICENSE.txt', '/assets/Manrope-OFL.txt', '/games/LICENSE.txt', '/vendor/emulatorjs/4.2.3/LICENSE']) {
+    const response = await page.request.get(href)
+    expect(response.ok(), `${href}: HTTP ${response.status()}`).toBe(true)
+    expect(response.headers()['content-type']).not.toContain('text/html')
+    if (href.includes('rom-converto')) expect(await response.text()).toContain('Copyright (c) 2025-2026 DevYukine')
+  }
+  await page.reload()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Kenangan besar, berkat banyak tangan.')
+  await page.getByRole('link', { name: 'Cara bermain & privasi', exact: true }).click()
+  await expect(page).toHaveURL(/\/cara-bermain$/)
+  await page.getByRole('link', { name: 'Tentang & kredit', exact: true }).click()
+  await expect(page).toHaveURL(/\/tentang$/)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/desktop-about.png', fullPage: true })
+})
+
+test('mobile Tentang menu stays reachable on short screens and closes the drawer', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Buka navigasi' }).click()
+  await page.getByRole('link', { name: 'Tentang', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Buka navigasi' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Kenangan besar, berkat banyak tangan.')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/mobile-about.png', fullPage: true })
+  await page.setViewportSize({ width: 320, height: 568 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
 test('desktop navigation, original assets, and responsive layout', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', e => errors.push(e.message))
