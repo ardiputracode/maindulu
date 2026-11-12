@@ -10,6 +10,28 @@ proxy dan batas statis](../doc/pintu-masuk.md). Template sengaja tanpa password.
 
 > **HTTP LAN adalah pilihan berisiko, bukan HTTPS.** Password, kode pemulihan, cookie sesi, dan save dapat disadap/diubah di perjalanan. Gunakan hanya pada jaringan tepercaya, jangan gunakan password layanan lain, dan jangan membuka port HTTP ini ke internet. Pemeriksaan origin/CSRF tidak mengenkripsi koneksi dan tidak mencegah penyadapan. Mode ini tidak membatasi subnet otomatis; operator harus mengatur firewall.
 
+## Pencegahan indexing dan crawler AI
+
+HTML aplikasi/player memuat meta `robots` dengan `noindex`, dan backend mengirim
+`X-Robots-Tag: noindex, nofollow, noarchive, nosnippet, noimageindex` untuk seluruh
+respons. `/robots.txt` dapat dibaca tanpa login dan melarang semua crawler dengan
+`User-agent: *` / `Disallow: /`, termasuk crawler pencarian dan AI yang patuh.
+Build statis menyertakan robots.txt dan template Nginx juga mengirim header ini.
+Aturan crawler bukan kontrol akses; bot yang mengabaikannya tetap dapat membaca
+aset publik. Pertahankan backend dengan gerbang login untuk data privat.
+
+Setelah memperbarui kode, rebuild dan deploy ulang menggunakan perintah Compose
+di bawah. Jika memakai Cloudflare, nonaktifkan fitur managed robots.txt yang
+menyisipkan `Allow: /` atau `search=yes`, atau atur kebijakannya agar tidak
+bertentangan dengan larangan di origin. Aktifkan pemblokiran crawler AI di
+Cloudflare bila tersedia. Pastikan URL publik `/robots.txt` benar-benar melarang
+crawl dan respons HTML publik memuat `X-Robots-Tag` setelah deployment.
+
+Jika URL sudah terindeks, gunakan fitur penghapusan di Google Search Console dan
+Bing Webmaster Tools. `Disallow` mencegah crawler membaca `noindex`, sehingga URL
+lama tidak dijamin hilang hanya dengan robots.txt; penghapusan perlu ditangani
+terpisah. Tidak ada jaminan penghapusan salinan yang sudah dimiliki layanan AI.
+
 ## 1. Prasyarat
 
 - Docker Engine + plugin Compose v2 di Linux/LXC, atau Docker Desktop dengan Linux containers (Windows: WSL2).

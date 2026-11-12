@@ -56,6 +56,7 @@ export async function createApp({ env = process.env, root, logger = false, metad
     reply.header('X-Content-Type-Options', 'nosniff')
     reply.header('Referrer-Policy', 'strict-origin-when-cross-origin')
     reply.header('Cache-Control', 'no-store')
+    reply.header('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex')
   })
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AuthError) {
@@ -77,7 +78,7 @@ export async function createApp({ env = process.env, root, logger = false, metad
   try {
     await app.register(cookie)
     const gate = createGate(config, db)
-    const publicExact = new Set([...pages, '/api/health', '/api/gate/login', '/api/gate/session', '/api/gate/logout'])
+    const publicExact = new Set([...pages, '/robots.txt', '/api/health', '/api/gate/login', '/api/gate/session', '/api/gate/logout'])
     app.addHook('onRequest', async request => {
       const path = request.url.split('?')[0]
       // Do not let encoded separators or dot segments turn a public asset URL
@@ -89,6 +90,9 @@ export async function createApp({ env = process.env, root, logger = false, metad
     app.post('/api/gate/login', gate.login)
     app.get('/api/gate/session', async request => gate.session(request))
     app.post('/api/gate/logout', gate.logout)
+    // Keep crawler policy readable without a gate session, including on builds
+    // made before robots.txt was added. This does not grant access to content.
+    app.get('/robots.txt', (_request, reply) => reply.type('text/plain; charset=utf-8').send('User-agent: *\nDisallow: /\n'))
     if (config.defaultUsername && !db.prepare('SELECT 1 FROM users LIMIT 1').get()) {
       const passwordHash = await hashPassword(config.defaultPassword)
       // Recheck under SQLite's write lock after the asynchronous KDF.

@@ -5,7 +5,7 @@ import { createApp } from '../server/app.mjs'
 import { readConfig } from '../server/config.mjs'
 import { hashPassword, hashToken, verifyPassword } from '../server/auth/crypto.mjs'
 import { backendFixture } from './helpers/backend-fixture.mjs'
-import { symlink, mkdir, writeFile } from 'node:fs/promises'
+import { symlink, mkdir, writeFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { gateEnv } from './helpers/gated-backend.mjs'
 
@@ -53,6 +53,27 @@ test('default-deny protects every data family including unknown routes, encoded 
   assert.equal((await app.inject({ url: '/games/sample.chd', headers: { cookie, range: 'bytes=1-3' } })).statusCode, 206)
   for (const url of ['/api/saves/', '/api/game-saves/', '/api/save-backups/']) assert.equal((await app.inject({ url, headers: { ...headers, cookie } })).statusCode, 401)
   assert.equal(app.database.prepare('SELECT COUNT(*) AS n FROM sessions').get().n, 0)
+})
+
+test('crawler policy is public while headers cover public, protected and authenticated responses', async t => {
+  const { app } = await setup(t)
+  const policy = 'noindex, nofollow, noarchive, nosnippet, noimageindex'
+  const robots = await app.inject('/robots.txt')
+  assert.equal(robots.statusCode, 200)
+  assert.match(robots.headers['content-type'], /^text\/plain/)
+  assert.equal(robots.body, await readFile(new URL('../public/robots.txt', import.meta.url), 'utf8'))
+  assert.equal(robots.body, 'User-agent: *\nDisallow: /\n')
+  for (const url of ['/', '/library', '/assets/app.js', '/vendor/sample.wasm', '/api/health', '/catalog/games.json', '/api/games', '/unknown', '/robots.txt']) {
+    assert.equal((await app.inject(url)).headers['x-robots-tag'], policy, url)
+  }
+  assert.equal((await app.inject({ method: 'HEAD', url: '/robots.txt' })).statusCode, 200)
+  const cookie = cookieFrom(await login(app))
+  for (const url of ['/catalog/games.json', '/games/sample.chd', '/unknown']) {
+    assert.equal((await app.inject({ url, headers: { cookie } })).headers['x-robots-tag'], policy, url)
+  }
+  for (const path of ['../index.html', '../public/player/index.html']) {
+    assert.ok((await readFile(new URL(path, import.meta.url), 'utf8')).includes(`<meta name="robots" content="${policy}" />`), path)
+  }
 })
 
 test('HMAC rejects malformed, expired, tampered, foreign-installation and rotated credential cookies', async t => {
