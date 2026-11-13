@@ -94,6 +94,71 @@
     for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
     return true
   }
+  // iOS/WebKit dapat men-suspend AudioContext setelah main thread diblokir
+  // operasi state besar (khususnya PS1). Resume dari gestur pengguna dan
+  // setelah load; kalau tetap suspended, emulasi bisa tampak membeku.
+  function audioContexts() {
+    const sources = window.EJS_emulator?.Module?.AL?.currentCtx?.sources
+    if (!sources || typeof sources.forEach !== 'function') return []
+    const contexts = []
+    sources.forEach(source => {
+      const context = source?.gain?.context
+      if (context && typeof context.resume === 'function' && !contexts.includes(context)) contexts.push(context)
+    })
+    return contexts
+  }
+  function resumeAudio() {
+    for (const context of audioContexts()) {
+      try { if (context.state !== 'running') void context.resume().catch(() => {}) } catch { /* optional */ }
+    }
+  }
+  // WebGL context loss is common on iOS under memory pressure from large state
+  // loads; EmulatorJS 4.2.3 has no recovery, so surface it and try to resume.
+  let graphicsLossTimer = null
+  function watchGraphicsContext() {
+    const canvas = window.EJS_emulator?.canvas
+    if (!canvas || canvas.dataset.mainduluGraphicsWatch === '1') return
+    canvas.dataset.mainduluGraphicsWatch = '1'
+    canvas.addEventListener('webglcontextlost', event => {
+      event.preventDefault()
+      clearTimeout(graphicsLossTimer)
+      graphicsLossTimer = setTimeout(() => send('error', {
+        message: 'Konteks grafis berhenti (umum terjadi di iOS saat memuat state PS1). Buka kembali game; state server dan progres tetap tersimpan.'
+      }), 2500)
+    })
+    canvas.addEventListener('webglcontextrestored', () => {
+      clearTimeout(graphicsLossTimer)
+      resumeAudio()
+      try { window.EJS_emulator?.play?.() } catch { /* recover on next input */ }
+    })
+  }
+  // Loading is not proof the core resumed. Verify frame progress and nudge
+  // audio/play before reporting a persistent stall instead of freezing silently.
+  let runningCheck = 0
+  async function ensureRunningAfterLoad(e) {
+    const gameManager = e?.gameManager
+    if (!gameManager || typeof gameManager.getFrameNum !== 'function') return
+    const token = ++runningCheck
+    const readFrame = () => { try { return gameManager.getFrameNum() } catch { return null } }
+    const first = readFrame()
+    const stillStalled = async wait => {
+      await new Promise(resolve => setTimeout(resolve, wait))
+      return token === runningCheck && e?.paused !== true && first !== null && readFrame() === first
+    }
+    if (!await stillStalled(1200)) return
+    resumeAudio()
+    try { e.play?.() } catch { /* noop */ }
+    if (!await stillStalled(1200)) return
+    try { if (!e.paused) { e.pause(); await new Promise(resolve => setTimeout(resolve, 0)) } e.play?.() } catch { /* noop */ }
+    if (!await stillStalled(1200)) return
+    send('error', { message: 'State berhasil dimuat, tetapi emulasi tidak berjalan lagi di browser ini. Buka kembali game; state server tetap tersimpan.' })
+  }
+  function resumePlayback(e) {
+    if (!e) return
+    resumeAudio()
+    try { e.play?.() } catch { /* noop */ }
+    void ensureRunningAfterLoad(e)
+  }
   async function readGuestState() {
     const store = window.EJS_emulator?.storage?.states
     if (!store || typeof store.get !== 'function') throw new Error('Penyimpanan state browser tidak tersedia.')
@@ -269,7 +334,7 @@
       if (!gameStarted) return
       const resume = overlayState?.resume === true
       overlayState = null
-      if (resume) window.EJS_emulator?.play?.()
+      if (resume) resumePlayback(window.EJS_emulator)
       return
     }
     if (!gameStarted) return
@@ -306,13 +371,20 @@
           send('state-result', { requestId, applied: true })
           return
         }
-        const bytes = await readGuestState()
-        if (!bytes) throw new Error('Belum ada simpanan Simpan & keluar di browser ini.')
-        if (!validStateBytes(bytes)) throw new Error('Format state tidak valid.')
-        e.gameManager.loadState(bytes)
-        // Loading is not proof of successful deserialization; the host tells
-        // the user to verify the restored position.
-        send('state-result', { requestId, applied: true })
+        const paused = e.paused
+        e.pause()
+        try {
+          const bytes = await readGuestState()
+          if (!bytes) throw new Error('Belum ada simpanan Simpan & keluar di browser ini.')
+          if (!validStateBytes(bytes)) throw new Error('Format state tidak valid.')
+          e.gameManager.loadState(bytes)
+          // Beri jeda ke browser setelah operasi WASM sinkron agar WebGL/main
+          // loop dapat menetap sebelum resume dan kirim hasil, terutama di iOS.
+          await new Promise(resolve => setTimeout(resolve, 0))
+          // Loading is not proof of successful deserialization; the host tells
+          // the user to verify the restored position.
+          send('state-result', { requestId, applied: true })
+        } finally { if (!paused && !overlayState) setTimeout(() => resumePlayback(e), 50) }
       } catch (error) { send('state-result', { requestId, error: error instanceof Error ? error.message : 'Operasi state gagal.' }) }
       return
     }
@@ -339,10 +411,13 @@
           const bytes = event.data.bytes
           if (!(bytes instanceof Uint8Array) || bytes.length < 32 || bytes.length > maxStateBytes || new TextDecoder().decode(bytes.subarray(0, 7)) !== 'RASTATE') throw new Error('Format state tidak valid.')
           e.gameManager.loadState(bytes)
+          // Beri jeda ke browser setelah operasi WASM sinkron agar WebGL/main
+          // loop dapat menetap sebelum resume dan kirim hasil, terutama di iOS.
+          await new Promise(resolve => setTimeout(resolve, 0))
           // Engine 4.2.3 does not expose a reliable deserialization acknowledgment.
           send('state-result', { requestId, applied: true })
         }
-      } finally { if (!paused && !overlayState) e.play() }
+      } finally { if (!paused && !overlayState) setTimeout(() => resumePlayback(e), 50) }
     } catch (error) { send('state-result', { requestId, error: error instanceof Error ? error.message : 'Operasi state gagal.' }) }
   })
 
@@ -501,6 +576,8 @@
         gameStarted = true
         gameRunning = true
         supportsStates = window.EJS_emulator.gameManager.supportsStates() === true
+        watchGraphicsContext()
+        resumeAudio()
         applyWidescreen()
         positionExitButtons()
         updateExitButtons()
@@ -541,6 +618,10 @@
   window.addEventListener('keydown', event => {
     if (hostFullscreen && hostFullscreenActive && event.key === 'Escape') send('fullscreen-request', { fullscreen: false })
   })
+  // iOS hanya mengizinkan AudioContext resume dari gestur pengguna. Setiap
+  // sentuhan di player juga dipakai untuk memulihkan audio setelah load state.
+  window.addEventListener('pointerdown', () => resumeAudio(), { passive: true })
+  window.addEventListener('touchstart', () => resumeAudio(), { passive: true })
   window.addEventListener('error', event => fail(event.message || 'Terjadi kesalahan pada engine. Periksa format ROM dan BIOS.'))
   window.addEventListener('unhandledrejection', event => {
     const message = event.reason?.message || ''

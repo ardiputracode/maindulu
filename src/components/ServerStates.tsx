@@ -131,7 +131,7 @@ export default function ServerStates({ session, owner, enabled, accountChanged, 
     if (!window.confirm(`Muat state server ${pendingSlotName(slot)} dan ganti kondisi permainan saat ini? State lama dapat ikut mengembalikan SRAM/memcard lama lalu disinkronkan sebagai progres terbaru. Unduh cadangan progres terlebih dahulu.`)) return
     setMsg('Memuat progres…')
     const bytes = await library.client.get(target)
-    if (await hashRom(new Blob([new Uint8Array(bytes)])) !== target.checksum) throw new SaveError('Checksum state tidak sesuai. State tidak dimuat.')
+    if (await hashRom(new Blob([bytes])) !== target.checksum) throw new SaveError('Checksum state tidak sesuai. State tidak dimuat.')
     await rpc('import-state', bytes)
     if (live.current) setMsg('Perintah muat dikirim ke core. Periksa progres permainan; engine tidak memberikan konfirmasi deserialisasi.')
   }

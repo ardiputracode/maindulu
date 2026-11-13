@@ -18,6 +18,10 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 - Teks bantuan review metadata, README, dan dokumen milestone 0/6/7 diperbarui untuk mencerminkan dukungan `.smc` langsung/ZIP dan kelompok backfill baru.
 
+### Diperbaiki
+
+- iOS PS1 save-state freeze: mendeteksi WebGL context loss, resume AudioContext setelah load state, dan deteksi/main loop stall. Sekarang mengimplementasikan `resumeAudio()`, `watchGraphicsContext()`, `ensureRunningAfterLoad()`, listener resume per sentuh, dan resume overlay terkuat untuk memuat ulang di iOS (public/player/player.js). Memotong satu byte verifikasi checksum state (src/components/ServerStates.tsx) untuk mengurangi memori puncak di iOS.
+
 ### Verifikasi
 
 - **658 tes unit/integrasi lulus** (2 kegagalan lama tidak terkait: versi `package-lock.json` dan line ending `robots.txt`), build lulus, dan **29 skenario browser metadata** lulus.
