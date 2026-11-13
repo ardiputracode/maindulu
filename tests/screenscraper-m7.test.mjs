@@ -5,7 +5,7 @@ import { open, readFile, writeFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { createApp } from './helpers/gated-backend.mjs'
-import { identifyCatalogRom, archiveIdentificationLimits as limits, candidateTarget } from '../server/metadata/identification.mjs'
+import { identifyCatalogRom, archiveIdentificationLimits as limits, candidateTarget, smcHeaderSize } from '../server/metadata/identification.mjs'
 import { createMetadataWorker } from '../server/metadata/worker.mjs'
 import { enqueueMetadata, storedCandidates } from '../server/metadata/queue.mjs'
 import { assessScreenScraperEvidence } from '../server/metadata/screenscraper-policy.mjs'
@@ -26,6 +26,69 @@ async function identify(t, bytes, options = {}) {
 const candidate = (input, systemId = '9') => ({ id: '123', systemId, notGame: false,
   rom: { id: '456', size: input.size, md5: input.md5, sha1: input.sha1, totalSupports: 1 },
   metadata: { title: 'ZIP title', description: 'ZIP description', media: [] } })
+
+test('M7 SMC header detection follows the 512-byte copier convention', () => {
+  assert.equal(smcHeaderSize(1536), 512)
+  assert.equal(smcHeaderSize(512), 0)
+  assert.equal(smcHeaderSize(1024), 0)
+  assert.equal(smcHeaderSize(1025), 0)
+  assert.equal(smcHeaderSize(undefined), 0)
+})
+
+test('M7 plain SMC hashes the raw ROM after stripping a 512-byte copier header', async t => {
+  const root = await backendFixture(t), path = join(root, 'game.smc')
+  const header = Buffer.alloc(512, 0x11), inner = Buffer.alloc(1024, 0x5a)
+  const bytes = Buffer.concat([header, inner])
+  await writeFile(path, bytes)
+  const file = await open(path, 'r')
+  try {
+    const found = await identifyCatalogRom(file, { consoleId: 'snes', fileName: 'game.smc', size: bytes.length, sha256: hash(bytes) })
+    assert.deepEqual(found.hashes, { size: inner.length, md5: hash(inner, 'md5'), sha1: hash(inner, 'sha1'), sha256: hash(bytes) })
+    assert.deepEqual(found.identification, { kind: 'smc-header', version: 1 })
+  } finally { await file.close() }
+})
+
+test('M7 plain SFC keeps the exact raw fingerprint and identification', async t => {
+  const root = await backendFixture(t), path = join(root, 'game.sfc')
+  const bytes = Buffer.alloc(1024, 0x5a)
+  await writeFile(path, bytes)
+  const file = await open(path, 'r')
+  try {
+    const found = await identifyCatalogRom(file, { consoleId: 'snes', fileName: 'game.sfc', size: bytes.length, sha256: hash(bytes) })
+    assert.deepEqual(found.hashes, { size: bytes.length, md5: hash(bytes, 'md5'), sha1: hash(bytes, 'sha1'), sha256: hash(bytes) })
+    assert.deepEqual(found.identification, { kind: 'raw', version: 1 })
+  } finally { await file.close() }
+})
+
+test('M7 plain SMC without a copier header stays raw and keeps exact fingerprint', async t => {
+  const root = await backendFixture(t), path = join(root, 'game.smc')
+  const bytes = Buffer.alloc(1024, 0x5a)
+  await writeFile(path, bytes)
+  const file = await open(path, 'r')
+  try {
+    const found = await identifyCatalogRom(file, { consoleId: 'snes', fileName: 'game.smc', size: bytes.length, sha256: hash(bytes) })
+    assert.deepEqual(found.hashes, { size: bytes.length, md5: hash(bytes, 'md5'), sha1: hash(bytes, 'sha1'), sha256: hash(bytes) })
+    assert.deepEqual(found.identification, { kind: 'raw', version: 1 })
+  } finally { await file.close() }
+})
+
+for (const method of [0, 8]) test(`M7 ZIP method ${method} normalizes a headered SMC member`, async t => {
+  const header = Buffer.alloc(512, 0x11), inner = Buffer.alloc(1024, 0x5a)
+  const found = await identify(t, metadataZip([{ name: 'game.smc', data: Buffer.concat([header, inner]), method }]), { consoleId: 'snes' })
+  assert.equal(found.fileName, 'game.smc')
+  assert.deepEqual(found.hashes, { size: inner.length, md5: hash(inner, 'md5'), sha1: hash(inner, 'sha1') })
+  const target = candidateTarget('snes', 'upload.zip', found.identification)
+  assert.equal(target.systemId, '4')
+  assert.equal(target.hashLookup, true)
+  assert.equal(assessScreenScraperEvidence({ method: 'hash', consoleId: 'snes', fileName: found.fileName, ...found.hashes },
+    [candidate(found.hashes, '4')]).verified, true)
+})
+
+test('M7 ZIP SMC without a copier header keeps the whole member fingerprint', async t => {
+  const data = Buffer.alloc(1024, 0x5a)
+  const found = await identify(t, metadataZip([{ name: 'game.smc', data, method: 0 }]), { consoleId: 'snes' })
+  assert.deepEqual(found.hashes, { size: data.length, md5: hash(data, 'md5'), sha1: hash(data, 'sha1') })
+})
 
 for (const method of [0, 8]) for (const [consoleId, fileName] of [['nes', 'a.nes'], ['snes', 'a.sfc'], ['gb', 'a.gb'], ['gb', 'a.gbc'], ['gba', 'a.gba'], ['megadrive', 'a.bin']]) {
   test(`M7 ZIP method ${method} identifies only member bytes: ${consoleId}/${fileName}`, async t => {
@@ -68,7 +131,7 @@ const attacks = [
   ['DOS directory masquerading as ROM', [{ name: 'a.gb', attributes: 0x10 }]],
   ['hardlink extra', [{ name: 'a.gb', extra: Buffer.from([0x0d, 0, 0, 0]) }]],
   ['encrypted', [{ name: 'a.gb', flags: 1 }]], ['unsupported codec', [{ name: 'a.gb', method: 12 }]],
-  ['nested archive', [{ name: 'a.zip' }]], ['headered dump', [{ name: 'a.smc' }]], ['wrong platform', [{ name: 'a.nes' }]],
+  ['nested archive', [{ name: 'a.zip' }]], ['smc on the wrong platform', [{ name: 'a.smc' }]], ['wrong platform', [{ name: 'a.nes' }]],
   ['two games', [{ name: 'a.gb' }, { name: 'b.gb' }]], ['readme not silently ignored', [{ name: 'a.gb' }, { name: 'README.txt' }]],
   ['duplicate names', [{ name: 'a.gb' }, { name: 'a.gb' }]], ['case aliases', [{ name: 'a.gb' }, { name: 'A.GB' }]],
   ['empty ROM', [{ name: 'a.gb', data: '' }]], ['directory with data', [{ name: 'folder/' }, { name: 'a.gb' }]],
@@ -153,9 +216,9 @@ test('M7 bounds a real 64 MiB member and refuses a larger one; no complete outpu
   await assert.rejects(identify(t, metadataZip([{ name: 'a.gba', data: Buffer.concat([data, Buffer.from('x')]) }]), { consoleId: 'gba' }), { code: 'archive_limits' })
 })
 
-test('M7 7z/RAR/PS1 and header transformations remain unsupported without even reading disc bytes', async () => {
+test('M7 7z/RAR and PS1 containers remain unsupported without even reading disc bytes', async () => {
   const file = { createReadStream() { assert.fail('Must not read unsupported formats, including a large disc') } }
-  for (const [consoleId, fileName] of [['gba', 'a.7z'], ['gba', 'a.rar'], ['psx', 'a.pbp'], ['psx', 'a.cue'], ['psx', 'a.bin'], ['psx', 'a.iso'], ['psx', 'a.zip'], ['snes', 'a.smc']]) {
+  for (const [consoleId, fileName] of [['gba', 'a.7z'], ['gba', 'a.rar'], ['psx', 'a.pbp'], ['psx', 'a.cue'], ['psx', 'a.bin'], ['psx', 'a.iso'], ['psx', 'a.zip']]) {
     await assert.rejects(identifyCatalogRom(file, { consoleId, fileName, size: 768 * 1024 * 1024 }), { code: 'unsupported_format' })
   }
   // A plain PS1 CHD is now identifiable only through a validated asset path and
@@ -165,13 +228,13 @@ test('M7 7z/RAR/PS1 and header transformations remain unsupported without even r
   assert.equal(candidateTarget('gb', 'a.zip', { kind: 'zip-member', version: 2, fileName: 'a.gb' }).systemId, null)
 })
 
-async function workerFixture(t, { data = Buffer.from('abc'), entries, consoleId = 'gb', fileName = 'upload.zip', clientFactory } = {}) {
+async function workerFixture(t, { data = Buffer.from('abc'), entries, consoleId = 'gb', fileName = 'upload.zip', clientFactory, raw = false } = {}) {
   let app
   const root = await backendFixture(t, { beforeCleanup: () => app?.close() })
   app = await createApp({ root, env: {} })
   const db = app.database, storage = app.catalog.storage, actor = randomUUID()
   db.prepare('INSERT INTO users (id, username, password_hash, recovery_code_hash, created_at, role) VALUES (?, ?, ?, ?, ?, ?)').run(actor, 'm7admin', 'fixture', 'fixture', Date.now(), 'admin')
-  const bytes = metadataZip(entries ?? [{ name: 'inner.gbc', data, method: 8 }])
+  const bytes = raw ? Buffer.from(data) : metadataZip(entries ?? [{ name: 'inner.gbc', data, method: 8 }])
   const stage = await storage.stage('games', (async function* () { yield bytes })())
   const game = await app.catalog.repository.publish('games', actor, { description: '', license: 'Manual license', consoleId, fileName }, stage)
   const config = { screenscraper: { enabled: true, missing: [] } }
@@ -197,6 +260,63 @@ test('M7 worker identifies GBC ZIP, applies exact evidence and keeps asset ident
   assert.equal(storedCandidates(job, after).length, 1)
   assert.equal(JSON.parse(job.candidate_json).identification.fileName, 'inner.gbc')
   assert.deepEqual(JSON.parse(job.candidate_json).fingerprint, { size: 3, md5: hash('abc', 'md5'), sha1: hash('abc', 'sha1') })
+  assert.equal((await app.inject(`/api/games/${game.id}`)).json().item.sha256, hash(bytes))
+})
+
+test('M7 worker auto-applies plain SMC after normalizing its copier header', async t => {
+  const inner = Buffer.alloc(1024, 0x5a)
+  const bytes = Buffer.concat([Buffer.alloc(512, 0x11), inner])
+  const { app, db, game, worker, calls } = await workerFixture(t, {
+    consoleId: 'snes', fileName: 'game.smc', raw: true, data: bytes,
+    clientFactory: () => ({ searchByHash: async input => {
+      calls.push(input)
+      return { method: 'hash', systemId: '4', candidates: [{ id: '123', systemId: '4', notGame: false,
+        rom: { id: '456', size: input.size, md5: input.md5, sha1: input.sha1, totalSupports: 1 },
+        metadata: { title: 'SMC title', description: 'SMC description', media: [] } }] }
+    } }),
+  })
+  await worker.processOne()
+  const job = db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ?').get(game.id)
+  assert.equal(job.status, 'succeeded')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].fileName, 'game.smc')
+  assert.equal(calls[0].size, inner.length)
+  assert.equal(calls[0].md5, hash(inner, 'md5'))
+  assert.equal(calls[0].sha1, hash(inner, 'sha1'))
+  const after = db.prepare('SELECT * FROM games WHERE id = ?').get(game.id)
+  assert.equal(after.title, 'SMC title')
+  assert.equal(after.sha256, game.sha256)
+  assert.equal(after.size, game.size)
+  assert.equal(JSON.parse(job.candidate_json).identification.kind, 'smc-header')
+  assert.deepEqual(JSON.parse(job.candidate_json).fingerprint, { size: inner.length, md5: hash(inner, 'md5'), sha1: hash(inner, 'sha1') })
+  assert.equal((await app.inject(`/api/games/${game.id}`)).json().item.sha256, hash(bytes))
+})
+
+test('M7 worker auto-applies a ZIP SMC after normalizing its copier header', async t => {
+  const inner = Buffer.alloc(1024, 0x5a)
+  const { app, db, game, bytes, worker, calls } = await workerFixture(t, {
+    consoleId: 'snes', fileName: 'upload.zip', entries: [{ name: 'inner.smc', data: Buffer.concat([Buffer.alloc(512, 0x11), inner]), method: 8 }],
+    clientFactory: () => ({ searchByHash: async input => {
+      calls.push(input)
+      return { method: 'hash', systemId: '4', candidates: [{ id: '123', systemId: '4', notGame: false,
+        rom: { id: '456', size: input.size, md5: input.md5, sha1: input.sha1, totalSupports: 1 },
+        metadata: { title: 'ZIP SMC title', description: 'ZIP SMC description', media: [] } }] }
+    } }),
+  })
+  await worker.processOne()
+  const job = db.prepare('SELECT * FROM metadata_jobs WHERE game_id = ?').get(game.id)
+  assert.equal(job.status, 'succeeded')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].fileName, 'inner.smc')
+  assert.equal(calls[0].size, inner.length)
+  assert.equal(calls[0].md5, hash(inner, 'md5'))
+  assert.equal(calls[0].sha1, hash(inner, 'sha1'))
+  const after = db.prepare('SELECT * FROM games WHERE id = ?').get(game.id)
+  assert.equal(after.title, 'ZIP SMC title')
+  assert.equal(after.sha256, game.sha256)
+  assert.equal(after.size, game.size)
+  assert.equal(JSON.parse(job.candidate_json).identification.fileName, 'inner.smc')
+  assert.deepEqual(JSON.parse(job.candidate_json).fingerprint, { size: inner.length, md5: hash(inner, 'md5'), sha1: hash(inner, 'sha1') })
   assert.equal((await app.inject(`/api/games/${game.id}`)).json().item.sha256, hash(bytes))
 })
 

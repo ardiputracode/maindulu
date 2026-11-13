@@ -12,6 +12,17 @@ export const archiveIdentificationLimits = Object.freeze({
   timeoutMs: 30_000,
 })
 
+// A plain `.smc` may carry the common 512-byte copier header. Emulators and
+// dump tools detect it by the file size modulo 1024; a headerless `.smc` (or a
+// file whose size does not fit) is treated as raw bytes, never guessed further.
+export function smcHeaderSize(fileSize) {
+  return Number.isSafeInteger(fileSize) && fileSize > 512 && fileSize % 1024 === 512 ? 512 : 0
+}
+
+function isSmc(consoleId, fileName) {
+  return consoleId === 'snes' && typeof fileName === 'string' && /\.smc$/i.test(fileName)
+}
+
 export function isIdentifiableZip(consoleId, fileName) {
   const target = resolveScreenScraperSystem(consoleId, fileName)
   return consoleId !== 'psx' && target.reason === 'archive_requires_review' && /\.zip$/i.test(fileName)
@@ -47,8 +58,16 @@ export async function identifyCatalogRom(file, { consoleId, fileName, size, sha2
   }
   if (!isIdentifiableZip(consoleId, fileName)) {
     if (!resolveScreenScraperSystem(consoleId, fileName).hashLookup) throw new ScreenScraperError('unsupported_format')
-    const hashes = await computeRomHashes(file.createReadStream({ autoClose: false, start: 0 }), { size, sha256, signal })
-    return { fileName, hashes, identification: { kind: 'raw', version: 1 } }
+    let fileSize = size, headerSize = 0
+    if (isSmc(consoleId, fileName)) {
+      if (!Number.isSafeInteger(fileSize) || fileSize < 1) {
+        try { fileSize = (await file.stat()).size } catch { fileSize = undefined }
+      }
+      headerSize = smcHeaderSize(fileSize)
+    }
+    const hashes = await computeRomHashes(file.createReadStream({ autoClose: false, start: 0 }),
+      { size: fileSize, sha256, headerBytes: headerSize, signal })
+    return { fileName, hashes, identification: { kind: headerSize ? 'smc-header' : 'raw', version: 1 } }
   }
   if (!Number.isSafeInteger(size) || size < 1 || size > archiveIdentificationLimits.inputBytes) throw new ScreenScraperError('archive_limits')
   const worker = new Worker(new URL('./zip-identification-worker.mjs', import.meta.url), {

@@ -5,7 +5,7 @@ import { pipeline } from 'node:stream/promises'
 import { createHash } from 'node:crypto'
 import { crc32, createInflateRaw } from 'node:zlib'
 import yauzl from 'yauzl'
-import { archiveIdentificationLimits as limits } from './identification.mjs'
+import { archiveIdentificationLimits as limits, smcHeaderSize } from './identification.mjs'
 import { screenScraperTarget } from './screenscraper-policy.mjs'
 
 const fail = code => { throw Object.assign(new Error(code), { code }) }
@@ -110,12 +110,24 @@ async function identify() {
   if (!member || count !== zip.entryCount) fail('archive_unsupported')
   if (nextOffset !== centralStart || centralCursor !== centralOffset + centralBytes) fail('archive_invalid')
   const md5 = createHash('md5'), sha1 = createHash('sha1')
-  let bytes = 0, checksum = 0
+  // A plain SNES `.smc` member may carry the same 512-byte copier header as a
+  // direct upload. CRC and size validation still cover the whole member; only
+  // the provider fingerprint (MD5/SHA-1/size) describes the normalized ROM.
+  const headerSize = consoleId === 'snes' && /\.smc$/i.test(member.fileName) ? smcHeaderSize(member.entry.uncompressedSize) : 0
+  let bytes = 0, romBytes = 0, checksum = 0
   const stream = await zip.openReadStreamPromise(member.entry, member.entry.compressionMethod === 8 ? { decompress: false } : {})
   const sink = new Writable({ write(chunk, _encoding, done) {
+    const start = bytes
     bytes += chunk.length
     if (bytes > limits.outputBytes || bytes > member.entry.uncompressedSize || bytes > Math.max(1, member.entry.compressedSize) * limits.ratio) return done(Object.assign(new Error('limit'), { code: 'archive_limits' }))
-    md5.update(chunk); sha1.update(chunk); checksum = crc32(chunk, checksum); done()
+    checksum = crc32(chunk, checksum)
+    let offset = 0
+    if (start < headerSize) offset = Math.min(chunk.length, headerSize - start)
+    if (offset < chunk.length) {
+      const raw = offset ? chunk.subarray(offset) : chunk
+      md5.update(raw); sha1.update(raw); romBytes += raw.length
+    }
+    done()
   } })
   if (member.entry.compressionMethod === 8) {
     const inflate = createInflateRaw({ chunkSize: 64 * 1024 })
@@ -125,7 +137,8 @@ async function identify() {
   if (bytes !== member.entry.uncompressedSize || checksum !== member.entry.crc32) fail('archive_invalid')
   const after = await stat()
   if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs || after.nlink !== 1) fail('asset_mismatch')
-  return { fileName: member.fileName, hashes: { size: bytes, md5: md5.digest('hex'), sha1: sha1.digest('hex') },
+  if (headerSize && romBytes !== bytes - headerSize) fail('archive_invalid')
+  return { fileName: member.fileName, hashes: { size: romBytes, md5: md5.digest('hex'), sha1: sha1.digest('hex') },
     identification: { kind: 'zip-member', version: 1, fileName: member.fileName } }
 }
 

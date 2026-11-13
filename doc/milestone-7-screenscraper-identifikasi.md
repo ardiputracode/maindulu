@@ -1,6 +1,6 @@
 # M7 ScreenScraper — Identifikasi ZIP Terbatas
 
-Tanggal: **2026-11-08**. Status: **M7 ditutup untuk cakupan ZIP satu ROM raw (stored/deflate)** pada penggunaan pribadi/nonkomersial LAN. Regresi akhir: **507 unit/integrasi**, build, **168 browser backend**, serta **66 statis dev + 66 produksi** lulus (107 skip khusus backend per mode statis). 7z/RAR, disc PS1, transformasi dump dan ZIP yang tidak memenuhi kebijakan tetap ditolak untuk lookup hash, dengan fallback review jika sistem diketahui. Ini bukan janji mendukung semua format arsip/disc. Fitur ScreenScraper tetap **default off** dan tidak diaktifkan pada konfigurasi operator.
+Tanggal: **2026-11-08**. Status: **M7 ditutup untuk cakupan ZIP satu ROM raw (stored/deflate)** pada penggunaan pribadi/nonkomersial LAN. Regresi akhir: **507 unit/integrasi**, build, **168 browser backend**, serta **66 statis dev + 66 produksi** lulus (107 skip khusus backend per mode statis). 7z/RAR, disc PS1, transformasi dump selain header copier `.smc` polos, dan ZIP yang tidak memenuhi kebijakan tetap ditolak untuk lookup hash, dengan fallback review jika sistem diketahui. Ini bukan janji mendukung semua format arsip/disc. Fitur ScreenScraper tetap **default off** dan tidak diaktifkan pada konfigurasi operator.
 
 ## 1. Baseline, pengukuran dan keputusan format
 
@@ -16,7 +16,7 @@ Pengukuran reproduktif memakai berkas legal lokal: `public/games/jalan-pulang.ne
 | ZIP encrypted, ZIP64, multi-volume, SFX, codec/extra field di luar allowlist | Tidak didukung untuk hash | Ditolak lokal, tanpa percobaan executable/ekstraksi alternatif. |
 | 7z/RAR | Tetap review | Belum ada bukti kebutuhan/provider/packaging yang membenarkan parser atau executable tambahan. Tidak menjalankan `7z`, `unrar`, `tar` atau shell. |
 | PS1 BIN/ISO/CHD/PBP/CUE/multi-track, termasuk ZIP PS1 | Tetap review | Tidak mengasumsikan hash kontainer, satu track atau serial sebagai bukti satu disc/game. Tidak mengubah `romtype=rom` menjadi tebakan `iso`. |
-| Headered/byte-swapped/normalized dump | Tetap policy raw M0 | Tidak strip header atau menukar byte untuk menaikkan tingkat kecocokan. |
+| Headered dump `.smc` polos (header copier 512 byte) | Didukung untuk upload langsung maupun satu anggota ZIP SNES | Header dideteksi dari ukuran (`% 1024 === 512`) lalu dilewati untuk MD5/SHA-1; SHA-256 aset tetap dihitung atas byte utuh dan CRC ZIP tetap mencakup seluruh anggota. `.fig`/`.swc` dan byte-swapped dump tetap review. |
 
 Dokumentasi publik [API v2 ScreenScraper](https://www.screenscraper.fr/webapi2.php) diperiksa kembali tanpa kredensial: pencarian menerima hash, ukuran, nama tanpa path dan sistem. Tidak ditemukan bukti operasional baru yang membenarkan auto-apply serial/track/CHD/PBP. M7 **tidak meminta provider mengenali ZIP**: yang dikirim tetap tuple raw dari anggota yang tervalidasi. Nama anggota berbeda dari nama upload dan juga merupakan data yang dibagikan.
 

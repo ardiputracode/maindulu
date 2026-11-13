@@ -21,7 +21,7 @@ function ensureLegacyMetadata(db, game, bumpRevision = true) {
   }
 }
 
-export const backfillStatuses = ['disabled', 'not_found', 'failed', 'paused', 'cancelled']
+export const backfillStatuses = ['disabled', 'not_found', 'failed', 'paused', 'cancelled', 'unsupported']
 export const cancellableStatuses = ['queued', 'running', 'retry_wait', 'paused']
 
 export function resumeMetadataService(db, config, authorize = () => {}) {

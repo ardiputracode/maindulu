@@ -94,7 +94,7 @@ Hash API resmi adalah CRC/MD5/SHA-1 dengan ukuran. M0 memilih **MD5 dan SHA-1 by
 
 Kelayakan ekstensi di tabel **bukan bukti file valid atau pasti ada di provider**. Auto-apply tetap memerlukan bukti §5; jika hash byte lengkap tidak cocok, jangan mencoba membuang header secara diam-diam. ID publik ini masih harus dibandingkan dengan daftar sistem API akun saat smoke.
 
-- `.smc`, `.fig`, `.swc`, `.smd`, `.unf`, `.unif`: review/pencarian nama; normalisasi copier header/interleaving/container ditunda ke M7.
+- `.smc` polos (header copier 512 byte) kini didukung untuk lookup hash setelah normalisasi header, baik upload langsung maupun satu anggota ZIP SNES; `.fig`, `.swc`, `.smd`, `.unf`, `.unif`, serta interleaving/container lain tetap review/pencarian nama.
 - `.fds`: provider memiliki platform FDS terpisah; resolver M0 sengaja tidak memilih ID NES. Tidak melakukan fallback ke NES otomatis. Mapping/identifikasi FDS lanjutan memerlukan verifikasi tersendiri.
 - `.zip`, `.7z`, `.rar`: tidak di-hash sebagai pengganti anggota ROM, tidak diekstrak M0/MVP. Untuk console `gb`, sistem pencarian tidak ditebak dari nama arsip; admin memilih GB/GBC bila ingin pencarian nama. ID console game tetap `gb`.
 - `.chd`, `.pbp`, `.cue`, PS1 `.bin`/`.iso`: belum auto-apply hash, karena kontainer/track/disc/serial perlu kontrak khusus. Nama/kandidat dapat diperiksa admin pada M5; identifikasi format ini tetap M7.

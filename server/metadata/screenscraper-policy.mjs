@@ -41,11 +41,12 @@ export const screenScraperLimits = Object.freeze({
 
 // Extension eligibility is not proof of a valid ROM or of provider coverage.
 // Never pass a container to this raw evidence gate. M7's bounded ZIP identifier
-// supplies the member basename and fingerprint separately; no header stripping,
-// byte swapping or disc-track assumptions are allowed here.
+// supplies the member basename and fingerprint separately. A plain `.smc` is
+// eligible only after identification.mjs normalizes its 512-byte copier header;
+// this policy module itself performs no I/O, header stripping or byte swapping.
 const formats = Object.freeze({
   nes: Object.freeze({ raw: ['nes'], review: ['fds', 'unf', 'unif'] }),
-  snes: Object.freeze({ raw: ['sfc'], review: ['smc', 'fig', 'swc'] }),
+  snes: Object.freeze({ raw: ['sfc', 'smc'], review: ['fig', 'swc'] }),
   gb: Object.freeze({ raw: ['gb', 'gbc'], review: [] }),
   gba: Object.freeze({ raw: ['gba'], review: [] }),
   megadrive: Object.freeze({ raw: ['md', 'gen', 'bin'], review: ['smd'] }),

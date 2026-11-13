@@ -7,6 +7,21 @@ Perubahan penting per rilis didokumentasikan di sini. Format mengikuti
 Selama pengembangan, tulis eksil baru di bagian **[Belum dirilis]**;
 saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
+## [Belum dirilis]
+
+### Ditambahkan
+
+- ScreenScraper kini mendukung hash ROM SNES **`.smc`**, baik upload langsung maupun satu anggota ZIP: header copier 512 byte dideteksi dari ukuran (`% 1024 === 512`) lalu dilewati untuk MD5/SHA-1 dan ukuran lookup, sementara SHA-256 aset tetap dihitung atas byte utuh sehingga identitas ROM/save/storage tidak berubah. CRC32, ukuran, dan validasi header/directory ZIP tetap mencakup seluruh anggota termasuk header. `.sfc` tetap raw; `.smc` pada console lain, `.fig`/`.swc`, 7z/RAR, dan ZIP multi-berkas tetap review.
+- Antrean Metadata: kelompok **Format belum didukung** (`unsupported`, default mati) ditambahkan di dialog **Scan game tanpa metadata**, sehingga game yang sebelumnya ditolak karena format dapat dipindai ulang massal setelah dukungan format baru tersedia.
+
+### Diubah
+
+- Teks bantuan review metadata, README, dan dokumen milestone 0/6/7 diperbarui untuk mencerminkan dukungan `.smc` langsung/ZIP dan kelompok backfill baru.
+
+### Verifikasi
+
+- **658 tes unit/integrasi lulus** (2 kegagalan lama tidak terkait: versi `package-lock.json` dan line ending `robots.txt`), build lulus, dan **29 skenario browser metadata** lulus.
+
 ## 0.7.0 — 2026-11-11
 
 ### Ditambahkan

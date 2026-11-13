@@ -426,16 +426,26 @@ export async function computeRomHashes(source, options = {}) {
   const chunkSize = Number.isInteger(options.chunkSize) && options.chunkSize > 0 ? options.chunkSize : DEFAULT_CHUNK_SIZE
   const expectedSha256 = options.sha256 ? asHex(options.sha256, 64) : null
   const expectedSize = Number.isSafeInteger(options.size) ? options.size : null
+  // `headerBytes` keeps SHA-256 over the whole asset (storage identity) while
+  // MD5/SHA-1 and the returned size describe the raw ROM after a known copier
+  // header. Existing callers leave it at zero, so their bytes are unchanged.
+  const headerBytes = Number.isSafeInteger(options.headerBytes) && options.headerBytes > 0 ? options.headerBytes : 0
   const md5 = createHash('md5')
   const sha1 = createHash('sha1')
   const sha256 = createHash('sha256')
-  let size = 0
+  let size = 0, romSize = 0
 
   const feed = (chunk) => {
     if (signal?.aborted) throw new Error('Aborted')
-    md5.update(chunk)
-    sha1.update(chunk)
     sha256.update(chunk)
+    let offset = 0
+    if (size < headerBytes) offset = Math.min(chunk.byteLength, headerBytes - size)
+    if (offset < chunk.byteLength) {
+      const raw = offset ? chunk.subarray(offset) : chunk
+      md5.update(raw)
+      sha1.update(raw)
+      romSize += raw.byteLength
+    }
     size += chunk.byteLength
     if (expectedSize !== null && size > expectedSize) throw new Error('Ukuran ROM tidak sesuai.')
   }
@@ -467,7 +477,7 @@ export async function computeRomHashes(source, options = {}) {
 
   if (expectedSize !== null && size !== expectedSize) throw new Error('Ukuran ROM tidak sesuai.')
   const result = {
-    size,
+    size: romSize,
     md5: md5.digest('hex'),
     sha1: sha1.digest('hex'),
     sha256: sha256.digest('hex'),

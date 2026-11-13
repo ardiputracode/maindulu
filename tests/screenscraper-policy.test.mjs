@@ -38,10 +38,10 @@ test('M0 covers every accepted catalog extension without changing the console ma
 })
 
 test('M0 only permits a raw hash lookup for the agreed MVP extensions', () => {
-  for (const [consoleId, ext] of [['nes', 'nes'], ['snes', 'sfc'], ['gb', 'gb'], ['gb', 'gbc'], ['gba', 'gba'], ['megadrive', 'md'], ['megadrive', 'gen'], ['megadrive', 'bin']]) {
+  for (const [consoleId, ext] of [['nes', 'nes'], ['snes', 'sfc'], ['snes', 'smc'], ['gb', 'gb'], ['gb', 'gbc'], ['gba', 'gba'], ['megadrive', 'md'], ['megadrive', 'gen'], ['megadrive', 'bin']]) {
     assert.equal(screenScraperTarget(consoleId, `example.${ext}`).hashLookup, true)
   }
-  for (const [consoleId, ext] of [['nes', 'fds'], ['nes', 'unif'], ['snes', 'smc'], ['snes', 'fig'], ['megadrive', 'smd'], ['psx', 'chd'], ['psx', 'pbp'], ['psx', 'cue'], ['psx', 'bin'], ['psx', 'iso']]) {
+  for (const [consoleId, ext] of [['nes', 'fds'], ['nes', 'unif'], ['snes', 'fig'], ['snes', 'swc'], ['megadrive', 'smd'], ['psx', 'chd'], ['psx', 'pbp'], ['psx', 'cue'], ['psx', 'bin'], ['psx', 'iso']]) {
     assert.equal(screenScraperTarget(consoleId, `example.${ext}`).hashLookup, false)
   }
   assert.equal(screenScraperTarget('nes', 'example.fds').systemId, null)
