@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "npm run vendor:rom-converto && node --env-file-if-exists=.env server/index.mjs",
+    "account:list": "node --env-file-if-exists=.env scripts/list-accounts.mjs",
     "account:reset": "node --env-file-if-exists=.env scripts/reset-account.mjs",
     "account:role": "node --env-file-if-exists=.env scripts/set-account-role.mjs",
     "gate:hash": "node scripts/hash-gate-password.mjs",

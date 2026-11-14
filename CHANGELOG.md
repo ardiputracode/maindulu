@@ -11,6 +11,10 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ### Ditambahkan
 
+- CLI manajemen akun: `npm run account:list` untuk melihat akun di database SQLite (`username`, `role`, `created_at`, `id`) dengan filter opsional `--role` dan `--username`. Koneksi dibuka read-only sehingga aman dijalankan saat server aktif; hash password/kode pemulihan tidak ditampilkan.
+- Dokumentasi `doc/manajemen-akun-cli.md` berisi daftar perintah akun (lihat user, jadikan admin/user, reset password), varian Docker/Portainer, dan catatan keamanan.
+- `deploy/Dockerfile.backend` kini menyalin `scripts/list-accounts.mjs` sehingga perintah `account:list` tersedia di image backend.
+
 ### Diubah
 
 ### Diperbaiki
