@@ -93,7 +93,7 @@ test('v20 to v21 rebuild preserves revisions and tombstones, then enables the de
   snapshot.close()
   c.app = await createApp({ root: c.root, env: {} })
 
-  assert.equal(c.app.database.prepare('PRAGMA user_version').get().user_version, 21)
+  assert.equal(c.app.database.prepare('PRAGMA user_version').get().user_version, 22)
   assert.equal(c.app.database.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 21').get().n, 1)
   assert.deepEqual(c.app.database.prepare('SELECT * FROM saves ORDER BY slot').all(), before)
   assert.deepEqual((await get(c.app, owner, manual.id)).rawPayload, state(700, 1))

@@ -417,6 +417,35 @@ const migrations = [
     ALTER TABLE saves_v21 RENAME TO saves;
     CREATE INDEX saves_owner ON saves(user_id);`,
   },
+  {
+    version: 22,
+    name: 'account-favorites-and-history',
+    sql: `CREATE TABLE IF NOT EXISTS user_favorites (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      game_id TEXT NOT NULL CHECK(length(game_id) BETWEEN 1 AND 160),
+      title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 200),
+      console_id TEXT NOT NULL CHECK(length(console_id) BETWEEN 1 AND 40),
+      source TEXT NOT NULL CHECK(source = 'server'),
+      data TEXT NOT NULL CHECK(length(data) BETWEEN 1 AND 65536),
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY(user_id, game_id)
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS user_favorites_owner ON user_favorites(user_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS user_history (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      game_id TEXT NOT NULL CHECK(length(game_id) BETWEEN 1 AND 160),
+      title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 200),
+      console_id TEXT NOT NULL CHECK(length(console_id) BETWEEN 1 AND 40),
+      source TEXT NOT NULL CHECK(source = 'server'),
+      data TEXT NOT NULL CHECK(length(data) BETWEEN 1 AND 65536),
+      last_played INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY(user_id, game_id)
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS user_history_owner ON user_history(user_id, last_played DESC, created_at DESC);
+    CREATE INDEX IF NOT EXISTS user_history_game ON user_history(user_id, game_id);`,
+  },
 ]
 
 export const schemaVersion = migrations.at(-1).version

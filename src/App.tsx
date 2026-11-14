@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertCircle, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleHelp, Clock3, Gamepad2, HardDrive, Heart, House, Info, Keyboard, Leaf, LibraryBig, LogOut, Menu, Monitor, Settings2, ShieldCheck, Sparkles, Upload, Volume2, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -66,14 +66,75 @@ function Workspace({ backend, gate }: { backend: ReturnType<typeof useBackendSta
   const [catalogError, setCatalogError] = useState('')
   const [catalogRetry, setCatalogRetry] = useState(0)
   const [settings, setSettings, settingsBlocked] = useStored(STORAGE_KEYS.settings, readSettings)
-  const [favorites, setFavorites, favoritesBlocked] = useStored(STORAGE_KEYS.favorites, readGames)
-  const [history, setHistory, historyBlocked] = useStored(STORAGE_KEYS.history, readGames)
+  const [localFavorites, setLocalFavorites, favoritesBlocked] = useStored(STORAGE_KEYS.favorites, readGames)
+  const [localHistory, setLocalHistory, historyBlocked] = useStored(STORAGE_KEYS.history, readGames)
+  const [serverFavorites, setServerFavorites] = useState<Game[]>([])
+  const [serverHistory, setServerHistory] = useState<Game[]>([])
+  const [listError, setListError] = useState('')
+  const favoritesLoaded = useRef(false)
+  const historyLoaded = useRef(false)
   const metadataEnabled = backend.state.status === 'online' && backend.state.health.capabilities.metadata === true && backend.state.health.capabilities.gameCatalog === true
   const metadataTasks = useMetadataTasks(account.state.status === 'authenticated' && account.state.user?.role === 'admin' ? account.state.user.id : null, metadataEnabled)
   const liveCatalog = useLiveCatalog(metadataEnabled, fresh => {
-    setFavorites(previous => refreshSavedMetadata(previous, fresh))
-    setHistory(previous => refreshSavedMetadata(previous, fresh))
+    setLocalFavorites(previous => refreshSavedMetadata(previous, fresh))
+    setLocalHistory(previous => refreshSavedMetadata(previous, fresh))
   })
+
+  const isAccountReady = account.state.status === 'authenticated' && !!account.state.user && backend.state.status === 'online' && backend.state.health.capabilities.accounts === true
+
+  const favorites = useMemo(() => {
+    const serverIds = new Set(serverFavorites.map(g => g.id))
+    const localOnly = localFavorites.filter(g => g.source !== 'server' || !serverIds.has(g.id))
+    return [...serverFavorites, ...localOnly]
+  }, [serverFavorites, localFavorites])
+
+  const history = useMemo(() => {
+    const serverIds = new Set(serverHistory.map(g => g.id))
+    const localOnly = localHistory.filter(g => g.source !== 'server' || !serverIds.has(g.id))
+    return [...serverHistory, ...localOnly]
+  }, [serverHistory, localHistory])
+
+  async function csrfToken(): Promise<string> {
+    try {
+      const res = await fetch('/api/auth/session', { credentials: 'same-origin' })
+      const data = await res.json()
+      return typeof data.csrfToken === 'string' ? data.csrfToken : ''
+    } catch { return '' }
+  }
+
+  useEffect(() => {
+    if (!isAccountReady) {
+      setServerFavorites([])
+      setServerHistory([])
+      setListError('')
+      favoritesLoaded.current = false
+      historyLoaded.current = false
+      return
+    }
+    if (favoritesLoaded.current && historyLoaded.current) return
+
+    void (async () => {
+      try {
+        const [favRes, histRes] = await Promise.all([
+          fetch('/api/me/favorites', { credentials: 'same-origin' }),
+          fetch('/api/me/history', { credentials: 'same-origin' }),
+        ])
+        if (favRes.ok) {
+          const favData = await favRes.json()
+          setServerFavorites(Array.isArray(favData.favorites) ? (favData.favorites as Game[]).map(g => ({ ...g, source: 'server' as const })) : [])
+        }
+        if (histRes.ok) {
+          const histData = await histRes.json()
+          setServerHistory(Array.isArray(histData.history) ? (histData.history as Game[]).map(g => ({ ...g, source: 'server' as const })) : [])
+        }
+        setListError('')
+      } catch (error) {
+        setListError(error instanceof Error ? error.message : 'Gagal memuat daftar dari server.')
+      }
+      favoritesLoaded.current = true
+      historyLoaded.current = true
+    })()
+  }, [account.state.status, account.state.user, backend.state.status])
   const [selection, setSelection] = useState<SetupSelection | null>(null)
   const [session, setSession] = useState<LaunchSession | null>(null)
   const [gameStarted, setGameStarted] = useState(false)
@@ -174,7 +235,59 @@ function Workspace({ backend, gate }: { backend: ReturnType<typeof useBackendSta
     if (session && gameStarted && !window.confirm('Buka permainan lain? Sesi sekarang akan berakhir saat game baru dimulai. Cadangkan save terlebih dahulu.')) return
     setSelection(selection)
   }
-  function favorite(game: Game) { const exists = favorites.some(g => g.id === game.id); setFavorites(previous => toggleFavorite(previous, game)); setToast(exists ? 'Game dihapus dari Favoritku.' : 'Satu kenangan masuk Favoritku.') }
+  async function favorite(game: Game) {
+    const exists = favorites.some(g => g.id === game.id)
+    const server = game.source === 'server' && isAccountReady
+    if (server) {
+      try {
+        const token = await csrfToken()
+        if (exists) {
+          await fetch(`/api/me/favorites/${encodeURIComponent(game.id)}`, {
+            method: 'DELETE',
+            credentials: 'same-origin',
+            headers: { 'X-CSRF-Token': token },
+          })
+        } else {
+          await fetch('/api/me/favorites', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
+            body: JSON.stringify({ game }),
+          })
+        }
+        setLocalFavorites(previous => toggleFavorite(previous, game))
+        setServerFavorites(previous => toggleFavorite(previous, game))
+      } catch {
+        setToast('Gagal menyinkronkan favorit ke server.')
+        return
+      }
+    } else {
+      setLocalFavorites(previous => toggleFavorite(previous, game))
+    }
+    setToast(exists ? 'Game dihapus dari Favoritku.' : 'Satu kenangan masuk Favoritku.')
+  }
+  async function handleGameStart() {
+    setGameStarted(true)
+    const game = session!.game
+    const server = game.source === 'server' && isAccountReady
+    if (server) {
+      setLocalHistory(previous => recordHistory(previous, game, true))
+      setServerHistory(previous => recordHistory(previous, game, true))
+      void (async () => {
+        try {
+          const token = await csrfToken()
+          await fetch('/api/me/history', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
+            body: JSON.stringify({ game: { ...game, lastPlayed: Date.now() } }),
+          })
+        } catch { /* state lokal sudah diperbarui */ }
+      })()
+    } else {
+      setLocalHistory(previous => recordHistory(previous, game, settings.history))
+    }
+  }
   async function launch(next: LaunchSession) {
     if (busyGuard.current?.()) { setToast('Simpan & keluar sedang berjalan. Tunggu hingga selesai sebelum membuka permainan lain.'); return false }
     if (session && gameStarted && exitGuard.current && !await exitGuard.current()) return false
@@ -216,6 +329,7 @@ function Workspace({ backend, gate }: { backend: ReturnType<typeof useBackendSta
       <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" aria-label="Buka navigasi" aria-expanded={drawer} onClick={() => setDrawer(!drawer)}>{drawer ? <X size={21} /> : <Menu size={21} />}</button><span className="breadcrumb">Ruang mainmu <ChevronRight size={13} /><strong>{headerTitle}</strong></span></div><div className="topbar-actions"><span className="private-badge"><ShieldCheck size={14} />{(session ? session.storageOwner : account.state.status === 'authenticated') ? 'Akun · simpanan di server' : 'Tamu · simpanan di browser'}</span>{accountsEnabled && <button className="button secondary small account-trigger" disabled={account.state.status === 'checking' || !!selection || !!session} title={session ? 'Keluar dari permainan sebelum mengelola akun.' : undefined} aria-label={account.state.status === 'authenticated' ? `Akun ${account.state.user?.username}` : 'Masuk ke akun'} onClick={() => setAccountOpen(true)}>{account.state.status === 'authenticated' ? account.state.user?.username : 'Masuk'}</button>}{gate.enabled && <button className="button secondary small gate-exit" disabled={leaving || !!selection || !!session} title={session ? 'Keluar dari permainan sebelum menutup pintu.' : undefined} aria-label="Keluar dari ruang main" onClick={() => void closeDoor()}>{leaving ? 'Menutup pintu…' : 'Keluar pintu'}<LogOut size={15} /></button>}<button className="button secondary small upload-top" onClick={() => open()} disabled={loading || !!catalogError}><Upload size={15} />Buka ROM</button></div></header>
       <main id="konten" ref={main} tabIndex={-1} className={location.pathname === '/main' ? 'main-content playing' : 'main-content'}>
         {(settingsBlocked || favoritesBlocked || historyBlocked) && <p className="notice" role="alert"><InfoIcon />Penyimpanan browser dibatasi. Perubahan hanya berlaku selama tab ini terbuka.</p>}
+        {listError && <p className="notice" role="alert"><AlertCircle size={17} />{listError}</p>}
         {loading ? <div className="catalog-loading" role="status"><div className="loading-mark"><Gamepad2 size={29} /></div>Menyiapkan ruang nostalgiamu…</div> : catalogError ? <EmptyState title="Koneksi sedang istirahat." text={catalogError} action="Coba lagi" onClick={() => setCatalogRetry(n => n + 1)} /> : <Routes>
           <Route path="/" element={<>
             <section className="hero" aria-labelledby="hero-title"><img className="hero-art" src="/assets/retro-world.svg" alt="Ilustrasi dunia retro hijau dengan controller, gunung pixel, dan pulau melayang" fetchPriority="high" /><div className="hero-content"><span className="hero-eyebrow"><span className="status-dot" />REHAT SEBENTAR. MAIN DULU.</span><h1 id="hero-title">Dulu pulang sekolah.<br /><span>Sekarang pulang kerja.</span></h1><p className="hero-copy"><strong>Waktunya main lagi.</strong> Game lama, kenangan yang nggak pernah usang. Keseruannya masih sama. Buka game favoritmu, dan biarkan jempol yang mengingat.</p><div className="hero-buttons"><Link className="button primary" to="/console">Jelajahi console<ArrowRight size={18} /></Link><button className="button hero-secondary" onClick={() => open()}><Upload size={17} />Buka ROM sendiri</button></div><div className="hero-footnote"><span className="tiny-pad"><Gamepad2 size={16} /></span>Masih ingat tombolnya? Jempolmu pasti ingat.</div></div><span className="hero-sticker"><Sparkles size={16} />PLAYER 1<br /><strong>KAMU, LAGI.</strong></span><span className="hero-coordinate">EST. IN YOUR CHILDHOOD ↗</span></section>
@@ -228,13 +342,13 @@ function Workspace({ backend, gate }: { backend: ReturnType<typeof useBackendSta
           <Route path="/admin/*" element={<AdminCatalog backend={backend.state} account={account} consoles={consoles} onLogin={() => setAccountOpen(true)} onRetry={backend.retry} metadataTasks={metadataTasks} />} />
           <Route path="/console" element={<Explore consoles={consoles} onOpen={open} />} />
           <Route path="/library" element={<Library builtin={games} consoles={consoles} backend={backend.state} onBackendRetry={backend.retry} renderCards={cards} live={metadataEnabled ? liveCatalog : undefined} />} />
-          <Route path="/riwayat" element={<><PageHeading eyebrow="KENANGAN YANG BARU DIBUKA" title="Terakhir dimainkan." description="Bukan daftar pekerjaan. Ini daftar kesenanganmu." /><div className="list-toolbar"><span><Clock3 size={16} />{history.length} permainan {!settings.history && '· pencatatan dijeda'}</span>{history.length > 0 && <button className="text-link muted" onClick={() => { if (window.confirm('Hapus semua riwayat bermain? Favorit dan save game tidak akan dihapus.')) { setHistory([]); setToast('Riwayat bermain sudah dibersihkan.') } }}>Bersihkan riwayat</button>}</div>{history.length ? <>{cards(history, true)}<p className="page-footnote">Riwayat bukan save state. Game lokal akan meminta file ROM yang sama saat dibuka kembali.</p></> : <EmptyState icon={Clock3} title="Belum ada jejak jempol." text={settings.history ? 'Mulai satu permainan. Kenangan yang baru dibuka akan muncul di sini.' : 'Pencatatan riwayat sedang dimatikan. Kamu tetap bisa bermain tanpa meninggalkan daftar.'} action="Cari permainan" onClick={() => navigate('/console')} />}</>} />
+          <Route path="/riwayat" element={<><PageHeading eyebrow="KENANGAN YANG BARU DIBUKA" title="Terakhir dimainkan." description="Bukan daftar pekerjaan. Ini daftar kesenanganmu." /><div className="list-toolbar"><span><Clock3 size={16} />{history.length} permainan {!settings.history && '· pencatatan dijeda'}</span>{history.length > 0 && <button className="text-link muted" onClick={() => { if (window.confirm('Hapus semua riwayat bermain? Favorit dan save game tidak akan dihapus.')) { setLocalHistory([]); setServerHistory([]); setToast('Riwayat bermain sudah dibersihkan.'); if (isAccountReady) { void (async () => { try { const token = await csrfToken(); await fetch('/api/me/history', { method: 'DELETE', credentials: 'same-origin', headers: { 'X-CSRF-Token': token } }) } catch { /* best effort */ } })() } } }}>Bersihkan riwayat</button>}</div>{history.length ? <>{cards(history, true)}<p className="page-footnote">Riwayat bukan save state. Game lokal akan meminta file ROM yang sama saat dibuka kembali.</p></> : <EmptyState icon={Clock3} title="Belum ada jejak jempol." text={settings.history ? 'Mulai satu permainan. Kenangan yang baru dibuka akan muncul di sini.' : 'Pencatatan riwayat sedang dimatikan. Kamu tetap bisa bermain tanpa meninggalkan daftar.'} action="Cari permainan" onClick={() => navigate('/console')} />}</>} />
           <Route path="/favorit" element={<><PageHeading eyebrow="SELALU PUNYA TEMPAT" title="Favoritku." description="Beberapa game memang nggak pernah benar-benar kita tinggalkan." /><div className="list-toolbar"><span><Heart size={16} />{favorites.length} permainan favorit</span></div>{favorites.length ? cards(favorites) : <EmptyState icon={Heart} title="Tempat untuk yang paling berkesan." text="Tekan ikon hati di kartu game untuk menyimpannya di sini. Favorit lokal menyimpan nama game, bukan file ROM-nya." action="Temukan favoritmu" onClick={() => navigate('/console')} />}</>} />
           <Route path="/cara-bermain" element={<Guide onOpen={() => open()} />} />
           <Route path="/tentang" element={<About />} />
           <Route path="/pengaturan" element={<><PageHeading eyebrow="BIAR MAKIN NYAMAN" title="Atur jeda mainmu." description="Sedikit pengaturan. Lebih banyak waktu untuk bermain." /><div className="settings-panel"><div className="setting-row"><div className="setting-symbol"><Volume2 size={22} /></div><div className="setting-description"><h2>Volume awal</h2><p>Volume saat permainan baru dimulai. Suara selama bermain bisa diatur di menu emulator.</p><div className="volume-control"><Volume2 size={16} /><input type="range" min="0" max="100" value={settings.volume} aria-label="Volume awal" onChange={e => setSettings(s => ({ ...s, volume: Number(e.target.value) }))} style={{ '--volume': `${settings.volume}%` } as React.CSSProperties} /><output>{settings.volume}%</output></div></div></div><div className="setting-row"><div className="setting-symbol"><Clock3 size={22} /></div><div className="setting-description"><h2>Simpan riwayat bermain</h2><p>Ingat permainan yang pernah kamu buka, hanya di browser ini. Mematikannya tidak menghapus riwayat lama atau save game.</p></div><button className={`toggle ${settings.history ? 'on' : ''}`} role="switch" aria-checked={settings.history} aria-label="Simpan riwayat bermain" onClick={() => setSettings(s => ({ ...s, history: !s.history }))}><span /></button></div><div className="settings-saved"><Check size={15} />Tersimpan otomatis di perangkat ini.<button className="text-link muted" onClick={() => { setSettings({ ...DEFAULT_SETTINGS }); setToast('Pengaturan dikembalikan ke awal.') }}>Kembalikan default</button></div></div>
             <AssetCacheSettings /><div className="privacy-card"><ShieldCheck size={24} /><div><h2>Ruang mainmu, tetap milikmu.</h2><p>{gate.enabled ? 'Ruang ini dijaga pintu masuk. Setelah masuk, kamu main sebagai tamu: katalog, ROM/BIOS server, dan simpanan di browser. Mau simpanan ikut ke server? Buat akun main.' : 'Build statis tanpa gerbang: katalog dan file server terbuka. Jangan gunakan mode ini untuk akses privat.'} ROM/BIOS milikmu tidak pernah diunggah.</p>{gate.enabled && <button className="button secondary small" disabled={leaving} onClick={() => void closeDoor()}>{leaving ? 'Menutup pintu…' : 'Keluar ruang main'}</button>}</div></div><p className="page-footnote">maindulu v{__APP_VERSION__} · engine EmulatorJS 4.2.3 lokal, tanpa CDN.</p></>} />
-          <Route path="/main" element={session ? <Player key={session.id} session={session} settings={settings} favorite={favorites.some(g => g.id === session.game.id)} onFavorite={() => favorite(session.game)} onStart={() => { setGameStarted(true); setHistory(previous => recordHistory(previous, session.game, settings.history)) }} onRestart={() => { setGameStarted(false); setSession({ ...session, id: createSessionId() }) }} onExit={leave} onSavedExit={savedExit} onWidescreen={next => setSettings(s => ({ ...s, widescreen: next }))} account={account.state} registerExitGuard={registerExitGuard} registerBusyGuard={registerBusyGuard} /> : <EmptyState title="Ruang mainnya masih kosong." text="Sesi file lokal tidak bertahan setelah refresh. Pilih kembali game dan BIOS untuk mulai bermain." action="Pilih permainan" onClick={() => navigate('/console')} />} />
+          <Route path="/main" element={session ? <Player key={session.id} session={session} settings={settings} favorite={favorites.some(g => g.id === session.game.id)} onFavorite={() => favorite(session.game)} onStart={handleGameStart} onRestart={() => { setGameStarted(false); setSession({ ...session, id: createSessionId() }) }} onExit={leave} onSavedExit={savedExit} onWidescreen={next => setSettings(s => ({ ...s, widescreen: next }))} account={account.state} registerExitGuard={registerExitGuard} registerBusyGuard={registerBusyGuard} /> : <EmptyState title="Ruang mainnya masih kosong." text="Sesi file lokal tidak bertahan setelah refresh. Pilih kembali game dan BIOS untuk mulai bermain." action="Pilih permainan" onClick={() => navigate('/console')} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>}
         {!loading && !catalogError && location.pathname === '/pengaturan' && <BackendStatus state={backend.state} onRetry={backend.retry} />}

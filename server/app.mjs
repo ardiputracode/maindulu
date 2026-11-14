@@ -10,6 +10,7 @@ import { AuthError } from './auth/limits.mjs'
 import { registerSaves } from './saves.mjs'
 import { registerGameSaves } from './game-saves.mjs'
 import { registerSaveBackups } from './save-backups.mjs'
+import { registerFavorites } from './favorites.mjs'
 import { registerAdmin } from './admin.mjs'
 import { createCatalogStorage } from './catalog/storage.mjs'
 import { registerCatalog } from './catalog/routes.mjs'
@@ -109,6 +110,7 @@ export async function createApp({ env = process.env, root, logger = false, metad
     registerSaves(app, config, security)
     registerGameSaves(app, config, security)
     registerSaveBackups(app, config, security)
+    registerFavorites(app, config, security)
     for (const page of pages) app.get(page, (_request, reply) => reply.type('text/html; charset=utf-8').send(html))
     await app.register(fastifyStatic, {
       root: config.distDir,
