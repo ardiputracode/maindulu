@@ -11,6 +11,16 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ### Ditambahkan
 
+### Diubah
+
+### Diperbaiki
+
+### Verifikasi
+
+## 0.7.1 — 2026-11-14
+
+### Ditambahkan
+
 - ScreenScraper kini mendukung hash ROM SNES **`.smc`**, baik upload langsung maupun satu anggota ZIP: header copier 512 byte dideteksi dari ukuran (`% 1024 === 512`) lalu dilewati untuk MD5/SHA-1 dan ukuran lookup, sementara SHA-256 aset tetap dihitung atas byte utuh sehingga identitas ROM/save/storage tidak berubah. CRC32, ukuran, dan validasi header/directory ZIP tetap mencakup seluruh anggota termasuk header. `.sfc` tetap raw; `.smc` pada console lain, `.fig`/`.swc`, 7z/RAR, dan ZIP multi-berkas tetap review.
 - Antrean Metadata: kelompok **Format belum didukung** (`unsupported`, default mati) ditambahkan di dialog **Scan game tanpa metadata**, sehingga game yang sebelumnya ditolak karena format dapat dipindai ulang massal setelah dukungan format baru tersedia.
 - **Favorit dan riwayat tersimpan di akun** (skema database 22): tabel `user_favorites` dan `user_history` menyimpan favorit/riwayat game server per akun. Endpoint baru `GET/POST/DELETE /api/me/favorites` dan `GET/POST/DELETE /api/me/history` (termasuk `DELETE /api/me/history` untuk hapus semua). Hanya game server (`source: 'server'`) yang disinkronkan; game lokal tetap memakai localStorage. Saat login, daftar dimuat dari server dan perubahan (toggle favorit, catat riwayat, hapus riwayat) disinkronkan via CSRF-protected API. Tamu dan mode statis tidak terpengaruh.
@@ -25,7 +35,7 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ### Verifikasi
 
-- **660 tes unit/integrasi lulus**, build lulus. Perbaikan lama yang tertunda juga diselesaikan: versi `package-lock.json` diselaraskan ke 0.7.0, line ending `public/robots.txt` dikembalikan ke LF, dan tag image Docker Compose diperbarui ke 0.7.0.
+- **660 tes unit/integrasi lulus**, build lulus. Perbaikan lama yang tertunda juga diselesaikan: versi `package-lock.json` diselaraskan ke 0.7.1, line ending `public/robots.txt` dikembalikan ke LF, dan tag image Docker Compose diperbarui ke 0.7.1.
 
 ## 0.7.0 — 2026-11-11
 
