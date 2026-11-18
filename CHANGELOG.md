@@ -19,6 +19,8 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ### Diperbaiki
 
+- Tooltip tombol **Muat simpanan terakhir**, **Keluar game**, dan **Simpan & keluar** tidak lagi terpotong di tepi kanan player: label kini rata kanan seperti kontrol bawaan EmulatorJS di sisi yang sama.
+
 ### Verifikasi
 
 ## 0.7.1 — 2026-11-14

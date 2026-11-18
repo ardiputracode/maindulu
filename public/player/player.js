@@ -191,12 +191,12 @@
     const saveExit = menuButton('Simpan & keluar')
     if (saveExit) {
       saveExit.disabled = exitBusy || !gameStarted || !supportsStates
-      saveExit.title = !gameStarted ? 'Mulai game terlebih dahulu.' : !supportsStates ? 'Core ini tidak mendukung save state.' : exitBusy ? 'Operasi simpan sedang berjalan.' : 'Simpan state lalu keluar ke beranda.'
+      saveExit.title = !gameStarted ? 'Mulai game terlebih dahulu.' : !supportsStates ? 'Core ini tidak mendukung save state.' : exitBusy ? 'Operasi simpan sedang berjalan.' : 'Simpan & keluar.'
     }
     const loadGuest = menuButton('Muat simpanan terakhir')
     if (loadGuest) {
       loadGuest.disabled = exitBusy || !gameStarted || !supportsStates || !guestStateAvailable
-      loadGuest.title = !guestStateAvailable ? 'Belum ada simpanan Simpan & keluar di browser ini.' : 'Muat state Simpan & keluar dari browser ini.'
+      loadGuest.title = !guestStateAvailable ? 'Belum ada simpanan Simpan & keluar.' : 'Muat state Simpan & keluar dari browser.'
     }
   }
   // Custom buttons are appended before the toolbar spacer, but the fullscreen
@@ -208,7 +208,12 @@
     if (!parent) return
     for (const label of ['Muat simpanan terakhir', 'Keluar game', 'Simpan & keluar']) {
       const button = menuButton(label)
-      if (button && button.parentElement === parent && button.nextElementSibling !== enter) parent.insertBefore(button, enter)
+      if (!button) continue
+      // The engine anchors tooltips left unless the button was created after
+      // the toolbar spacer. Ours are moved to the right edge, so without this
+      // flip the nowrap label runs past the player iframe and gets clipped.
+      button.querySelector('.ejs_menu_text')?.classList.add('ejs_menu_text_right')
+      if (button.parentElement === parent && button.nextElementSibling !== enter) parent.insertBefore(button, enter)
     }
   }
   async function refreshGuestStatus() {

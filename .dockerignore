@@ -26,6 +26,7 @@ server/metadata/**
 !server/metadata/*.mjs
 !scripts/
 scripts/**
+!scripts/list-accounts.mjs
 !scripts/reset-account.mjs
 !scripts/set-account-role.mjs
 !scripts/hash-gate-password.mjs
