@@ -5,6 +5,7 @@ services:
     environment:
       - MAIN_DULU_EXTERNAL_ROM_DIR=/mnt/romm/roms
       - MAIN_DULU_EXTERNAL_BIOS_DIR=/mnt/romm/bios
+      - MAIN_DULU_EXTERNAL_COVERS_DIR=${MAIN_DULU_EXTERNAL_COVERS_DIR:-/mnt/romm/covers}
     volumes:
       - type: bind
         source: "${MAIN_DULU_ROM_PATH:?Isi MAIN_DULU_ROM_PATH dengan folder ROM host}"
@@ -15,6 +16,12 @@ services:
       - type: bind
         source: "${MAIN_DULU_BIOS_PATH:?Isi MAIN_DULU_BIOS_PATH dengan folder BIOS host}"
         target: /mnt/romm/bios
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MAIN_DULU_COVERS_PATH:-}
+        target: /mnt/romm/covers
         read_only: true
         bind:
           create_host_path: false

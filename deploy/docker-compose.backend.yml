@@ -9,7 +9,7 @@ services:
       dockerfile: deploy/Dockerfile.backend
       args:
         VITE_ASSET_CACHE_DISABLED: "${VITE_ASSET_CACHE_DISABLED:-false}"
-    image: maindulu-backend:0.7.1
+    image: "${MAIN_DULU_IMAGE:-maindulu-backend:latest}"
     init: true
     ports:
       - "${MAIN_DULU_BIND_ADDRESS:-127.0.0.1}:${MAIN_DULU_PORT:-7777}:7777"
@@ -21,6 +21,7 @@ services:
       # Optional read-only sources; use docker-compose.external.yml for mounts.
       - MAIN_DULU_EXTERNAL_ROM_DIR
       - MAIN_DULU_EXTERNAL_BIOS_DIR
+      - MAIN_DULU_EXTERNAL_COVERS_DIR
       - MAIN_DULU_EXTERNAL_WRITABLE=${MAIN_DULU_EXTERNAL_WRITABLE:-false}
       - MAIN_DULU_REGISTRATION_OPEN=${MAIN_DULU_REGISTRATION_OPEN:-true}
       # Wajib saat runtime; tidak pernah disertakan dalam build frontend.

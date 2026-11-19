@@ -31,6 +31,13 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 - Tooltip tombol **Muat simpanan terakhir**, **Keluar game**, dan **Simpan & keluar** tidak lagi terpotong di tepi kanan player: label kini rata kanan seperti kontrol bawaan EmulatorJS di sisi yang sama.
 - Cover download/promote gagal dengan `EXDEV: cross-device link not permitted` ketika external covers dir berada di mount point berbeda dari Docker volume. Sekarang menggunakan copy+delete sebagai fallback setelah rename gagal.
 
+### Ditingkatkan
+
+- `deploy/docker-compose.backend.yml`: image tag kini menggunakan `${MAIN_DULU_IMAGE:-maindulu-backend:latest}` agar tidak hardcode versi; env var `MAIN_DULU_EXTERNAL_COVERS_DIR` ditambahkan ke environment backend.
+- `deploy/docker-compose.portainer.example.yml`: env var external dirs (`ROM_DIR`, `BIOS_DIR`, `COVERS_DIR`) dan bind mount untuk covers `/mnt/romm/covers` ditambahkan; header comment diperbarui dengan `MAIN_DULU_COVERS_PATH`.
+- `deploy/docker-compose.external.yml` dan `docker-compose.shared.yml`: env var `MAIN_DULU_EXTERNAL_COVERS_DIR` serta volume bind mount `/mnt/romm/covers` ditambahkan agar cover dapat disimpan di direktori eksternal yang sama seperti ROM/BIOS.
+- `deploy/portainer.env.example` dan `backend.env.example`: contoh path `MAIN_DULU_COVERS_PATH` dan komentar `MAIN_DULU_EXTERNAL_COVERS_DIR` ditambahkan untuk memudahkan konfigurasi.
+
 ### Verifikasi
 
 ## 0.7.1 — 2026-11-14

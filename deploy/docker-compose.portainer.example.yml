@@ -1,7 +1,7 @@
 # Stack Portainer STANDALONE, bukan overlay. Image backend terbaru harus sudah
 # dibangun/di-import pada endpoint Docker yang dipilih (tanpa build di stack ini).
-# Isi MAIN_DULU_PUBLIC_ORIGIN, MAIN_DULU_ROM_PATH, MAIN_DULU_BIOS_PATH melalui
-# Environment Portainer. Contoh variabel: deploy/portainer.env.example.
+# Isi MAIN_DULU_PUBLIC_ORIGIN, MAIN_DULU_ROM_PATH, MAIN_DULU_BIOS_PATH, dan
+# MAIN_DULU_COVERS_PATH melalui Environment Portainer. Contoh variabel: deploy/portainer.env.example.
 # HANYA LAN tepercaya: HTTP tidak mengenkripsi password, cookie, atau save.
 # PERHATIAN: Hapus maindulu ikut menghapus file fisik yang dipakai RomM.
 name: maindulu-backend
@@ -30,8 +30,9 @@ services:
       - MAIN_DULU_ALLOW_INSECURE_HTTP=true
 
       # Folder yang sama untuk upload, scan, dan hapus. Sumber host harus terpisah.
-      - MAIN_DULU_EXTERNAL_ROM_DIR=/mnt/romm/roms
-      - MAIN_DULU_EXTERNAL_BIOS_DIR=/mnt/romm/bios
+      - MAIN_DULU_EXTERNAL_ROM_DIR=${MAIN_DULU_EXTERNAL_ROM_DIR:-/mnt/romm/roms}
+      - MAIN_DULU_EXTERNAL_BIOS_DIR=${MAIN_DULU_EXTERNAL_BIOS_DIR:-/mnt/romm/bios}
+      - MAIN_DULU_EXTERNAL_COVERS_DIR=${MAIN_DULU_EXTERNAL_COVERS_DIR:-}
       - MAIN_DULU_EXTERNAL_WRITABLE=true
 
       - MAIN_DULU_STATE_MAX_BYTES=33554432
@@ -67,6 +68,12 @@ services:
         source: "${MAIN_DULU_BIOS_PATH:?Isi folder BIOS host yang sudah ada}"
         target: /mnt/romm/bios
         read_only: false
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MAIN_DULU_COVERS_PATH:-}
+        target: /mnt/romm/covers
+        read_only: true
         bind:
           create_host_path: false
 
