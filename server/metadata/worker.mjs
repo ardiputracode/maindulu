@@ -329,7 +329,7 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
               if (type !== media.type) throw new CoverError('COVER_TYPE')
               reservation.check()
               controller.signal.throwIfAborted()
-              promoted = { file: await storage.promote(stage, { coverExtension: type.split('/').pop() }), type }
+              promoted = { file: await storage.promote(stage, { coverExtension: type.split('/').pop(), consoleId: game.console_id }), type }
               logInfo({ gameId: game.id, coverKey: promoted.file.key, extension: type.split('/').pop(), size: promoted.file.size }, 'metadata worker: cover promoted successfully')
             }
           } catch (error) {

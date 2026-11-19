@@ -94,7 +94,7 @@ export async function createCatalogStorage(config, db) {
     await safeDirectory(directory)
     return join(directory, row.file_name)
   }
-  async function pathFor(folder, key) {
+  async function pathFor(folder, key, platform = null) {
     if (!catalogFolders.includes(folder) || typeof key !== 'string') throw unsafe()
     // Covers accept both the new image extension pattern and legacy .bin (migration/recovery compatibility).
     const validKey = folder === 'covers'
@@ -104,11 +104,11 @@ export async function createCatalogStorage(config, db) {
     await safeDirectory(root)
     await safeDirectory(join(root, folder))
 
-    // Covers: route to external directory if configured.
-    if (folder === 'covers' && config.externalCoversDir) {
-      const base = resolve(config.externalCoversDir)
+    // Covers: route to external directory if configured; otherwise store under data/covers/{platform}/key.
+    if (folder === 'covers') {
+      const base = config.externalCoversDir ? resolve(config.externalCoversDir) : join(root, folder)
       await safeDirectory(base)
-      return join(base, key)
+      return platform && platformSlugs.includes(platform) ? join(base, platform, key) : join(base, key)
     }
 
     const row = externalMapping(folder, key) ?? mapping(folder, key)
@@ -483,9 +483,19 @@ export async function createCatalogStorage(config, db) {
           throw error
         }
       }
-      const target = await pathFor(value.kind, key)
+      // Covers: resolve target path with optional platform subfolder, create directory if needed.
+      let coverPlatform = null
+      if (value.kind === 'covers' && options?.consoleId) {
+        coverPlatform = options.consoleId
+      }
+      const target = await pathFor(value.kind, key, coverPlatform)
       try { await lstat(target); throw unsafe() }
       catch (error) { if (error.code !== 'ENOENT') throw error }
+      // Ensure the platform directory exists before moving the file.
+      if (value.kind === 'covers' && coverPlatform && platformSlugs.includes(coverPlatform)) {
+        const platDir = config.externalCoversDir ? resolve(join(config.externalCoversDir, coverPlatform)) : join(root, 'covers', coverPlatform)
+        try { await mkdir(platDir, { mode: 0o700 }) } catch {} // ignore EEXIST
+      }
       // Use rename for atomic move; fall back to copy+delete for cross-device mounts.
       try { await rename(source, target) }
       catch (error) {
@@ -495,8 +505,15 @@ export async function createCatalogStorage(config, db) {
         } else throw error
       }
       staged.delete(value)
-      // Sync the correct directory: external covers dir if configured, otherwise internal.
-      const syncDir = (value.kind === 'covers' && config.externalCoversDir) ? resolve(config.externalCoversDir) : join(root, value.kind)
+      // Sync the correct directory: external covers dir if configured, otherwise internal with platform subfolder.
+      let syncDir
+      if (value.kind === 'covers' && config.externalCoversDir) {
+        syncDir = resolve(config.externalCoversDir)
+      } else if (value.kind === 'covers') {
+        syncDir = coverPlatform ? join(root, 'covers', coverPlatform) : join(root, 'covers')
+      } else {
+        syncDir = join(root, value.kind)
+      }
       await syncDirectory(syncDir)
       await syncDirectory(join(root, 'uploads'))
       const result = Object.freeze({ kind: value.kind, key, size: value.size, sha256: value.sha256 })
@@ -504,11 +521,11 @@ export async function createCatalogStorage(config, db) {
       return result
     },
     ownsFile(value, kind) { return promoted.has(value) && value.kind === kind },
-    async open(kind, key) {
+    async open(kind, key, platform = null) {
       const external = externalMapping(kind, key)
       if (external) {
         if (external.state !== 'ready') throw Object.assign(new Error('Aset folder bersama belum tersedia.'), { code: 'ENOENT' })
-        const file = await openRegular(await pathFor(kind, key))
+        const file = await openRegular(await pathFor(kind, key, platform))
         try {
           const stat = await file.stat()
           if (stat.size !== external.size || stat.mtimeMs !== external.mtime_ms) throw new Error('Sumber eksternal berubah; jalankan scan ulang sebelum dimainkan.')
@@ -517,7 +534,7 @@ export async function createCatalogStorage(config, db) {
       }
       const row = mapping(kind, key)
       if (row && row.state !== 'ready') throw Object.assign(new Error('Aset belum tersedia.'), { code: 'ENOENT' })
-      return openRegular(await pathFor(kind, key))
+      return openRegular(await pathFor(kind, key, platform))
     },
     // Server-only convenience for a child process that must open the file by
     // path. Validation still goes through pathFor + openRegular. Never expose

@@ -38,11 +38,11 @@ export function queryCatalog(db, kind, v, { availableOnly = false } = {}) {
 }
 
 export async function adminDto(db, storage, kind, row) {
-  async function state(folder, key, size) {
+  async function state(folder, key, size, platform = null) {
     if (!key) return 'none'
     let file
     try {
-      file = await storage.open(folder, key)
+      file = await storage.open(folder, key, platform)
       return (await file.stat()).size === size ? 'available' : 'damaged'
     } catch (error) { return error.code === 'ENOENT' ? 'missing' : 'unsafe' }
     finally { await file?.close() }
@@ -54,7 +54,7 @@ export async function adminDto(db, storage, kind, row) {
     // External open() also rejects changed timestamps. Prefer the scan's known
     // checksum failure over that generic unsafe error, but show a fresh absence.
     fileStatus: actual === 'missing' || recorded === 'available' ? actual : recorded,
-    ...(kind === 'games' ? { coverStatus: await state('covers', row.cover_storage_key, row.cover_size) } : {}),
+    ...(kind === 'games' ? { coverStatus: await state('covers', row.cover_storage_key, row.cover_size, row.console_id) } : {}),
     cleanupPending: !!db.prepare('SELECT 1 FROM catalog_cleanup WHERE (folder = ? AND storage_key = ?) OR (folder = ? AND storage_key = ?) LIMIT 1')
       .get(kind, row.storage_key, 'covers', row.cover_storage_key ?? '') }
 }

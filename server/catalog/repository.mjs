@@ -109,7 +109,7 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
     if (observed && restoreId === observed.id) await storage.removeUnreferenced(kind, observed.storage_key)
     const file = adoption ? stage : await promote(kind, stage, { consoleId: v.consoleId, fileName: missingKey ? observed.original_name : v.fileName,
       replaceMissingKey: missingKey, check: () => authorize(actor) })
-    const coverFile = cover ? { file: await promote('covers', cover.stage, { coverExtension: cover.type.split('/').pop() }), type: cover.type } : null
+    const coverFile = cover ? { file: await promote('covers', cover.stage, { coverExtension: cover.type.split('/').pop(), consoleId: v.consoleId }), type: cover.type } : null
     const fields = coverFields(coverFile)
     return transaction(db, () => {
       authorize(actor) // Role may have been revoked during asynchronous I/O.
@@ -176,7 +176,9 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
       let fields
       if (cover !== undefined) {
         if (cover !== null && (!types.has(cover.type) || !storage.ownsStage(cover.stage, 'covers'))) throw invalid()
-        fields = coverFields(cover === null ? null : { file: await promote('covers', cover.stage, { coverExtension: cover.type.split('/').pop() }), type: cover.type })
+        // Fetch existing row to get consoleId for cover platform subfolder.
+        const existingRow = kind === 'games' ? db.prepare('SELECT console_id FROM games WHERE id = ? AND deleted_at IS NULL').get(id) : null
+        fields = coverFields(cover === null ? null : { file: await promote('covers', cover.stage, { coverExtension: cover.type.split('/').pop(), consoleId: existingRow?.console_id }), type: cover.type })
       }
       return transaction(db, () => {
         authorize(actor)

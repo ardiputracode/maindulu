@@ -31,9 +31,20 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 - Tooltip tombol **Muat simpanan terakhir**, **Keluar game**, dan **Simpan & keluar** tidak lagi terpotong di tepi kanan player: label kini rata kanan seperti kontrol bawaan EmulatorJS di sisi yang sama.
 - Cover download/promote gagal dengan `EXDEV: cross-device link not permitted` ketika external covers dir berada di mount point berbeda dari Docker volume. Sekarang menggunakan copy+delete sebagai fallback setelah rename gagal.
 
+### Ditambahkan
+
+- Cover tersimpan dalam subfolder platform (`data/covers/<platform>/`) seperti BIOS dan ROM: file cover baru dari upload manual atau auto-download ScreenScraper disimpan di `nes/`, `snes/`, `gb/`, `gba/`, `genesis/`, atau `psx/` sesuai console game. Path lama (flat) tetap didukung untuk backward compatibility.
+
+### Diubah
+
+- `storage.mjs`: `pathFor()` dan `open()` menerima parameter opsional `platform`; cover dipromote ke `{covers}/{platform}/{uuid}.{ext}` dan direktori platform dibuat otomatis. `promote()` membuat folder platform sebelum memindahkan file.
+- `repository.mjs`: publish dan update cover meneruskan `consoleId` ke storage untuk penentuan subfolder platform.
+- `worker.mjs`: auto-download cover dari ScreenScraper meneruskan `game.console_id` ke storage.
+- `assets.mjs` dan `queries.mjs`: serve cover dan cek status meneruskan `console_id` sebagai platform ke `storage.open()`.
+
 ### Ditingkatkan
 
-- `deploy/docker-compose.backend.yml`: image tag kini menggunakan `${MAIN_DULU_IMAGE:-maindulu-backend:latest}` agar tidak hardcode versi; env var `MAIN_DULU_EXTERNAL_COVERS_DIR` ditambahkan ke environment backend.
+- Struktur penyimpanan cover kini konsisten dengan BIOS (`data/bios/<platform>/`) dan ROM (`data/roms/<platform>/`), memudahkan manajemen, backup per-platform, dan integrasi dengan tool eksternal seperti RomM.
 - `deploy/docker-compose.portainer.example.yml`: env var external dirs (`ROM_DIR`, `BIOS_DIR`, `COVERS_DIR`) dan bind mount untuk covers `/mnt/romm/covers` ditambahkan; header comment diperbarui dengan `MAIN_DULU_COVERS_PATH`.
 - `deploy/docker-compose.external.yml` dan `docker-compose.shared.yml`: env var `MAIN_DULU_EXTERNAL_COVERS_DIR` serta volume bind mount `/mnt/romm/covers` ditambahkan agar cover dapat disimpan di direktori eksternal yang sama seperti ROM/BIOS.
 - `deploy/portainer.env.example` dan `backend.env.example`: contoh path `MAIN_DULU_COVERS_PATH` dan komentar `MAIN_DULU_EXTERNAL_COVERS_DIR` ditambahkan untuk memudahkan konfigurasi.

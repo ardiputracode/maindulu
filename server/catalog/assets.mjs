@@ -67,7 +67,7 @@ export function registerCatalogAssets(app, repository, storage) {
     }
     let file
     try {
-      file = await storage.open(cover ? 'covers' : kind, key)
+      file = await storage.open(cover ? 'covers' : kind, key, cover ? row.console_id : null)
       const size = cover ? row.cover_size : row.size
       if ((await file.stat()).size !== size) throw new Error('Size mismatch')
       // Delete or cover replacement may have committed while opening the file.
