@@ -85,12 +85,24 @@ export async function readConfig(env = process.env, root = projectRoot) {
     }
     externalCatalog[kind] = path
   }
+  // Covers: optional separate external directory (no platform subfolders, no mapping table).
+  const rawCoversDir = env.MAIN_DULU_EXTERNAL_COVERS_DIR ?? null
+  let externalCoversDir = null
+  if (rawCoversDir) {
+    if (!rawCoversDir.trim() || !isAbsolute(rawCoversDir) || /[\x00-\x1f]/.test(rawCoversDir)) throw new Error('MAIN_DULU_EXTERNAL_COVERS_DIR harus path absolut yang tidak kosong.')
+    const path = await canonicalPath(resolve(rawCoversDir))
+    if (path !== resolve(rawCoversDir)) throw new Error('MAIN_DULU_EXTERNAL_COVERS_DIR tidak boleh melalui symlink/junction.')
+    for (const other of [dataDir, distDir, publicDir, ...Object.values(externalCatalog)]) {
+      if (isWithin(path, other) || isWithin(other, path)) throw new Error('MAIN_DULU_EXTERNAL_COVERS_DIR harus terpisah dari data, public, build, dan sumber eksternal lainnya.')
+    }
+    externalCoversDir = path
+  }
   if (externalWritable === 'true' && !Object.keys(externalCatalog).length) throw new Error('Mode folder bersama memerlukan MAIN_DULU_EXTERNAL_ROM_DIR atau MAIN_DULU_EXTERNAL_BIOS_DIR.')
   return { host, port: Number(rawPort), distDir, publicDir, dataDir, registrationOpen: registration === 'true', publicOrigin, publicOrigins, allowInsecureHttp,
     gateUsername, gatePassword: gatePasswordHash ? null : gatePassword, gatePasswordHash,
     gateSessionDays: integer('MAIN_DULU_GATE_SESSION_DAYS', 7, 1, 365),
     defaultUsername: defaultUsername ? normalizeUsername(defaultUsername) : null, defaultPassword,
-    externalCatalog, externalWritable: externalWritable === 'true',
+    externalCatalog, externalWritable: externalWritable === 'true', externalCoversDir,
     stateMaxBytes: bytes('MAIN_DULU_STATE_MAX_BYTES', 32 * 1024 * 1024, 64 * 1024 * 1024),
     gameSaveMaxBytes: bytes('MAIN_DULU_GAME_SAVE_MAX_BYTES', 8 * 1024 * 1024, 8 * 1024 * 1024),
     saveQuotaBytes: bytes('MAIN_DULU_SAVE_QUOTA_BYTES', 256 * 1024 * 1024, 16 * 1024 * 1024 * 1024),

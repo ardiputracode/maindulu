@@ -7,7 +7,7 @@ import { canonicalPath, isWithin } from './config.mjs'
 import { acquireDataLock } from './data-lock.mjs'
 import { schemaVersion } from './database.mjs'
 import { fileName as validateCatalogFileName, validId } from './catalog/validation.mjs'
-import { storageKeyPattern } from './catalog/storage.mjs'
+import { coverKeyPattern, storageKeyPattern } from './catalog/storage.mjs'
 import { platformSlugs, safeStorageName, storageNameIdentity } from './catalog/paths.mjs'
 
 const databaseName = 'maindulu.sqlite'
@@ -21,10 +21,15 @@ function inspectCatalog(db) {
   for (const kind of ['games', 'bios']) for (const row of db.prepare(`SELECT * FROM ${kind}`).iterate()) {
     if (!uuid.test(row.id) || !storageKeyPattern.test(row.storage_key) || !Number.isSafeInteger(row.size) || row.size < 1 || !checksum.test(row.sha256)) fail('Katalog backup memiliki referensi metadata tidak valid.')
     try { validateCatalogFileName(kind, row.original_name, row.console_id) } catch { fail('Katalog backup memiliki nama/format berkas tidak aman.') }
-    if (kind === 'games' && row.cover_storage_key !== null && (!storageKeyPattern.test(row.cover_storage_key) || !Number.isSafeInteger(row.cover_size) || row.cover_size < 1 || !checksum.test(row.cover_sha256))) fail('Katalog backup memiliki referensi cover tidak valid.')
+    // Covers must match either the new image extension pattern or the legacy .bin pattern.
+    const isCoverKey = row.cover_storage_key !== null && (coverKeyPattern.test(row.cover_storage_key) || storageKeyPattern.test(row.cover_storage_key))
+    if (kind === 'games' && row.cover_storage_key !== null && (!isCoverKey || !Number.isSafeInteger(row.cover_size) || row.cover_size < 1 || !checksum.test(row.cover_sha256))) fail('Katalog backup memiliki referensi cover tidak valid.')
   }
   for (const row of db.prepare('SELECT * FROM catalog_cleanup').iterate()) {
-    if (!['games', 'bios', 'covers'].includes(row.folder) || !storageKeyPattern.test(row.storage_key)) fail('Katalog backup memiliki referensi cleanup tidak aman.')
+    if (!['games', 'bios', 'covers'].includes(row.folder)) fail('Katalog backup memiliki referensi cleanup tidak aman.')
+    // Covers must match either the new image extension pattern or the legacy .bin pattern.
+    const isCoverKey = row.folder === 'covers' && (coverKeyPattern.test(row.storage_key) || storageKeyPattern.test(row.storage_key))
+    if (!isCoverKey && !storageKeyPattern.test(row.storage_key)) fail('Katalog backup memiliki referensi cleanup tidak aman.')
   }
 }
 

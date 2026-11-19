@@ -1,5 +1,5 @@
 import { constants, lstatSync, realpathSync } from 'node:fs'
-import { lstat, mkdir, open, opendir, readdir, realpath, rename, unlink } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, open, opendir, readdir, realpath, rename, unlink } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { isWithin } from '../config.mjs'
@@ -11,7 +11,11 @@ export const catalogFolders = Object.freeze(['games', 'bios', 'covers', 'uploads
 export const catalogLimits = Object.freeze({ games: 768 * 1024 * 1024, bios: 32 * 1024 * 1024, covers: 8 * 1024 * 1024 })
 // Absolute end: JavaScript's $ also accepts a trailing line terminator.
 export const storageKeyPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.bin(?![\s\S])/
+export const coverKeyPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.(png|jpeg|webp)(?![\s\S])/
 export const stagingKeyPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.tmp(?![\s\S])/
+
+// Map MIME type to file extension used on disk for covers.
+export const coverExtensionFor = Object.freeze({ 'image/png': 'png', 'image/jpeg': 'jpeg', 'image/webp': 'webp' })
 const unsafe = () => new Error('Storage katalog tidak aman; path, symlink/junction, hard link, atau berkas khusus ditolak.')
 
 export async function safeDirectory(path) {
@@ -91,9 +95,22 @@ export async function createCatalogStorage(config, db) {
     return join(directory, row.file_name)
   }
   async function pathFor(folder, key) {
-    if (!catalogFolders.includes(folder) || typeof key !== 'string' || !(folder === 'uploads' ? stagingKeyPattern : storageKeyPattern).test(key)) throw unsafe()
+    if (!catalogFolders.includes(folder) || typeof key !== 'string') throw unsafe()
+    // Covers accept both the new image extension pattern and legacy .bin (migration/recovery compatibility).
+    const validKey = folder === 'covers'
+      ? (coverKeyPattern.test(key) || storageKeyPattern.test(key))
+      : (folder === 'uploads' ? stagingKeyPattern.test(key) : storageKeyPattern.test(key))
+    if (!validKey) throw unsafe()
     await safeDirectory(root)
     await safeDirectory(join(root, folder))
+
+    // Covers: route to external directory if configured.
+    if (folder === 'covers' && config.externalCoversDir) {
+      const base = resolve(config.externalCoversDir)
+      await safeDirectory(base)
+      return join(base, key)
+    }
+
     const row = externalMapping(folder, key) ?? mapping(folder, key)
     if (row) return namedPath(row)
     return join(root, folder, key)
@@ -169,7 +186,9 @@ export async function createCatalogStorage(config, db) {
       const file = await openRegular(path)
       await file.close()
       await unlink(path)
-      await syncDirectory(join(root, folder))
+      // Sync the correct directory: external covers dir if configured, otherwise internal.
+      const syncDir = folder === 'covers' && config.externalCoversDir ? resolve(config.externalCoversDir) : join(root, folder)
+      await syncDirectory(syncDir)
     } catch (error) { if (error.code !== 'ENOENT') throw error }
   }
   async function promoteShared(value, options) {
@@ -406,7 +425,9 @@ export async function createCatalogStorage(config, db) {
         const actual = await fingerprintFile(file)
         if (actual.size !== value.size || actual.sha256 !== value.sha256) throw new Error('Staging katalog berubah/rusak.')
       } finally { await file.close() }
-      const key = randomUUID() + '.bin'
+      // Covers use their original image extension; ROM/BIOS keep .bin.
+      const ext = options && typeof options.coverExtension === 'string' ? options.coverExtension : 'bin'
+      const key = randomUUID() + '.' + ext
       if (options && ['games', 'bios'].includes(value.kind)) {
         if (!db) throw new Error('Database storage katalog diperlukan.')
         const platform = storagePlatform(options.consoleId, options.fileName, value.kind)
@@ -465,9 +486,18 @@ export async function createCatalogStorage(config, db) {
       const target = await pathFor(value.kind, key)
       try { await lstat(target); throw unsafe() }
       catch (error) { if (error.code !== 'ENOENT') throw error }
-      await rename(source, target)
+      // Use rename for atomic move; fall back to copy+delete for cross-device mounts.
+      try { await rename(source, target) }
+      catch (error) {
+        if (error.code === 'EXDEV') {
+          await copyFile(source, target)
+          await unlink(source)
+        } else throw error
+      }
       staged.delete(value)
-      await syncDirectory(join(root, value.kind))
+      // Sync the correct directory: external covers dir if configured, otherwise internal.
+      const syncDir = (value.kind === 'covers' && config.externalCoversDir) ? resolve(config.externalCoversDir) : join(root, value.kind)
+      await syncDirectory(syncDir)
       await syncDirectory(join(root, 'uploads'))
       const result = Object.freeze({ kind: value.kind, key, size: value.size, sha256: value.sha256 })
       promoted.add(result)

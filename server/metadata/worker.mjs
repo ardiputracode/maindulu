@@ -47,6 +47,9 @@ function backoffMs(attempts) {
 
 export function createMetadataWorker({ db, config, storage, maintenance, logger = console, clientFactory = createScreenScraperClient,
   downloadCover = downloadScreenScraperCover, readSerial }) {
+  // Always use console for worker logs so they appear in Docker/Portainer regardless of Fastify logger config.
+  const logInfo = (...args) => console.log(...args)
+  const logError = (...args) => console.error(...args)
   let running = false
   let loopPromise = null
   let stopping = false
@@ -297,9 +300,11 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
       let stage, promoted, reservation, warning = null
       try {
         const region = selectScreenScraperCover(candidate)
+        logInfo({ gameId: game.id, candidateId: candidate.id, region }, 'metadata worker: attempting cover download')
         if (region && (manual ? request.fields.includes('cover') : replaceLocked || !metadataPreview(db, game.id, candidate)?.fields.cover.locked)) {
           setPhase(job, 'cover')
           try {
+            logInfo({ gameId: game.id }, 'metadata worker: reserving cover storage quota')
             if (!maintenance) throw new CoverError('COVER_CAPACITY')
             reservation = await maintenance.reserve(8 * 1024 * 1024)
             checkCurrent(job, controller.signal)
@@ -311,24 +316,33 @@ export function createMetadataWorker({ db, config, storage, maintenance, logger 
             }
             await delay(intervalMs, undefined, { signal: controller.signal })
             checkCurrent(job, controller.signal)
+            logInfo({ gameId: game.id, candidateId: candidate.id, systemId: result.systemId }, 'metadata worker: downloading cover from ScreenScraper')
             const media = await abortable(downloadCover(config.screenscraper, { gameId: candidate.id, systemId: result.systemId,
               region, signal: controller.signal }), controller.signal)
-            if (media) {
+            if (!media) {
+              logInfo({ gameId: game.id, candidateId: candidate.id }, 'metadata worker: no cover media returned from ScreenScraper')
+            } else {
+              logInfo({ gameId: game.id, mimeType: media.type, size: media.bytesKnown ?? 'unknown' }, 'metadata worker: cover downloaded, staging to disk')
               stage = await storage.stage('covers', (async function* () { yield media.bytes })())
               const type = await validateCover(storage, stage)
+              logInfo({ gameId: game.id, validatedType: type }, 'metadata worker: cover staged and validated')
               if (type !== media.type) throw new CoverError('COVER_TYPE')
               reservation.check()
               controller.signal.throwIfAborted()
-              promoted = { file: await storage.promote(stage), type }
+              promoted = { file: await storage.promote(stage, { coverExtension: type.split('/').pop() }), type }
+              logInfo({ gameId: game.id, coverKey: promoted.file.key, extension: type.split('/').pop(), size: promoted.file.size }, 'metadata worker: cover promoted successfully')
             }
           } catch (error) {
             if (error instanceof ScreenScraperError || controller.signal.aborted) throw error
+            logError({ gameId: game.id, errorCode: error instanceof CoverError ? error.code : 'COVER_UNAVAILABLE', message: error.message }, 'metadata worker: cover download/promote failed')
             warning = error instanceof CoverError ? error.code : 'COVER_UNAVAILABLE'
             if (error instanceof CoverError && [401, 403, 423, 426, 429, 430, 431].includes(error.httpStatus)) {
               const cooldown = [430, 431].includes(error.httpStatus) ? 86400000 : Math.max(30000, error.retryAfterMs)
               db.prepare('UPDATE metadata_provider_state SET next_at = MAX(next_at, ?), paused_reason = ? WHERE id = 1 AND lease_token = ?').run(nowMs() + cooldown, [401, 403, 426].includes(error.httpStatus) ? 'auth_rejected' : null, job.lease_token)
             }
           }
+        } else if (region && !(manual ? request.fields.includes('cover') : replaceLocked || !metadataPreview(db, game.id, candidate)?.fields.cover.locked)) {
+          logInfo({ gameId: game.id }, 'metadata worker: skipping cover download (already locked by previous result)')
         }
         setPhase(job, 'apply')
         checkCurrent(job, controller.signal)

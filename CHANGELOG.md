@@ -14,12 +14,22 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 - CLI manajemen akun: `npm run account:list` untuk melihat akun di database SQLite (`username`, `role`, `created_at`, `id`) dengan filter opsional `--role` dan `--username`. Koneksi dibuka read-only sehingga aman dijalankan saat server aktif; hash password/kode pemulihan tidak ditampilkan.
 - Dokumentasi `doc/manajemen-akun-cli.md` berisi daftar perintah akun (lihat user, jadikan admin/user, reset password), varian Docker/Portainer, dan catatan keamanan.
 - `deploy/Dockerfile.backend` kini menyalin `scripts/list-accounts.mjs` sehingga perintah `account:list` tersedia di image backend.
+- Cover storage menggunakan ekstensi gambar asli (`.png`, `.jpeg`, `.webp`) sesuai MIME type, bukan hardcoded `.bin`. ROM dan BIOS tetap memakai `.bin`.
+- Direktori cover eksternal melalui env var `MAIN_DULU_EXTERNAL_COVERS_DIR`. Cover baru diupload atau auto-download dari ScreenScraper langsung tersimpan ke path eksternal yang dikonfigurasi.
+- Logging detail pada metadata worker untuk alur download cover: attempt, reserve quota, download, staging, validasi, promote sukses/gagal, dan skip (cover sudah locked). Log muncul di stdout Docker/Portainer terlepas dari konfigurasi Fastify logger.
 
 ### Diubah
+
+- `storage.mjs`: `pathFor()` sekarang menerima kedua pattern untuk covers (new image extension + legacy `.bin`), dan routing ke external directory jika `config.externalCoversDir` dikonfigurasi. `promote()` menerima opsi `{ coverExtension }` untuk menentukan ekstensi file di disk.
+- `repository.mjs`: publish dan update paths meneruskan `{ coverExtension: cover.type.split('/').pop() }` saat promote covers.
+- `maintenance.mjs`: `enqueueCleanup()` menerima kedua pattern untuk covers (new + legacy `.bin`).
+- `data-backup.mjs`: validasi backup menerima kedua pattern untuk cover references dan cleanup entries.
+- `storage.mjs`: fallback copy+delete saat `rename()` gagal dengan `EXDEV` (cross-device mounts).
 
 ### Diperbaiki
 
 - Tooltip tombol **Muat simpanan terakhir**, **Keluar game**, dan **Simpan & keluar** tidak lagi terpotong di tepi kanan player: label kini rata kanan seperti kontrol bawaan EmulatorJS di sisi yang sama.
+- Cover download/promote gagal dengan `EXDEV: cross-device link not permitted` ketika external covers dir berada di mount point berbeda dari Docker volume. Sekarang menggunakan copy+delete sebagai fallback setelah rename gagal.
 
 ### Verifikasi
 

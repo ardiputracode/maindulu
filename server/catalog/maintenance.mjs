@@ -3,9 +3,13 @@ import { statfs } from 'node:fs/promises'
 import { transaction } from '../auth/mutations.mjs'
 import { storageKeyPattern } from './storage.mjs'
 import { CatalogHttpError } from './errors.mjs'
+import { coverKeyPattern } from './storage.mjs'
 
 export function enqueueCleanup(db, folder, key) {
-  if (!['games', 'bios', 'covers'].includes(folder) || !storageKeyPattern.test(key)) throw new Error('Referensi cleanup katalog tidak valid.')
+  if (!['games', 'bios', 'covers'].includes(folder)) throw new Error('Referensi cleanup katalog tidak valid.')
+  // Covers must match either the new image extension pattern or the legacy .bin pattern.
+  const isCoverKey = folder === 'covers' && (coverKeyPattern.test(key) || storageKeyPattern.test(key))
+  if (!isCoverKey && !storageKeyPattern.test(key)) throw new Error('Referensi cleanup katalog tidak valid.')
   db.prepare('INSERT OR IGNORE INTO catalog_cleanup (folder, storage_key) VALUES (?, ?)').run(folder, key)
 }
 export function activeReference(db, folder, key) {
