@@ -346,12 +346,12 @@ test('disk-full after a partial staged write cleans the real staging file and pe
   for (const kind of ['games', 'bios']) await t.test(kind, async t => {
     const c = await setup(t)
     const stage = c.app.catalog.storage.stage
-    c.app.catalog.storage.stage = (folder, source) => stage(folder, (async function* () {
+    c.app.catalog.storage.stage = (folder, source, ...rest) => stage(folder, (async function* () {
       for await (const chunk of source) {
         yield chunk.subarray(0, 8) // Real file write precedes the injected failure.
         throw Object.assign(new Error('controlled mid-stream disk full'), { code: 'ENOSPC' })
       }
-    })())
+    })(), ...rest)
     const response = await c.upload(kind)
     assert.equal(response.statusCode, 507, response.body)
     assert.equal(response.json().code, 'STORAGE_FULL')

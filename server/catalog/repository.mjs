@@ -157,6 +157,7 @@ export function createCatalogRepository(db, storage, { check = () => {}, onPromo
       }
       db.prepare('UPDATE catalog_revision SET revision = revision + 1 WHERE id = 1').run()
       onPublished(kind, get(kind, id), { reattached: externalReattach })
+      console.log(JSON.stringify({ ts: Date.now(), upload: "published", id, kind, fileName: v.fileName, sha256: file.sha256 }))
       return get(kind, id)
     })
   }

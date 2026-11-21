@@ -21,6 +21,7 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 - Cover storage menggunakan ekstensi gambar asli (`.png`, `.jpeg`, `.webp`) sesuai MIME type, bukan hardcoded `.bin`. ROM dan BIOS tetap memakai `.bin`.
 - Direktori cover eksternal melalui env var `MAIN_DULU_EXTERNAL_COVERS_DIR`. Cover baru diupload atau auto-download dari ScreenScraper langsung tersimpan ke path eksternal yang dikonfigurasi.
 - Logging detail pada metadata worker untuk alur download cover: attempt, reserve quota, download, staging, validasi, promote sukses/gagal, dan skip (cover sudah locked). Log muncul di stdout Docker/Portainer terlepas dari konfigurasi Fastify logger.
+- Logging JSON satu baris ke stdout untuk operasi scan koleksi (`scan: started/disk-check/enumerating/enumerated/file/progress/completed/failed`) dan upload/patch game, BIOS, serta cover (`upload: start/staged/copy-start/copied/published/failed`) agar progres dan kegagalan terlihat di log Portainer/Docker.
 
 ### Diubah
 

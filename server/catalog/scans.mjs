@@ -15,6 +15,7 @@ const active = "status IN ('queued','running')"
 const statuses = ['added', 'already_registered', 'duplicate', 'conflict', 'restore_required', 'busy', 'invalid', 'unsafe', 'not_ready', 'failed', 'unsupported_multifile', 'missing', 'damaged', 'restored']
 const stop = message => Object.assign(new Error(message), { scanStop: true })
 const outcome = (status, message, existingId) => ({ status, message, existingId })
+function logScan(obj) { console.log(JSON.stringify({ ts: Date.now(), ...obj })) }
 
 // One sequential reader, 1 MiB hash buffers, at most 100,000 entries/job and
 // 10,000 persisted details. Database uniqueness and lease checks fence processes.
@@ -111,14 +112,17 @@ export function registerCatalogScans(api, config, security, storage) {
       return outcome('added', 'Terdaftar otomatis; berkas tetap di tempatnya.', row.id)
     }
     try {
+      const startTime = Date.now()
       check()
       for (const kind of kinds) entries.set(kind, storage.scanEntries(kind, scope.platforms))
       if ([...entries.values()].reduce((sum, rows) => sum + rows.length, 0) > 100000) throw new Error('Batas 100.000 entri terdaftar tercapai; persempit pilihan platform.')
       db.prepare("UPDATE catalog_scans SET status = 'running' WHERE id = ? AND token = ?").run(id, token)
+      logScan({ scan: "started", jobId: id, actorId: job.actor, scope })
       try {
         const bytes = await storage.physicalUsage(check)
         check()
         db.prepare('UPDATE catalog_scans SET physical_bytes = ?, usage_warning = ? WHERE id = ?').run(bytes, bytes > config.catalogQuotaBytes ? 'Volume sudah melewati kuota. Adopsi tidak menambah byte dan tidak menghapus berkas untuk mengatasinya.' : '', id)
+        logScan({ scan: "disk-check", physicalBytes: bytes, usageWarning: bytes > config.catalogQuotaBytes ? 'Volume sudah melewati kuota. Adopsi tidak menambah byte dan tidak menghapus berkas untuk mengatasinya.' : '' })
       } catch (error) {
         check()
         if (error.scanStop || error.errcode || error.code?.startsWith('SQLITE')) throw error
@@ -138,6 +142,7 @@ export function registerCatalogScans(api, config, security, storage) {
             record(id, token, `${kind === 'games' ? 'roms' : 'bios'}/${platform}`, outcome('unsafe', 'Folder hilang/tidak aman/tidak dapat dibaca; status file lama tidak diubah. Periksa mount/permission lalu scan ulang.'))
             continue
           }
+          logScan({ scan: "enumerating", kind, platform })
           for await (const entry of directory) {
             check()
             if (++discovered > 100000) throw new Error('Batas 100.000 item tercapai; persempit pilihan platform.')
@@ -152,7 +157,13 @@ export function registerCatalogScans(api, config, security, storage) {
               result = outcome(status, error.scanStatus || ['CATALOG_DUPLICATE', 'CATALOG_RESTORE_REQUIRED'].includes(error.code) ? error.message : status === 'unsafe' ? 'Symlink/junction, hard link, atau berkas khusus ditolak.' : status === 'not_ready' ? 'Berkas hilang/berubah saat verifikasi; ulangi setelah transfer selesai.' : 'Berkas tidak dapat dibaca; periksa permission dan storage.', error.id)
             }
             if (result.status !== 'added') record(id, token, currentPath, result)
+            else logScan({ scan: "file", path: currentPath, status: result.status, message: result.message })
+            if (discovered % 100 === 0) {
+              const stats = db.prepare('SELECT processed, added, skipped, problems FROM catalog_scans WHERE id = ?').get(id)
+              logScan({ scan: "progress", discovered, processed: stats.processed, added: stats.added, skipped: stats.skipped, problems: stats.problems })
+            }
           }
+          logScan({ scan: "enumerated", kind, platform, discovered })
           // Only successfully enumerated folders can produce missing entries.
           // Failed/too-new individual files retain their previous status.
           await safeDirectory(base)
@@ -170,17 +181,20 @@ export function registerCatalogScans(api, config, security, storage) {
           }
         }
       }
-      transaction(db, () => {
-        check()
-        reconcileAvailability(db, storage, observations, check, (path, result) => record(id, token, path, result, false, true))
-        check()
-        db.prepare("UPDATE catalog_scans SET status = 'completed', finished_at = ? WHERE id = ? AND token = ? AND status = 'running' AND lease_until > ?").run(Date.now(), id, token, Date.now())
-      })
-    } catch (error) {
-      const row = db.prepare('SELECT cancel FROM catalog_scans WHERE id = ?').get(id)
-      const status = row?.cancel ? 'cancelled' : closing || error.scanStop ? 'interrupted' : 'failed'
-      db.prepare(`UPDATE catalog_scans SET status = ?, finished_at = ?, message = ? WHERE id = ? AND token = ? AND ${active}`)
-        .run(status, Date.now(), row?.cancel ? 'Scan dibatalkan; entri sukses tetap disimpan.' : error.scanStop ? error.message : 'Scan dihentikan: sesi/izin berakhir, batas item, atau kegagalan storage/database. Periksa server lalu scan lagi.', id, token)
+        transaction(db, () => {
+          check()
+          reconcileAvailability(db, storage, observations, check, (path, result) => record(id, token, path, result, false, true))
+          check()
+          db.prepare("UPDATE catalog_scans SET status = 'completed', finished_at = ? WHERE id = ? AND token = ? AND status = 'running' AND lease_until > ?").run(Date.now(), id, token, Date.now())
+        })
+        const stats = db.prepare('SELECT discovered, processed, added, skipped, problems, metadata_queued FROM catalog_scans WHERE id = ?').get(id)
+        logScan({ scan: "completed", totalDiscovered: stats.discovered, added: stats.added, skipped: stats.skipped, problems: stats.problems, metadataQueued: stats.metadata_queued, durationMs: Date.now() - startTime })
+      } catch (error) {
+        const row = db.prepare('SELECT cancel FROM catalog_scans WHERE id = ?').get(id)
+        const status = row?.cancel ? 'cancelled' : closing || error.scanStop ? 'interrupted' : 'failed'
+        logScan({ scan: "failed", reason: status, message: row?.cancel ? 'Scan dibatalkan; entri sukses tetap disimpan.' : error.scanStop ? error.message : 'Scan dihentikan: sesi/izin berakhir, batas item, atau kegagalan storage/database. Periksa server lalu scan lagi.' })
+        db.prepare(`UPDATE catalog_scans SET status = ?, finished_at = ?, message = ? WHERE id = ? AND token = ? AND ${active}`)
+          .run(status, Date.now(), row?.cancel ? 'Scan dibatalkan; entri sukses tetap disimpan.' : error.scanStop ? error.message : 'Scan dihentikan: sesi/izin berakhir, batas item, atau kegagalan storage/database. Periksa server lalu scan lagi.', id, token)
     } finally { clearInterval(heartbeat) }
   }
   const guard = { onRequest: async request => { const session = security.protectAdmin(request); limit(`scan:${session.user_id}`, 240, 60000) } }

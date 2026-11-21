@@ -18,6 +18,7 @@ import { listMetadataJobs } from '../metadata/list.mjs'
 const overhead = 128 * 1024
 const oversized = () => new CatalogHttpError(413, 'UPLOAD_TOO_LARGE', 'Upload melebihi batas ukuran atau jumlah bagian yang diizinkan.')
 const notFound = () => new CatalogHttpError(404, 'CATALOG_NOT_FOUND', 'Entri katalog tidak ditemukan.')
+function logUpload(obj) { console.log(JSON.stringify({ ts: Date.now(), ...obj })) }
 
 export function registerCatalog(app, config, security, storage, metadataDependencies = {}) {
   const db = app.database
@@ -89,11 +90,11 @@ export function registerCatalog(app, config, security, storage, metadataDependen
         request.raw.destroy(failure)
       }
     }
+    let fields, rom, firmware, cover, primaryFile = null
     request.raw.once('aborted', onAbort)
     try {
       actor = security.requireAdmin(request).user_id
       if (patch && (!validId(request.params.id) || !repository.get(kind, request.params.id))) throw notFound()
-      let fields, rom, firmware, cover
       if (request.isMultipart()) {
         fields = Object.create(null)
         const files = new Set()
@@ -116,7 +117,7 @@ export function registerCatalog(app, config, security, storage, metadataDependen
                 if (size > catalogLimits[folder]) throw oversized()
                 yield chunk
               }
-            })())
+            })(), { fileName: part.filename })
             activeFile = null; stages.push(stage)
             if (part.file.truncated) throw oversized()
             const descriptor = { stage, name: part.filename }
@@ -130,6 +131,8 @@ export function registerCatalog(app, config, security, storage, metadataDependen
         fields = request.body
       }
       check()
+      primaryFile = kind === 'games' ? rom : (patch ? null : firmware)
+      if (!patch && primaryFile) logUpload({ upload: "start", kind, fileName: primaryFile.name, fileSize: primaryFile.stage.size })
       const v = metadataFields(kind, fields, patch)
       if (cover && v.removeCover) throw invalidCatalog('Pilih ganti atau hapus cover, bukan keduanya.')
       const coverValue = cover ? { stage: cover.stage, type: await validateCover(storage, cover.stage) } : v.removeCover ? null : undefined
@@ -144,7 +147,18 @@ export function registerCatalog(app, config, security, storage, metadataDependen
           scanMetadata: v.scanMetadata && getScreenScraperConfigStatus(config.screenscraper).ready })
       }
       return reply.code(patch || v.restoreId ? 200 : 201).send({ item: dto(kind, row) })
-    } catch (error) { failed = true; reply.header('Connection', 'close'); throw error }
+    } catch (error) {
+      let fileName = primaryFile?.name ?? fields?.fileName
+      if (!fileName && patch) {
+        try {
+          if (validId(request.params.id)) {
+            const existing = repository.get(kind, request.params.id)
+            if (existing) fileName = existing.original_name
+          }
+        } catch { /* ignore lookup failure during error handling */ }
+      }
+      logUpload({ upload: "failed", kind, fileName, reason: error.code ?? 'unknown', message: error.message })
+      failed = true; reply.header('Connection', 'close'); throw error }
     finally {
       request.raw.removeListener('data', count)
       request.raw.removeListener('aborted', onAbort)

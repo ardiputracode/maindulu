@@ -17,6 +17,7 @@ export const stagingKeyPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{
 // Map MIME type to file extension used on disk for covers.
 export const coverExtensionFor = Object.freeze({ 'image/png': 'png', 'image/jpeg': 'jpeg', 'image/webp': 'webp' })
 const unsafe = () => new Error('Storage katalog tidak aman; path, symlink/junction, hard link, atau berkas khusus ditolak.')
+function logUpload(obj) { console.log(JSON.stringify({ ts: Date.now(), ...obj })) }
 
 export async function safeDirectory(path) {
   const stat = await lstat(path)
@@ -230,6 +231,7 @@ export async function createCatalogStorage(config, db) {
     try {
       options.check?.()
       output = await open(target, 'wx', 0o664); owned = true
+      logUpload({ upload: "copy-start", kind, fileName: options.fileName, sourcePath: source })
       input = await openRegular(source)
       const buffer = Buffer.alloc(1024 * 1024)
       let n
@@ -243,6 +245,7 @@ export async function createCatalogStorage(config, db) {
       await input.close(); input = null
       await snapshot('ready')
       await syncDirectory(join(sourceRoot, platform))
+      logUpload({ upload: "copied", kind, fileName: options.fileName, size: value.size, sha256: value.sha256, targetPath: target })
       await unlink(source); await syncDirectory(join(root, 'uploads'))
       staged.delete(value)
       const result = Object.freeze({ kind, key, size: value.size, sha256: value.sha256 })
@@ -382,7 +385,7 @@ export async function createCatalogStorage(config, db) {
         db.exec('UPDATE catalog_capacity SET generation = generation + 1 WHERE id = 1')
       }
     },
-    async stage(kind, source) {
+    async stage(kind, source, options = {}) {
       if (!Object.hasOwn(catalogLimits, kind)) throw unsafe()
       const key = randomUUID() + '.tmp'
       const path = await pathFor('uploads', key)
@@ -408,6 +411,7 @@ export async function createCatalogStorage(config, db) {
       await file.close()
       const result = Object.freeze({ kind, key, size, sha256: hash.digest('hex') })
       staged.add(result)
+      if (options.fileName) logUpload({ upload: "staged", kind, fileName: options.fileName, size, sha256: result.sha256, path })
       return result
     },
     ownsStage(value, kind) { return staged.has(value) && value.kind === kind },
@@ -456,6 +460,7 @@ export async function createCatalogStorage(config, db) {
         try {
           // wx is the final no-clobber guard, including unmanaged host files.
           output = await open(target, 'wx', 0o600); owned = true
+          logUpload({ upload: "copy-start", kind: value.kind, fileName: options.fileName, sourcePath: source })
           input = await openRegular(source)
           const hash = createHash('sha256'), buffer = Buffer.alloc(1024 * 1024)
           let size = 0, n
@@ -468,6 +473,7 @@ export async function createCatalogStorage(config, db) {
           await output.sync(); await output.close(); output = null
           await input.close(); input = null
           await syncDirectory(join(root, value.kind === 'games' ? 'roms' : 'bios', platform))
+          logUpload({ upload: "copied", kind: value.kind, fileName: options.fileName, size: value.size, sha256: value.sha256, targetPath: target })
           db.prepare("UPDATE catalog_asset_files SET state = 'ready' WHERE storage_key = ?").run(key)
           await unlink(source); await syncDirectory(join(root, 'uploads'))
           staged.delete(value)
@@ -516,6 +522,7 @@ export async function createCatalogStorage(config, db) {
       }
       await syncDirectory(syncDir)
       await syncDirectory(join(root, 'uploads'))
+      logUpload({ upload: "copied", kind: value.kind, fileName: options?.fileName, targetPath: target })
       const result = Object.freeze({ kind: value.kind, key, size: value.size, sha256: value.sha256 })
       promoted.add(result)
       return result
