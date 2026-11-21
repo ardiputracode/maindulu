@@ -230,13 +230,20 @@ function Workspace({ backend, gate }: { backend: ReturnType<typeof useBackendSta
 
   useEffect(() => { setDrawer(false); main.current?.focus(); window.scrollTo({ top: 0 }); document.title = `${location.pathname.startsWith('/admin') ? 'Admin' : navigation.find(n => n.path === location.pathname)?.title || 'Ruang bermain'} — maindulu` }, [location.pathname])
   // Refresh favorites/history from API on navigation. Merge with live catalog data
-  // so stale titles stored in favorites/history never overwrite fresher metadata.
+  // to fill in missing fields (cover, revision) without overwriting fresher metadata
+  // fetched directly from /api/games/:id.
   useEffect(() => {
     if (location.pathname !== '/favorit' && location.pathname !== '/riwayat') return
     let active = true
     const mergeLive = (game: Game) => {
       const next = liveCatalogRef.current.find(g => g.id === game.id && g.consoleId === game.consoleId)
-      return next ? { ...game, title: next.title!, cover: next.cover, coverRevision: next.coverRevision } as Game : game
+      if (!next) return game
+      return {
+        ...game,
+        title: game.title ? game.title : next.title!,
+        cover: next.cover,
+        coverRevision: next.coverRevision,
+      } as Game
     }
     const refresh = async (path: '/api/me/favorites' | '/api/me/history', set: typeof setServerFavorites) => {
       try {

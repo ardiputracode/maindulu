@@ -350,6 +350,7 @@ export default function Player({ session, settings, favorite, onFavorite, onStar
     document.addEventListener('fullscreenchange', syncFullscreen)
     document.addEventListener('keydown', escapePseudoFullscreen)
     armTimeout('Player belum siap. Periksa koneksi ke server maindulu dan kelengkapan aset engine, lalu buka game kembali.')
+    frame.current?.contentWindow?.postMessage({ channel: 'maindulu:host', type: 'ping' }, location.origin)
     const warn = (e: BeforeUnloadEvent) => { if (started.current) e.preventDefault() }
     window.addEventListener('beforeunload', warn)
     return () => {

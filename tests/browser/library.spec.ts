@@ -265,6 +265,7 @@ test('saved server favorites and history recheck deleted metadata before asset d
   page.on('request', request => { if (new URL(request.url()).pathname === game.url) assetRequests.push(request.url()) })
   await page.goto(site.address + '/library')
   await page.getByRole('button', { name: 'Tambahkan Favorit server ke favorit' }).click()
+  await expect(page.getByRole('button', { name: 'Hapus Favorit server dari favorit', exact: true })).toBeVisible()
   await page.evaluate(game => localStorage.setItem('maindulu.history.v1', JSON.stringify([game])), game)
   expect((await page.request.patch(site.address + '/api/admin/games/' + game.id, { headers: site.headers, data: { title: 'Judul terbaru', license: 'Lisensi terbaru' } })).status()).toBe(200)
   await page.goto(site.address + '/favorit')

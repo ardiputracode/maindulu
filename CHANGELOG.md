@@ -33,6 +33,8 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 - Favorit/riwayat server tidak lagi menampilkan judul/cover lama setelah metadata auto-apply: live catalog merge diterapkan ke semua entri (termasuk local-only server-sourced), refresh live catalog tidak lagi digate `isAccountReady`, dan refetch saat navigasi `/favorit`/`/riwayat` digabung dengan data live catalog.
 - Test deploy diperbarui agar sesuai format compose saat ini (tag image backend dan jumlah mount `read_only`/`create_host_path` untuk covers).
 - Test `catalog-indexeddb-cache.spec.ts` memakai selector `getByRole('status', { name: 'Status cache ROM/BIOS' })` agar tidak bentrok dengan elemen `.player-asset-notice` lain.
+- Test B4 (`library.spec.ts`) menunggu tombol favorit berubah menjadi "Hapus ... dari favorit" sebelum navigasi, sehingga `POST /api/me/favorites` selesai dan tidak ter-abort oleh `page.goto`.
+- StrictMode player test (B3): fixture `player-strict.tsx` menambahkan prop wajib `registerBusyGuard` dan `onSavedExit`; host/bridge player menambah handshake `ping`/`ready` agar remount StrictMode tetap bisa melanjutkan saat pesan `ready` sudah terlewat.
 
 ### Ditambahkan
 

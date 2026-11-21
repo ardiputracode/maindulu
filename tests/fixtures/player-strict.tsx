@@ -13,8 +13,8 @@ export function mount(session: LaunchSession) {
   document.body.appendChild(target)
   root = createRoot(target)
   root.render(<StrictMode><Player session={session} settings={{ volume: 0, history: false, widescreen: false }} favorite={false}
-    onFavorite={() => {}} onStart={() => { starts++ }} onExit={() => root?.unmount()} onWidescreen={() => {}}
-    account={{ status: 'anonymous', user: null, registrationOpen: true }} registerExitGuard={() => {}} onRestart={() => {}} /></StrictMode>)
+    onFavorite={() => {}} onStart={() => { starts++ }} onExit={() => root?.unmount()} onSavedExit={() => root?.unmount()} onWidescreen={() => {}}
+    account={{ status: 'anonymous', user: null, registrationOpen: true }} registerExitGuard={() => {}} registerBusyGuard={() => {}} onRestart={() => {}} /></StrictMode>)
 }
 export function startCount() { return starts }
 export function unmount() { root?.unmount(); root = undefined }

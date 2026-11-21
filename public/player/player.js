@@ -427,7 +427,9 @@
   })
 
   window.addEventListener('message', async event => {
-    if (event.origin !== location.origin || event.source !== parent || event.data?.channel !== 'maindulu:host' || event.data.type !== 'configure' || configured) return
+    if (event.origin !== location.origin || event.source !== parent || event.data?.channel !== 'maindulu:host') return
+    if (event.data.type === 'ping' && !configured) { send('ready'); return }
+    if (event.data.type !== 'configure' || configured) return
     const config = event.data
     if (disposed || typeof config.sessionId !== 'string' || !/^[a-f0-9-]{36}$/.test(config.sessionId) || !allowedCores.includes(config.core) || !config.game || typeof config.game.id !== 'string') return
     sessionId = config.sessionId; configured = true
