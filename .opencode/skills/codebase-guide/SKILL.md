@@ -4,13 +4,13 @@ description: "Use when adding features, fixing bugs, refactoring, or navigating 
 ---
 
 # Codebase Guide
-> Last verified against commit `aad03b5` on 2026-11-10.
+> Last verified against commit `bde3d2c` on 2026-11-21.
 
 Resolve all repository evidence paths below from the repository root, not this skill's directory. Runtime URL paths are identified explicitly.
 
 ## Project Overview
 
-- Treat **maindulu** (`0.5.0`) as an Indonesian-language browser emulator frontend with an optional Node.js backend. Support local ROM/BIOS selection, manifest-listed server content, and backend catalogs; follow `package.json`, `src/App.tsx`, `src/components/SetupDialog.tsx`, and `server/app.mjs`.
+- Treat **maindulu** (`0.7.1`) as an Indonesian-language browser emulator frontend with an optional Node.js backend. Support local ROM/BIOS selection, manifest-listed server content, backend catalogs, account authentication, gate entry, and server save states; follow `package.json`, `src/App.tsx`, `src/components/SetupDialog.tsx`, `server/app.mjs`, and `server/auth/gate.mjs`.
 - Keep the React interface separate from the locally served EmulatorJS runtime. The shipped catalog advertises NES, SNES, GB/GBC, GBA, Mega Drive, and PS1; inspect `public/catalog/consoles.json`, `src/components/Player.tsx`, and `public/player/player.js`.
 
 ## Technology Stack
@@ -27,13 +27,15 @@ Read these as **declared dependency ranges**, not verified installed versions. D
 | Browser tests | `@playwright/test` `^1.64.1` |
 | Engine bundle transformation | `esbuild` `^0.25.0` |
 | Emulator runtime | EmulatorJS `4.2.3`, plain JavaScript bridge and packaged cores |
+| Image processing | `sharp` `^0.35.5` (backend cover resizing) |
+| ZIP handling | `yauzl` `3.4.0` (backend ROM archive inspection) |
 | Optional backend | `fastify` `^5.12.7`; built-in `node:sqlite` (`server/app.mjs`, `server/database.mjs`) |
 
 Use ESM as declared by `package.json`. Follow the Node.js 24+ requirement in `package.json:engines` and `server/index.mjs` for the backend and unit tests that import TypeScript directly (`tests/domain.test.mjs`, `tests/identity.test.mjs`). Retain the npm lockfile, `package-lock.json`.
 
 ## Project Structure
 
-- Keep application routing/state in `src/App.tsx`, bootstrap in `src/main.tsx`, and global styling in `src/styles.css`.
+- Keep application routing/state in `src/App.tsx`, bootstrap in `src/main.tsx`, and global styling in `src/styles.css`. Gate entry is handled before the workspace mounts (`src/lib/useGate.ts`, `src/components/GatePage.tsx`); account state lives in `src/lib/account.ts` and `src/lib/useAccount.ts`; cover/about pages are `src/components/About.tsx`.
 - Place reusable UI in `src/components/`; use `src/components/GameCard.tsx` and `src/components/Dialog.tsx` as examples. Place shared contracts/helpers in `src/lib/`; follow `src/lib/domain.ts` and `src/lib/identity.ts`.
 - Read content manifests in `public/catalog/`; examples are `public/catalog/consoles.json` and `public/catalog/games.json`.
 - Keep the independent iframe document/bridge in `public/player/index.html` and `public/player/player.js`. Engine output belongs under `public/vendor/emulatorjs/4.2.3/`, as defined by `scripts/vendor-engine.mjs`.
@@ -41,15 +43,16 @@ Use ESM as declared by `package.json`. Follow the Node.js 24+ requirement in `pa
 - Keep content/engine generators in `scripts/` (`scripts/build-demo.mjs`, `scripts/vendor-engine.mjs`) and engine provenance/source notices in `third_party/emulatorjs/README.md`.
 - Keep optional backend composition in `server/app.mjs`, startup in `server/index.mjs`, and SQLite migrations in `server/database.mjs`. Keep its private data separate from `public/` and `dist/`, including resolved symlink targets (`server/config.mjs:59–64`).
 - Separate Node unit tests in `tests/` from browser tests in `tests/browser/`; inspect `tests/domain.test.mjs` and `tests/browser/app.spec.ts`. Use `deploy/nginx.conf` as the static-hosting template. For container deployment, use `deploy/Dockerfile` and `deploy/docker-compose.yml`.
+- Preserve server save-state management: slot constants (`AUTOSAVE_SLOT=99`, `EXIT_SLOT=100`) in `src/lib/saves.ts`; state snapshot pipeline in `src/lib/state-pipeline.ts`; game-save encoding/decoding in `src/lib/game-save-format.ts` and client operations in `src/lib/game-saves.ts`. Host components are `ServerStates.tsx`, `SaveLibrary.tsx`, `SaveTransfer.tsx`; the bridge coordinates through `public/player/player.js` with a dedicated `.maindulu-exit.v1.state` IndexedDB key for guest exits.
 
 ## Architecture
 
-- Follow the single router bootstrap: `index.html` loads `src/main.tsx`, which mounts `RouterProvider` under `React.StrictMode` with a wildcard `App` route. Register the actual page routes and navigation in `src/App.tsx` (admin subroutes live in `src/components/AdminCatalog.tsx:65–72`).
-- Keep manifest catalog data, settings, favorites, history, setup selection, and active session in `App`. Pass data/callbacks to components; keep transient selection/loading UI local to `SetupDialog` and `Player` (`src/App.tsx`, `src/components/SetupDialog.tsx`, `src/components/Player.tsx`).
+- Follow the single router bootstrap: `index.html` loads `src/main.tsx`, which mounts `RouterProvider` under `React.StrictMode` with a wildcard `App` route. Register the actual page routes and navigation in `src/App.tsx` (admin subroutes live in `src/components/AdminCatalog.tsx:65–72`). The gate check runs first; when `gate.state.status === 'anonymous'`, render `GatePage` instead of the workspace (`src/lib/useGate.ts`, `src/components/GatePage.tsx`).
+- Keep manifest catalog data, settings, favorites, history, setup selection, and active session in `App`. Pass data/callbacks to components; keep transient selection/loading UI local to `SetupDialog` and `Player` (`src/App.tsx`, `src/components/SetupDialog.tsx`, `src/components/Player.tsx`). When the backend is online with accounts enabled, merge server favorites/history with local lists using live catalog metadata from `useLiveCatalog`; both are stored in `App` state (`src/lib/useAccount.ts`, `src/lib/account.ts`).
 - Separate domain transformations from React effects: `src/lib/domain.ts` defines records/parsers/validation; `src/lib/identity.ts` handles hashing/session IDs; `src/lib/storage.ts` provides the React persistence hook.
 - Preserve the static runtime boundary: `public/player/index.html` loads generated `public/player/asset-helpers.js` before `public/player/player.js`; `tsconfig.app.json` checks only `src`. Changes to `player.js` are not covered by the application's TypeScript check; edit helper source in `src/lib/player-bridge-assets.ts` and regenerate through `scripts/build-player-assets.mjs`.
 - Load the engine only after a configured player session: `public/player/player.js` sets the `EJS_*` globals before appending the local loader. Keep the explicit user start action (`EJS_startOnLoaded = false`); `tests/browser/app.spec.ts` exercises that action.
-- Treat browser metadata and emulator progress as different stores. `src/App.tsx` persists metadata through `useStored`; `public/player/player.js` selects browser save-state storage for guests and memory-only storage for account sessions. `tests/browser/app.spec.ts` verifies guest engine state round-trips; account RPC/synchronization lives in `src/components/Player.tsx`.
+- Treat browser metadata and emulator progress as different stores. `src/App.tsx` persists metadata through `useStored`; `public/player/player.js` selects browser save-state storage for guests and memory-only storage for account sessions. `tests/browser/app.spec.ts` verifies guest engine state round-trips; account RPC/synchronization lives in `src/components/Player.tsx`. For server save states, the bridge sends/receives snapshots through `ServerStates` (`src/components/ServerStates.tsx`, `src/lib/state-pipeline.ts`); guest exit writes a dedicated `.maindulu-exit.v1.state` IndexedDB key so native engine Save/Load buttons remain independent.
 - Preserve explicit backend discovery: `server/app.mjs` injects the HTML marker read by `src/lib/useBackendStatus.ts`; `VITE_BACKEND_ENABLED` is the build-time opt-in. An unconfigured static build does not probe the API; a failed configured backend remains unavailable, not silently disabled (`src/lib/backend.ts`, `src/lib/useBackendStatus.ts`).
 
 ## Important Modules
@@ -60,8 +63,13 @@ Use ESM as declared by `package.json`. Follow the Node.js 24+ requirement in `pa
 - Reuse `src/components/Dialog.tsx` for setup modal focus/scroll handling. Use `src/components/GameCard.tsx` for game actions and `src/components/ConsoleArt.tsx` for family-specific artwork; callers are in `src/App.tsx` and `src/components/SetupDialog.tsx`.
 - Use `src/lib/catalog.ts` for manifest/API parsing, paginated catalog snapshots, and built-in-ID precedence; use `src/lib/useLiveCatalog.ts` for metadata refresh without replacing saved identity. Follow `src/components/Library.tsx` and `src/components/SetupDialog.tsx`, not the saved-list parser, for catalog consumers.
 - For prepared backend ROM/BIOS, follow `src/lib/player-assets.ts` → `src/lib/server-assets.ts` → `src/lib/asset-cache.ts`. Keep descriptor validation in `src/lib/asset-cache-policy.ts` and shared host/iframe validation in `src/lib/player-bridge-assets.ts`; `src/lib/engine-assets.ts` preserves encoded URL basenames when constructing engine `File` inputs.
+- Gate entry uses `src/lib/gate.ts` (HTTP request to `/api/gate/*`) and `src/lib/useGate.ts` (React hook); server-side gate lives in `server/auth/gate.mjs`. Account state is managed by `src/lib/account.ts` (types, session parsing) and `src/lib/useAccount.ts` (hook with CSRF token refresh). Server save states use `src/lib/saves.ts` (types, metadata validation, slot constants), `src/lib/state-pipeline.ts` (snapshot pipeline), `src/lib/game-save-format.ts` (encoding/decoding), and `src/lib/game-saves.ts` (client operations); host components are `ServerStates.tsx`, `SaveLibrary.tsx`, `SaveTransfer.tsx`.
 
 ## Application Data Flow
+
+### Gate entry (when backend is online)
+
+1. `src/App.tsx` calls `useGate(backend.state)`; the hook polls `/api/gate/session`. When `gate.state.status === 'anonymous'`, render `GatePage`; when `'unavailable'`, show a retry card; when `'authenticated'`, mount `Workspace`. Login posts to `/api/gate/login` (`src/lib/useGate.ts`, `src/components/GatePage.tsx`, `server/auth/gate.mjs`).
 
 ### Read: initial catalog to visible games
 
@@ -81,6 +89,11 @@ Use ESM as declared by `package.json`. Follow the Node.js 24+ requirement in `pa
 7. On navigation away, clear the session in `src/App.tsx`; unmount the iframe/listeners in `src/components/Player.tsx`; revoke bridge-created blob URLs on `pagehide` in `public/player/player.js`.
 
 For server launches, reuse the same path without local hashing; built-in game ID/URL come from `public/catalog/games.json`, while uploaded game/BIOS metadata is re-fetched through `latestCatalogEntry` before launch (`src/components/SetupDialog.tsx:102–126`).
+
+### Save & exit flow (account sessions)
+
+1. When the user clicks Exit in `Player`, the component enters a multi-phase exit flow (`ExitPhase`: confirm → capturing → saving → syncing → error/partial/done). For account users, it saves state to server slots via `ServerStates.saveExit()`; for guests, it writes `.maindulu-exit.v1.state` to IndexedDB. The bridge validates metadata format version, core build hash, and slot range before accepting (`src/components/Player.tsx`, `src/components/ServerStates.tsx`, `public/player/player.js:31–56`).
+2. State snapshots flow through the pipeline in `src/lib/state-pipeline.ts`: `makeStateSnapshot` → `putStateSnapshot` (commit) → `findCommittedSnapshot`. The host holds a shared `OperationLock` to prevent concurrent writes; slot 99 is Autosave, slot 100 is Save & exit, slots 1–3 are manual (`src/lib/saves.ts`, `src/lib/operation-lock.ts`).
 
 ## Coding Conventions
 
@@ -116,9 +129,9 @@ For server launches, reuse the same path without local hashing; built-in game ID
 - Model pure-function tests after `tests/domain.test.mjs` and `tests/identity.test.mjs`: use `node:test`, strict assertions, direct source imports, and real catalog/demo fixtures. Cover malformed inputs, caps, hash parity, and unavailable/rejecting browser crypto.
 - Model browser scenarios after `tests/browser/app.spec.ts` and `tests/browser/http-lan.spec.ts`: locate UI by role/name, upload fixtures with `setInputFiles`, enter the iframe with `frameLocator`, and wait for a real canvas/cleared player status.
 - Reuse `launchDemo` from `tests/browser/helpers/player.ts` for the engine scenarios in `tests/browser/app.spec.ts`. Cover real start/history, local/server BIOS plumbing, save/load state, missing assets, and external-request blocking rather than substituting a mock player.
-- For prepared-asset changes, extend `tests/player-assets.test.mjs`, `tests/engine-assets.test.mjs`, `tests/server-assets.test.mjs`, and `tests/browser/catalog-indexeddb-cache.spec.ts`; preserve encoded filename/save identity, source validation, cancellation, and StrictMode lifecycle checks. For account-player changes, inspect `tests/browser/server-saves.spec.ts` and `tests/browser/server-game-saves.spec.ts` before changing ownership or pre-boot restore.
+- For prepared-asset changes, extend `tests/player-assets.test.mjs`, `tests/engine-assets.test.mjs`, `tests/server-assets.test.mjs`, and `tests/browser/catalog-indexeddb-cache.spec.ts`; preserve encoded filename/save identity, source validation, cancellation, and StrictMode lifecycle checks. For account-player changes, inspect `tests/browser/server-saves.spec.ts` and `tests/browser/server-game-saves.spec.ts` before changing ownership or pre-boot restore. For gate changes, read `tests/gate.test.mjs`, `tests/gate-client.test.mjs`, and `tests/browser/gate.spec.ts`; for save-state pipeline changes, inspect `src/lib/state-pipeline.ts` contracts and `tests/` definitions.
 - Keep LAN fallback coverage in `tests/browser/http-lan.spec.ts`: it uses a real non-loopback IPv4 origin, asserts unavailable secure-context APIs, and skips when no LAN interface exists.
-- Expect installed Microsoft Edge (`channel: 'msedge'`), one worker, and retained failure traces from `playwright.config.ts`. Production configuration inherits these settings and uses preview on port 4173 (`playwright.production.config.ts`).
+- Expect installed Microsoft Edge (`channel: 'msedge'`), one worker, and retained failure traces from `playwright.config.ts`. Production configuration inherits these settings and uses preview on port 4173 (`playwright.production.config.ts`). Gate browser tests use `playwright.gate.config.ts`; asset-cache spike/large configs are `playwright.asset-cache-spike.config.ts` and `playwright.asset-cache-large.config.ts`.
 - Account for browser-test writes: screenshots and traces are produced during execution; output directories are ignored by `.gitignore` (`tests/browser/app.spec.ts`, `playwright.config.ts`).
 - Treat the static Compose healthcheck as HTTP-root reachability only (`deploy/docker-compose.yml:20–25`). The dev/production browser configurations target Vite dev/preview servers; they do not verify container serving (`playwright.config.ts:19`, `playwright.production.config.ts:7`). Backend browser tests use a Node server on port 4174, not Docker (`playwright.backend.config.ts`).
 
@@ -137,14 +150,19 @@ Use the following project-defined npm-script invocations. Every mapping is defin
 | `npm run test:e2e` | `playwright test` |
 | `npm run test:e2e:production` | `playwright test --config=playwright.production.config.ts` |
 | `npm run test:e2e:backend` | `playwright test --config=playwright.backend.config.ts` |
+| `npm run test:e2e:gate` | `playwright test --config=playwright.gate.config.ts` |
+| `npm run test:e2e:asset-cache:spike` | `playwright test --config=playwright.asset-cache-spike.config.ts` |
+| `npm run test:e2e:asset-cache:large` | `playwright test --config=playwright.asset-cache-large.config.ts` |
 | `npm run build:demo` | `node scripts/build-demo.mjs` |
 | `npm run vendor:engine` | `node scripts/vendor-engine.mjs` |
+
+- Account and administration scripts (all require `.env`): `account:list`, `account:reset`, `account:role`; gate password hashing via `gate:hash`. Data management: `data:backup`, `data:verify`, `data:restore` (`scripts/data-backup.mjs`); catalog storage recovery via `storage:recover` (`scripts/recover-catalog.mjs`). Metadata import: `metadata:m0` (`scripts/screenscraper-m0.mjs`).
 
 - Use dev port 5173 and preview port 4173; both are strict ports (`vite.config.ts`). Both package scripts bind all interfaces; the LAN tests depend on reaching a network address (`package.json`, `tests/browser/http-lan.spec.ts`).
 - Build before production or backend browser verification: `playwright.production.config.ts` starts preview and `playwright.backend.config.ts` starts Node, but neither builds. Normal dev/build regenerate the application player helper, not the demo ROM or engine (`package.json`, `scripts/build-player-assets.mjs`).
 - Treat asset generators as explicit writing operations: `scripts/build-demo.mjs` writes the shipped demo ROM; `scripts/vendor-engine.mjs` verifies an archive hash, extracts selected assets with `tar`, writes patched sources/bundles, and records provenance. Vendoring accepts the archive through its first positional argument.
 - Keep TypeScript build metadata and application output out of source changes (`tsconfig.app.json`, `tsconfig.node.json`, `.gitignore`). Browser tests also produce artifacts; do not describe all verification commands as read-only.
-- Document environment variable names and purposes only: `CI` controls whether the dev/production Playwright configurations reuse an existing server (`playwright.config.ts:19`, `playwright.production.config.ts:7`); `MAIN_DULU_PORT` selects the published host port (`deploy/docker-compose.yml:18`); `VITE_ASSET_CACHE_DISABLED` disables the application asset-cache path at build time (`vite.config.ts`, `src/lib/asset-cache-rollout.ts`).
+- Document environment variable names and purposes only: `CI` controls whether the dev/production Playwright configurations reuse an existing server (`playwright.config.ts:19`, `playwright.production.config.ts:7`); `MAIN_DULU_PORT` selects the published host port (`deploy/docker-compose.yml:18`); `VITE_ASSET_CACHE_DISABLED` disables the application asset-cache path at build time (`vite.config.ts`, `src/lib/asset-cache-rollout.ts`); `GATE_USERNAME` and `GATE_PASSWORD_HASH` configure gate entry credentials in `.env`; `MAIN_DULU_DATA_DIR` sets the SQLite data directory for the backend.
 - Follow the two-stage static container build in `deploy/Dockerfile`: `node:24-alpine` runs `npm ci` and `npm run build`, then `nginx:1.29-alpine` receives the build output and `deploy/nginx.docker.conf`. These image tags are declared in `deploy/Dockerfile:5,24`.
 - Keep `public/` in the Docker build context, including the packaged engine. `.dockerignore` allowlists application/backend sources and selected scripts, including `scripts/build-player-assets.mjs`, but excludes tests and `third_party/`; the static Dockerfile copies that helper builder and uses the normal build without regenerating the demo or engine (`.dockerignore`, `deploy/Dockerfile:15–21`, `package.json:scripts`).
 - Use the `web` service definition in `deploy/docker-compose.yml`: its build context is the repository root, its container port is 80, and its restart policy is `unless-stopped`. Preserve the configured HTTP healthcheck interval of 30 seconds, timeout of 5 seconds, three retries, and start period of 5 seconds (`deploy/docker-compose.yml:9–25`).
@@ -200,6 +218,7 @@ Use the following project-defined npm-script invocations. Every mapping is defin
 - Do not assume subpath hosting works with the existing root-absolute runtime URLs. Preserve SPA fallback for pages but real 404s for asset directories (`src/App.tsx:100`, `public/player/player.js:247,363`, `deploy/nginx.conf:12–19`).
 - Do not treat the application asset cache as offline support or account-isolated save storage: enabled preparation still checks current metadata and HEAD before reading cached bytes; cache persistence failures may fall back to playable verified bytes, but source/integrity failures must block boot (`src/lib/player-assets.ts`, `src/lib/server-assets.ts:126–164,209–235`).
 - Do not hand-edit generated engine bundles or the demo binary. Their reproducible writers are `scripts/vendor-engine.mjs` and `scripts/build-demo.mjs`; inspect these before regeneration.
+- Gate sessions expire after `gateSessionDays` (configured in `.env`). When a session expires, `useGate` sets `expired: true` and the gate shows a re-login prompt; account requests must not log out the door on their own failure (`src/lib/useGate.ts`, `server/auth/gate.mjs`).
 - Do not use the historical passing-test counts in `RENCANA.md:89–90` as current validation evidence. Additional tests exist in `tests/identity.test.mjs` and `tests/browser/http-lan.spec.ts`; inspect definitions and report actual execution separately.
 
 ## Important Files Reference
@@ -228,6 +247,21 @@ Use the following project-defined npm-script invocations. Every mapping is defin
 | `deploy/docker-compose.yml` | Web service, repository-root build context, host-port selection, restart policy, healthcheck |
 | `deploy/nginx.docker.conf` | Container serving, gzip, location-level headers, asset 404s and SPA fallback |
 | `.dockerignore` | Docker build-context exclusions |
+| `src/lib/gate.ts` | Client gate HTTP request to `/api/gate/*` |
+| `src/lib/useGate.ts` | React hook for gate state (checking/authenticated/anonymous/unavailable) |
+| `src/components/GatePage.tsx` | Gate entry form with username/password, error/retry states |
+| `src/lib/account.ts` | Account types (`AccountUser`, `AccountSession`), session parsing, recovery result validation |
+| `src/lib/useAccount.ts` | React hook for account state with CSRF token refresh and abort controller management |
+| `src/components/About.tsx` | `/tentang` page: credits, licenses, external cover documentation |
+| `src/lib/saves.ts` | Server save types, metadata validation, slot constants (1–3 manual, 99 autosave, 100 exit) |
+| `src/lib/state-pipeline.ts` | State snapshot pipeline: make/put/find committed snapshots with revision tracking |
+| `src/lib/game-save-format.ts` | Game save encoding/decoding for SRAM/flash backup formats |
+| `src/lib/game-saves.ts` | Client-side game save operations, sync progress views |
+| `src/components/ServerStates.tsx` | Server save state UI: slot list, upload/download, quota management |
+| `src/components/SaveLibrary.tsx` | Save library component with quota display and slot management |
+| `src/components/SaveTransfer.tsx` | Save transfer dialog for migrating between slots/accounts |
+| `server/auth/gate.mjs` | Server-side gate authentication: HMAC-signed cookies, rate limiting, HKDF key derivation |
+| `src/lib/operation-lock.ts` | Shared OperationLock to prevent concurrent save-state writes across components |
 
 ## AI Agent Instructions
 
@@ -236,3 +270,5 @@ Use the following project-defined npm-script invocations. Every mapping is defin
 3. For identity/storage work, read the existing regression tests before changing record keys or hash behavior (`tests/domain.test.mjs`, `tests/identity.test.mjs`).
 4. For runtime independence claims, use the real-engine external-request-blocking scenarios as evidence, not only a visible start button (`tests/browser/app.spec.ts`, `tests/browser/http-lan.spec.ts`).
 5. For regeneration/deployment tasks, inspect script side effects and hosting behavior before running project commands (`scripts/vendor-engine.mjs`, `scripts/build-demo.mjs`, `deploy/nginx.conf`).
+6. For gate or account changes, review both client hooks (`src/lib/useGate.ts`, `src/lib/useAccount.ts`) and server endpoints (`server/auth/gate.mjs`, `server/auth/routes.mjs`); preserve CSRF token handling in `useAccount` and HMAC cookie signing in the gate module.
+7. For save-state changes, follow the pipeline through `src/lib/state-pipeline.ts` → `ServerStates.tsx` → bridge messages; verify slot constants match between client (`AUTOSAVE_SLOT=99`, `EXIT_SLOT=100`) and server (`server/saves.mjs`).

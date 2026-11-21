@@ -9,6 +9,10 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 ## [Belum dirilis]
 
+### Ditingkatkan
+
+- `opencode/skills/codebase-guide/SKILL.md` diperbarui: menambahkan dokumentasi pintu masuk (gate), autentikasi akun, manajemen save-state server, skrip npm baru (`account:list`, `gate:hash`, `data:*`, `test:e2e:gate`), dependensi `sharp`/`yauzl`, dan alur data lengkap; stamp diverifikasi terhadap `bde3d2c`.
+
 ### Ditambahkan
 
 - CLI manajemen akun: `npm run account:list` untuk melihat akun di database SQLite (`username`, `role`, `created_at`, `id`) dengan filter opsional `--role` dan `--username`. Koneksi dibuka read-only sehingga aman dijalankan saat server aktif; hash password/kode pemulihan tidak ditampilkan.
