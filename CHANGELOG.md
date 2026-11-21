@@ -22,6 +22,7 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 - Direktori cover eksternal melalui env var `MAIN_DULU_EXTERNAL_COVERS_DIR`. Cover baru diupload atau auto-download dari ScreenScraper langsung tersimpan ke path eksternal yang dikonfigurasi.
 - Logging detail pada metadata worker untuk alur download cover: attempt, reserve quota, download, staging, validasi, promote sukses/gagal, dan skip (cover sudah locked). Log muncul di stdout Docker/Portainer terlepas dari konfigurasi Fastify logger.
 - Logging JSON satu baris ke stdout untuk operasi scan koleksi (`scan: started/disk-check/enumerating/enumerated/file/progress/completed/failed`) dan upload/patch game, BIOS, serta cover (`upload: start/staged/copy-start/copied/published/failed`) agar progres dan kegagalan terlihat di log Portainer/Docker.
+- Dokumen rencana `doc/rencana-id-hash-game-bios.md` untuk migrasi ID katalog game/BIOS dari UUID v4 acak ke SHA-256 konten global, dengan keputusan desain terkunci (storage managed deterministik `<sha256>.bin`, `original_name` untuk tampilan/download, external/shared tidak rename, backup lama ditolak, cleanup orphan save/history/favorites, kolom `sha256` dihapus total).
 
 ### Diubah
 
