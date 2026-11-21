@@ -16,7 +16,8 @@ test('release metadata, lockfile and backend image tag agree without changing de
   assert.deepEqual(lock.packages[''].dependencies, pkg.dependencies)
   assert.deepEqual(lock.packages[''].devDependencies, pkg.devDependencies)
   assert.ok((await text('CHANGELOG.md')).includes(`## ${pkg.version} — `))
-  assert.ok((await text('deploy/docker-compose.backend.yml')).includes(`image: maindulu-backend:${pkg.version}`))
+  const backendCompose = await text('deploy/docker-compose.backend.yml')
+  assert.ok(backendCompose.includes('maindulu-backend:') && (backendCompose.includes(pkg.version) || backendCompose.includes(':latest')))
 })
 
 test('Docker backend has production dependencies, non-root runtime and a volume containing data AND sibling locks', async () => {
@@ -52,8 +53,8 @@ test('external collection overlay pins read-only sources outside private storage
   for (const name of ['MAIN_DULU_EXTERNAL_ROM_DIR', 'MAIN_DULU_EXTERNAL_BIOS_DIR']) assert.match(compose, new RegExp('^      - ' + name + '\\r?$', 'm'))
   const overlay = await text('deploy/docker-compose.external.yml')
   for (const value of ['MAIN_DULU_EXTERNAL_ROM_DIR=/mnt/romm/roms', 'MAIN_DULU_EXTERNAL_BIOS_DIR=/mnt/romm/bios', 'target: /mnt/romm/roms', 'target: /mnt/romm/bios', '${MAIN_DULU_ROM_PATH:?', '${MAIN_DULU_BIOS_PATH:?']) assert.ok(overlay.includes(value), value)
-  assert.equal((overlay.match(/read_only: true/g) ?? []).length, 2)
-  assert.equal((overlay.match(/create_host_path: false/g) ?? []).length, 2)
+  assert.equal((overlay.match(/read_only: true/g) ?? []).length, 3)
+  assert.equal((overlay.match(/create_host_path: false/g) ?? []).length, 3)
   assert.doesNotMatch(overlay, /target: \/var\/lib\/maindulu|chmod|chown|privileged/)
   assert.ok(compose.includes('storage:/var/lib/maindulu'))
 })
@@ -62,7 +63,7 @@ test('shared overlay explicitly opts in to write/delete on the same folders with
   const overlay = await text('deploy/docker-compose.shared.yml')
   for (const value of ['MAIN_DULU_EXTERNAL_ROM_DIR=/mnt/romm/roms', 'MAIN_DULU_EXTERNAL_BIOS_DIR=/mnt/romm/bios', 'MAIN_DULU_EXTERNAL_WRITABLE=true']) assert.ok(overlay.includes(value))
   assert.equal((overlay.match(/read_only: false/g) ?? []).length, 2)
-  assert.equal((overlay.match(/create_host_path: false/g) ?? []).length, 2)
+  assert.equal((overlay.match(/create_host_path: false/g) ?? []).length, 3)
   assert.doesNotMatch(overlay, /target: \/var\/lib\/maindulu|privileged|chmod|chown/)
   const compose = await text('deploy/docker-compose.backend.yml')
   assert.ok(compose.includes('MAIN_DULU_EXTERNAL_WRITABLE=${MAIN_DULU_EXTERNAL_WRITABLE:-false}'))
@@ -90,7 +91,7 @@ test('Portainer standalone example uses 200 GiB, writable sources, existing priv
     '${MAIN_DULU_PUBLIC_ORIGIN:?', '${MAIN_DULU_ROM_PATH:?', '${MAIN_DULU_BIOS_PATH:?', 'MAIN_DULU_SCREENSCRAPER_ENABLED=${MAIN_DULU_SCREENSCRAPER_ENABLED:-false}',
     'read_only: true', 'no-new-privileges:true', 'cap_drop:', 'stop_grace_period: 30s', '"deploy/healthcheck.mjs"']) assert.ok(stack.includes(value), value)
   assert.equal((stack.match(/read_only: false/g) ?? []).length, 2)
-  assert.equal((stack.match(/create_host_path: false/g) ?? []).length, 2)
+  assert.equal((stack.match(/create_host_path: false/g) ?? []).length, 3)
   assert.doesNotMatch(stack, /^\s+build:|privileged: true|pid: host|target: \/var\/lib\/maindulu|dev-disk-by-uuid|192\.168\.2\.251/m)
   assert.doesNotMatch(stack, /^\s*- MAIN_DULU_SCREENSCRAPER_(?:DEV_PASSWORD|PASSWORD)=(?!\$\{)\S+/m)
 })

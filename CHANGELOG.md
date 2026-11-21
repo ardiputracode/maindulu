@@ -30,6 +30,9 @@ saat rilis, promosikan isinya menjadi nomor versi dengan tanggal.
 
 - Tooltip tombol **Muat simpanan terakhir**, **Keluar game**, dan **Simpan & keluar** tidak lagi terpotong di tepi kanan player: label kini rata kanan seperti kontrol bawaan EmulatorJS di sisi yang sama.
 - Cover download/promote gagal dengan `EXDEV: cross-device link not permitted` ketika external covers dir berada di mount point berbeda dari Docker volume. Sekarang menggunakan copy+delete sebagai fallback setelah rename gagal.
+- Favorit/riwayat server tidak lagi menampilkan judul/cover lama setelah metadata auto-apply: live catalog merge diterapkan ke semua entri (termasuk local-only server-sourced), refresh live catalog tidak lagi digate `isAccountReady`, dan refetch saat navigasi `/favorit`/`/riwayat` digabung dengan data live catalog.
+- Test deploy diperbarui agar sesuai format compose saat ini (tag image backend dan jumlah mount `read_only`/`create_host_path` untuk covers).
+- Test `catalog-indexeddb-cache.spec.ts` memakai selector `getByRole('status', { name: 'Status cache ROM/BIOS' })` agar tidak bentrok dengan elemen `.player-asset-notice` lain.
 
 ### Ditambahkan
 

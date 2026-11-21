@@ -144,7 +144,7 @@ test('M3 production Player miss/hit/reopen: real NES, committed cache and zero e
   expect(cold.name).toBe('battery%20test.nes')
   expect(cold.files).toContain('firmware-test.bin')
   expect(cold.state.length).toBeGreaterThan(1000)
-  await expect(page.locator('.player-asset-notice')).toContainText('Tersimpan di perangkat')
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Tersimpan di perangkat')
   for (const entry of [game, bios]) expect(transfers.slice(since).filter(v => v.url === entry.url)).toEqual([
     { url: entry.url, method: 'HEAD', status: 200, bytes: 0 }, { url: entry.url, method: 'GET', status: 200, bytes: entry.size },
   ])
@@ -156,7 +156,7 @@ test('M3 production Player miss/hit/reopen: real NES, committed cache and zero e
   frame = await launch(page, game, bios.id)
   const warm = await snapshot(frame)
   for (const key of ['name', 'gameName', 'key', 'path'] as const) expect(warm[key]).toBe(cold[key])
-  await expect(page.locator('.player-asset-notice')).toContainText('Cache perangkat dipakai')
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Cache perangkat dipakai')
   expect(transfers.slice(warmSince)).toEqual([game, bios].map(entry => ({ url: entry.url, method: 'HEAD', status: 200, bytes: 0 })))
   await exit(page)
   // Application document restart, NOT a persistent-profile/browser-process restart (M5).
@@ -168,7 +168,7 @@ test('M3 production Player miss/hit/reopen: real NES, committed cache and zero e
   await page.evaluate(() => window.playerAssetTest.setCache(false))
   const offSince = transfers.length
   await launch(page, game, bios.id)
-  await expect(page.locator('.player-asset-notice')).toHaveCount(0)
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toHaveCount(0)
   for (const entry of [game, bios]) expect(transfers.slice(offSince).filter(v => v.url === entry.url && v.method === 'GET')).toEqual([{ url: entry.url, method: 'GET', status: 200, bytes: entry.size }])
   expect((await page.evaluate(() => window.playerAssetTest.stats())).count).toBe(2) // Off is not clear.
   expect(errors).toEqual([])
@@ -224,13 +224,13 @@ test('M3 local/server BIOS combinations and no BIOS keep local bytes out of the 
 test('M3 explicit toggle off retains URL path; budget fallback downloads once and never claims stored', async ({ page }) => {
   await open(page, false)
   await launch(page)
-  await expect(page.locator('.player-asset-notice')).toHaveCount(0)
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toHaveCount(0)
   expect((await page.evaluate(() => window.playerAssetTest.stats())).count).toBe(0)
   await exit(page)
   await page.evaluate(() => window.playerAssetTest.setCache(true, 1))
   const since = transfers.length
   await launch(page)
-  await expect(page.locator('.player-asset-notice')).toContainText('Dimainkan tanpa disimpan')
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Dimainkan tanpa disimpan')
   expect(transfers.slice(since).filter(v => v.method === 'GET')).toEqual([{ url: game.url, method: 'GET', status: 200, bytes: game.size }])
   expect((await page.evaluate(() => window.playerAssetTest.stats())).count).toBe(0)
 })
@@ -442,7 +442,7 @@ test('M3 transfer with continuing bytes exceeds 90 seconds without the handshake
   }
   await expect(page.frameLocator('iframe').getByRole('button', { name: 'Mulai bermain', exact: true })).toBeVisible()
   await expect(page.locator('.player-error')).toHaveCount(0)
-  await expect(page.locator('.player-asset-notice')).toContainText('Tersimpan di perangkat')
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toContainText('Tersimpan di perangkat')
 })
 
 for (const mode of ['abort', 'quota'] as const) {
@@ -504,7 +504,7 @@ test('M4 clear via settings in another tab leaves live NES, SRAM, state, account
   await expect(toggle).toBeChecked(); await toggle.click(); await expect(toggle).not.toBeChecked()
   const next = await launch(page)
   expect((await snapshot(next)).progress[2]).toBe(1)
-  await expect(page.locator('.player-asset-notice')).toHaveCount(0)
+  await expect(page.getByRole('status', { name: 'Status cache ROM/BIOS' })).toHaveCount(0)
   await page.addScriptTag({ content: bundle })
   expect((await page.evaluate(() => window.playerAssetTest.stats())).count).toBe(0)
 })

@@ -19,7 +19,8 @@ import AccountDialog from './components/AccountDialog'
 import AdminCatalog from './components/AdminCatalog'
 import Library from './components/Library'
 import AssetCacheSettings from './components/AssetCacheSettings'
-import { readManifestGames } from './lib/catalog'
+import { catalogGame, readManifestGames } from './lib/catalog'
+import type { CatalogEntry } from './lib/catalog'
 import { refreshSavedMetadata, useLiveCatalog } from './lib/useLiveCatalog'
 import { useMetadataTasks } from './lib/useMetadataTasks'
 import { useGate } from './lib/useGate'
@@ -75,24 +76,48 @@ function Workspace({ backend, gate }: { backend: ReturnType<typeof useBackendSta
   const historyLoaded = useRef(false)
   const metadataEnabled = backend.state.status === 'online' && backend.state.health.capabilities.metadata === true && backend.state.health.capabilities.gameCatalog === true
   const metadataTasks = useMetadataTasks(account.state.status === 'authenticated' && account.state.user?.role === 'admin' ? account.state.user.id : null, metadataEnabled)
-  const liveCatalog = useLiveCatalog(metadataEnabled, fresh => {
+  const liveCatalog = useLiveCatalog(metadataEnabled, async fresh => {
     setLocalFavorites(previous => refreshSavedMetadata(previous, fresh))
     setLocalHistory(previous => refreshSavedMetadata(previous, fresh))
+    const byId = new Map(fresh.map((g: Game) => [g.id, g]))
+    const merge = (game: Game) => {
+      const next = byId.get(game.id)
+      if (!next || next.consoleId !== game.consoleId) return game
+      return { ...game, title: next.title!, cover: next.cover, coverRevision: next.coverRevision } as Game
+    }
+    setServerFavorites(prev => prev.map(merge))
+    setServerHistory(prev => prev.map(merge))
   })
+  const liveCatalogRef = useRef(liveCatalog.games)
+  liveCatalogRef.current = liveCatalog.games
 
   const isAccountReady = account.state.status === 'authenticated' && !!account.state.user && backend.state.status === 'online' && backend.state.health.capabilities.accounts === true
 
   const favorites = useMemo(() => {
     const serverIds = new Set(serverFavorites.map(g => g.id))
     const localOnly = localFavorites.filter(g => g.source !== 'server' || !serverIds.has(g.id))
-    return [...serverFavorites, ...localOnly]
-  }, [serverFavorites, localFavorites])
+    // Merge fresh catalog data (title/cover) synchronously from the live poll.
+    // This keeps favorites/history fresh even when server-stored titles are stale.
+    const catGames = new Map(liveCatalog.games.map((g: Game) => [g.id, g]))
+    const merge = (game: Game) => {
+      const next = catGames.get(game.id)
+      if (!next || next.consoleId !== game.consoleId) return game
+      return { ...game, title: next.title!, cover: next.cover, coverRevision: next.coverRevision } as Game
+    }
+    return [...serverFavorites.map(merge), ...localOnly.map(merge)]
+  }, [serverFavorites, localFavorites, liveCatalog.games])
 
   const history = useMemo(() => {
     const serverIds = new Set(serverHistory.map(g => g.id))
     const localOnly = localHistory.filter(g => g.source !== 'server' || !serverIds.has(g.id))
-    return [...serverHistory, ...localOnly]
-  }, [serverHistory, localHistory])
+    const catGames = new Map(liveCatalog.games.map((g: Game) => [g.id, g]))
+    const merge = (game: Game) => {
+      const next = catGames.get(game.id)
+      if (!next || next.consoleId !== game.consoleId) return game
+      return { ...game, title: next.title!, cover: next.cover, coverRevision: next.coverRevision } as Game
+    }
+    return [...serverHistory.map(merge), ...localOnly.map(merge)]
+  }, [serverHistory, localHistory, liveCatalog.games])
 
   async function csrfToken(): Promise<string> {
     try {
@@ -204,6 +229,42 @@ function Workspace({ backend, gate }: { backend: ReturnType<typeof useBackendSta
   }, [catalogRetry])
 
   useEffect(() => { setDrawer(false); main.current?.focus(); window.scrollTo({ top: 0 }); document.title = `${location.pathname.startsWith('/admin') ? 'Admin' : navigation.find(n => n.path === location.pathname)?.title || 'Ruang bermain'} — maindulu` }, [location.pathname])
+  // Refresh favorites/history from API on navigation. Merge with live catalog data
+  // so stale titles stored in favorites/history never overwrite fresher metadata.
+  useEffect(() => {
+    if (location.pathname !== '/favorit' && location.pathname !== '/riwayat') return
+    let active = true
+    const mergeLive = (game: Game) => {
+      const next = liveCatalogRef.current.find(g => g.id === game.id && g.consoleId === game.consoleId)
+      return next ? { ...game, title: next.title!, cover: next.cover, coverRevision: next.coverRevision } as Game : game
+    }
+    const refresh = async (path: '/api/me/favorites' | '/api/me/history', set: typeof setServerFavorites) => {
+      try {
+        const res = await fetch(path, { credentials: 'same-origin' })
+        if (!res.ok || !active) return
+        const data = await res.json()
+        const key = path === '/api/me/favorites' ? 'favorites' : 'history'
+        const list = Array.isArray(data[key]) ? data[key].map((g: Game) => ({ ...g, source: 'server' as const })) : []
+        const refreshed = await Promise.all(list.map(async (fav: Game) => {
+          try {
+            const catRes = await fetch(`/api/games/${encodeURIComponent(fav.id)}`, { credentials: 'same-origin' })
+            if (catRes.ok) {
+              const catData = await catRes.json()
+              if (catData.item) {
+                const freshGame = catalogGame(catData.item as CatalogEntry)
+                if (freshGame.consoleId === fav.consoleId) return mergeLive({ ...fav, title: freshGame.title!, cover: freshGame.cover, coverRevision: freshGame.coverRevision } as Game)
+              }
+            }
+          } catch { /* ignore */ }
+          return mergeLive(fav)
+        }))
+        if (active) set(refreshed.map(mergeLive))
+      } catch { /* ignore */ }
+    }
+    void refresh('/api/me/favorites', setServerFavorites)
+    void refresh('/api/me/history', setServerHistory)
+    return () => { active = false }
+  }, [location.pathname])
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 3200); return () => clearTimeout(timer) }, [toast])
   useEffect(() => {
     const media = matchMedia('(max-width: 760px)')
